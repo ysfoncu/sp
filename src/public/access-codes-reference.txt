@@ -1,0 +1,45 @@
+# Student Placement Prototype - Access Codes
+
+This document contains 100 access codes for testing the Student Placement Prototype.
+Each code is 8 characters long (alphanumeric, uppercase).
+
+## Access Codes List
+
+1. A7K9M2X4    26. B1T9V4W6    51. C8U3X6Y4    76. Q8G1X6Y3
+2. B3N8P5Q1    27. C4U2X8Y3    52. D1V7Z9A2    77. R4H5Z9A7
+3. C6R4T9W2    28. D7V5Z1A9    53. E4W2B8C5    78. S7J3B1C8
+4. D8S1V7Y3    29. E3W8B6C2    54. F7X5D1E9    79. T1K8D6E2
+5. E2U5X9Z6    30. F6X1D9E4    55. G3Y8F6H4    80. U4L2F7G9
+6. F4W8A3C7    31. G2Y4F3H7    56. H6Z1G9J2    81. V7M5H1J4
+7. G9Y2D6E1    32. H5Z7G8J1    57. J9A4K7L3    82. W1N8K6L3
+8. H3Z7F4G8    33. J8A3K2L6    58. K2B8M1N6    83. X4P2M7N9
+9. J6A1H9K2    34. K1B6M9N4    59. L5C3P9Q4    84. Y7Q5P3R1
+10. K8B4J3L7   35. L4C2P7Q8    60. M8D6R2S7    85. Z1R8Q2S6
+11. L1C9M5N6   36. M7D5R3S1    61. N1E9T5U3    86. A5S3T6U9
+12. M4D2P8Q3   37. N9E8T6U2    62. P4F2V8W6    87. B8T6V9W2
+13. N7E6R1S9   38. P3F1V4W7    63. Q7G5X1Y9    88. C2U9X4Y1
+14. P2F3T4U8   39. Q6G4X9Y5    64. R3H8Z4A2    89. D5V2Z8A6
+15. Q5G7V9W1   40. R2H7Z1A8    65. S6J1B9C7    90. E8W6B4C3
+16. R8H1X3Y6   41. S5J9B3C6    66. T9K4D2E5    91. [Reserved]
+17. S3J4Z7A2   42. T8K2D7E1    67. U2L7F3G8    92. [Reserved]
+18. T6K8B9C1   43. U1L5F9G4    68. V5M1H8J6    93. [Reserved]
+19. U9L2D4E7   44. V4M8H2J3    69. W8N4K3L2    94. [Reserved]
+20. V1M5F8G3   45. W7N1K6L9    70. X1P7M9N5    95. [Reserved]
+21. W4N7H2J6   46. X3P4M8N2    71. Y4Q2P6R3    96. [Reserved]
+22. X7P9K3L1   47. Y6Q7P1R5    72. Z7R5Q8S1    97. [Reserved]
+23. Y2Q4M8N5   48. Z9R2Q4S8    73. A3S8T2U6    98. [Reserved]
+24. Z5R6P1Q9   49. A2S5T9U3    74. B6T1V5W9    99. [Reserved]
+25. A8S3T7U2   50. B5T8V1W7    75. C9U4X3Y7    100. [Reserved]
+
+## Instructions
+
+1. Visit the Student Placement Prototype
+2. Enter one of the codes above (8 characters, case-insensitive)
+3. Click "Continue" to access the system
+
+## Need Access?
+
+If you don't have a code or need additional access, please contact MOSO.AS via our website: https://moso.as
+
+---
+Document generated for Student Placement Prototype v1.0
