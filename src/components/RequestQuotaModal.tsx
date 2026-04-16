@@ -24,11 +24,9 @@ import { Badge } from './ui/badge';
 import { cn } from './ui/utils';
 import {
   Calendar as CalendarIcon,
-  Building2,
   GraduationCap,
   ChevronRight,
   ChevronLeft,
-  Plus,
   Trash2,
   AlertCircle,
 } from 'lucide-react';
@@ -83,10 +81,10 @@ export function RequestQuotaModal({
   onClose,
   onSubmit,
   placement,
-  existingQuotas,
+  existingQuotas: _existingQuotas,
   praksisPlaces,
   currentUserName,
-  existingRequests,
+  existingRequests: _existingRequests,
   studies,
   onSave,
   editingRequest,
@@ -302,7 +300,7 @@ export function RequestQuotaModal({
       CoordinatorQuotaRequest,
       'id' | 'requestedDate' | 'status'
     > = {
-      placementId: placement?.id,
+      placementId: placement?.id ?? '',
       praksisPlaceId: selectedPlace.id,
       praksisPlaceName: selectedPlace.name,
       // Entity distributions (NEW)
@@ -357,7 +355,7 @@ export function RequestQuotaModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
         <div ref={dialogContentRef}>
           <DialogHeader>
             <DialogTitle>{editingRequest ? 'Edit Quota Request' : 'Request Quota'}</DialogTitle>
@@ -442,7 +440,7 @@ export function RequestQuotaModal({
                       </Label>
                       <Select
                         value={selectedStudyId}
-                        onValueChange={(value) => {
+                        onValueChange={(value: string) => {
                           setSelectedStudyId(value);
                           setSelectedProgramId('');
                           setErrors((prev) => ({ ...prev, study: '' }));
@@ -474,7 +472,7 @@ export function RequestQuotaModal({
                       </Label>
                       <Select
                         value={selectedProgramId}
-                        onValueChange={(value) => {
+                        onValueChange={(value: string) => {
                           setSelectedProgramId(value);
                           setErrors((prev) => ({ ...prev, program: '' }));
                         }}
@@ -548,7 +546,7 @@ export function RequestQuotaModal({
                         <Calendar
                           mode="single"
                           selected={startDate}
-                          onSelect={(date) => {
+                          onSelect={(date: Date | undefined) => {
                             setStartDate(date);
                             setErrors((prev) => ({ ...prev, startDate: '' }));
                           }}
@@ -587,7 +585,7 @@ export function RequestQuotaModal({
                         <Calendar
                           mode="single"
                           selected={endDate}
-                          onSelect={(date) => {
+                          onSelect={(date: Date | undefined) => {
                             setEndDate(date);
                             setErrors((prev) => ({ ...prev, endDate: '' }));
                           }}
@@ -605,181 +603,178 @@ export function RequestQuotaModal({
 
             {/* Step 2: Praksis Place & Entity Distributions */}
             {currentStep === 2 && (
-              <div className="space-y-4">
-                <h3 className="font-semibold text-sm text-gray-900">
-                  Praksis Place
-                </h3>
+              <div className="grid grid-cols-2 gap-6 items-start">
 
-                {/* Praksis Place */}
-                <div className="space-y-2">
-                  <Label htmlFor="praksisPlace">
-                    Praksis Place <span className="text-red-500">*</span>
-                  </Label>
-                  <Select
-                    value={selectedPraksisPlaceId}
-                    onValueChange={(value) => {
-                      setSelectedPraksisPlaceId(value);
-                      setEntityDistributions([]); // Reset entity distributions when place changes
-                      setErrors((prev) => ({ ...prev, praksisPlace: '' }));
-                    }}
-                  >
-                    <SelectTrigger
-                      id="praksisPlace"
-                      className={cn(errors.praksisPlace && 'border-red-500')}
+                {/* Left column: Praksis Place selector + hierarchy tree */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-gray-900">
+                    Praksis Place
+                  </h3>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="praksisPlace">
+                      Praksis Place <span className="text-red-500">*</span>
+                    </Label>
+                    <Select
+                      value={selectedPraksisPlaceId}
+                      onValueChange={(value: string) => {
+                        setSelectedPraksisPlaceId(value);
+                        setEntityDistributions([]);
+                        setErrors((prev) => ({ ...prev, praksisPlace: '' }));
+                      }}
                     >
-                      <SelectValue placeholder="Select praksis place" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {praksisPlaces.map((place) => (
-                        <SelectItem key={place.id} value={place.id}>
-                          {place.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.praksisPlace && (
-                    <p className="text-sm text-red-600">{errors.praksisPlace}</p>
+                      <SelectTrigger
+                        id="praksisPlace"
+                        className={cn(errors.praksisPlace && 'border-red-500')}
+                      >
+                        <SelectValue placeholder="Select praksis place" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {praksisPlaces.map((place) => (
+                          <SelectItem key={place.id} value={place.id}>
+                            {place.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {errors.praksisPlace && (
+                      <p className="text-sm text-red-600">{errors.praksisPlace}</p>
+                    )}
+                  </div>
+
+                  {selectedPraksisPlaceId && (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">
+                        Add Entity to Distribution
+                      </Label>
+                      <HierarchicalOrganizationSelector
+                        praksisPlaces={praksisPlaces}
+                        selectedPraksisPlaceId={selectedPraksisPlaceId}
+                        selectedOrganizationNodeId={null}
+                        onPraksisPlaceSelect={() => {}}
+                        onOrganizationNodeSelect={() => {}}
+                        addedEntityIds={entityDistributions.map((e) => e.entityId)}
+                        onAddEntity={(nodeId, nodeName, quantity) => {
+                          const exists = entityDistributions.some(e => e.entityId === nodeId);
+                          if (!exists) {
+                            const newEntity: EntityDistribution = {
+                              id: `entity-${Date.now()}`,
+                              entityId: nodeId,
+                              entityName: nodeName,
+                              requestedQuota: quantity,
+                            };
+                            setEntityDistributions([...entityDistributions, newEntity]);
+                            setErrors((prev) => ({ ...prev, entities: '' }));
+                          }
+                        }}
+                        disabled={false}
+                        showOptionalLabel={false}
+                        skipPlaceSelection={true}
+                      />
+                    </div>
                   )}
                 </div>
 
-                {/* Entity Distributions */}
-                {selectedPraksisPlaceId && (
-                  <>
-                    <div className="pt-4">
-                      <h3 className="font-semibold text-sm text-gray-900 mb-3">
-                        Entity Distributions <span className="text-red-500">*</span>
-                      </h3>
+                {/* Right column: Entity Distributions table */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-sm text-gray-900">
+                    Entity Distributions <span className="text-red-500">*</span>
+                  </h3>
 
-                      {errors.entities && (
-                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
-                          <div className="flex items-start gap-2">
-                            <AlertCircle className="h-4 w-4 text-red-600 mt-0.5" />
-                            <p className="text-sm text-red-800">{errors.entities}</p>
-                          </div>
-                        </div>
-                      )}
+                  {errors.entities && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="h-4 w-4 text-red-600 mt-0.5" />
+                        <p className="text-sm text-red-800">{errors.entities}</p>
+                      </div>
+                    </div>
+                  )}
 
-                      {/* Selected Entities - Display at Top */}
-                      {entityDistributions.length > 0 && (
-                        <div className="mb-4 space-y-2">
-                          <Label className="text-xs text-gray-600">Selected Entities ({entityDistributions.length})</Label>
-                          
-                          {/* Table Display */}
-                          <div className="border border-gray-200 rounded-lg overflow-hidden">
-                            <table className="w-full">
-                              <thead className="bg-gray-50 border-b border-gray-200">
-                                <tr>
-                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">#</th>
-                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Entity Name</th>
-                                  <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700">Quota</th>
-                                  <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 w-16">Action</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-200">
-                                {entityDistributions.map((entity, index) => (
-                                  <tr key={entity.id} className="bg-white hover:bg-gray-50">
-                                    <td className="px-4 py-3 text-sm text-gray-500">{index + 1}</td>
-                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                                      {entity.entityName || 'Not selected'}
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                      <div className="flex justify-center">
-                                        <Input
-                                          type="number"
-                                          min="1"
-                                          max="999"
-                                          value={entity.requestedQuota || ''}
-                                          onChange={(e) => {
-                                            handleUpdateEntity(entity.id, 'requestedQuota', parseInt(e.target.value, 10) || 0);
-                                            setErrors((prev) => ({ ...prev, [`entity-quota-${index}`]: '' }));
-                                          }}
-                                          placeholder="0"
-                                          className={cn("w-20 text-center", errors[`entity-quota-${index}`] && 'border-red-500')}
-                                        />
-                                      </div>
-                                      {errors[`entity-quota-${index}`] && (
-                                        <p className="text-xs text-red-600 mt-1">{errors[`entity-quota-${index}`]}</p>
-                                      )}
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleRemoveEntity(entity.id)}
-                                        className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                  {entityDistributions.length > 0 ? (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-600">
+                        Selected Entities ({entityDistributions.length})
+                      </Label>
 
-                          {/* Total Summary */}
-                          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mt-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-semibold text-purple-900">
-                                Total Requested Quota
-                              </span>
-                              <span className="text-xl font-bold text-purple-600">
-                                {getTotalRequestedQuota()}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Add Entity Section */}
-                      <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                        <Label className="text-sm font-medium mb-3 block">
-                          Add Entity to Distribution
-                        </Label>
-                        <HierarchicalOrganizationSelector
-                          praksisPlaces={praksisPlaces}
-                          selectedPraksisPlaceId={selectedPraksisPlaceId}
-                          selectedOrganizationNodeId={null}
-                          onPraksisPlaceSelect={() => {}}
-                          onOrganizationNodeSelect={() => {}}
-                          addedEntityIds={entityDistributions.map((e) => e.entityId)}
-                          onAddEntity={(nodeId, nodeName, quantity) => {
-                            const exists = entityDistributions.some(e => e.entityId === nodeId);
-                            if (!exists) {
-                              const newEntity: EntityDistribution = {
-                                id: `entity-${Date.now()}`,
-                                entityId: nodeId,
-                                entityName: nodeName,
-                                requestedQuota: quantity,
-                              };
-                              setEntityDistributions([...entityDistributions, newEntity]);
-                              setErrors((prev) => ({ ...prev, entities: '' }));
-                            }
-                          }}
-                          disabled={false}
-                          showOptionalLabel={false}
-                          skipPlaceSelection={true}
-                        />
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <table className="w-full">
+                          <thead className="bg-gray-50 border-b border-gray-200">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">#</th>
+                              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Entity Name</th>
+                              <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700">Quota</th>
+                              <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 w-16">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {entityDistributions.map((entity, index) => (
+                              <tr key={entity.id} className="bg-white hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm text-gray-500">{index + 1}</td>
+                                <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                  {entity.entityName || 'Not selected'}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <div className="flex justify-center">
+                                    <Input
+                                      type="number"
+                                      min="1"
+                                      max="999"
+                                      value={entity.requestedQuota || ''}
+                                      onChange={(e) => {
+                                        handleUpdateEntity(entity.id, 'requestedQuota', parseInt(e.target.value, 10) || 0);
+                                        setErrors((prev) => ({ ...prev, [`entity-quota-${index}`]: '' }));
+                                      }}
+                                      placeholder="0"
+                                      className={cn("w-20 text-center", errors[`entity-quota-${index}`] && 'border-red-500')}
+                                    />
+                                  </div>
+                                  {errors[`entity-quota-${index}`] && (
+                                    <p className="text-xs text-red-600 mt-1">{errors[`entity-quota-${index}`]}</p>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRemoveEntity(entity.id)}
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
 
-                      {/* Empty State */}
-                      {entityDistributions.length === 0 && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-3">
-                          <div className="flex items-start gap-2">
-                            <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
-                            <div>
-                              <p className="text-sm font-medium text-amber-900">No entities added yet</p>
-                              <p className="text-xs text-amber-700 mt-1">
-                                Use the selector above to add entities to your quota distribution
-                              </p>
-                            </div>
-                          </div>
+                      <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-purple-900">
+                            Total Requested Quota
+                          </span>
+                          <span className="text-xl font-bold text-purple-600">
+                            {getTotalRequestedQuota()}
+                          </span>
                         </div>
-                      )}
+                      </div>
                     </div>
-                  </>
-                )}
+                  ) : (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-amber-900">No entities added yet</p>
+                          <p className="text-xs text-amber-700 mt-1">
+                            Select a praksis place and use the tree to add entities
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </div>
             )}
 

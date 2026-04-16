@@ -35,6 +35,8 @@ interface PlacementNetworkDiagramModalProps {
       placeName: string;
       departmentId: string;
       departmentName: string;
+      quotaRequestId?: string;
+      entityId?: string;
     };
   }>;
   quotas: Array<{
@@ -232,27 +234,26 @@ function DiagramContent({
     let placeYOffset = 50;
     let studentYOffset = 50;
     
-    // Track how many students are assigned to each quota request
-    const requestAssignmentCounts = new Map<string, number>();
+    // Track how many students are assigned to each (requestId + departmentId) combo.
+    // Multi-entity requests share a requestId so we need the departmentId to distinguish.
+    const assignmentCounts = new Map<string, number>();
     students.forEach(student => {
       if (student.assignedPlace) {
-        // Count by requestId if available, otherwise by place+dept (for backward compat)
-        const requestId = (student.assignedPlace as any).quotaRequestId;
-        if (requestId) {
-          requestAssignmentCounts.set(requestId, (requestAssignmentCounts.get(requestId) || 0) + 1);
-        }
+        const key = `${student.assignedPlace.quotaRequestId ?? ''}__${student.assignedPlace.departmentId}`;
+        assignmentCounts.set(key, (assignmentCounts.get(key) || 0) + 1);
       }
     });
-    
-    // Create place nodes (left side) - one per quota request
+
+    // Create place nodes (left side) - one per quota entry (already expanded per entity)
     quotas.forEach(quota => {
-      const assignedCount = requestAssignmentCounts.get(quota.requestId) || 0;
-      
+      const key = `${quota.requestId}__${quota.departmentId}`;
+      const assignedCount = assignmentCounts.get(key) || 0;
+
       nodes.push({
-        id: `place-${quota.requestId}`,
+        id: `place-${quota.requestId}__${quota.departmentId}`,
         type: 'place',
         position: { x: 50, y: placeYOffset },
-        data: { 
+        data: {
           label: quota.placeName,
           department: quota.departmentName,
           assigned: assignedCount,
@@ -263,7 +264,7 @@ function DiagramContent({
           status: quota.status
         },
       });
-      
+
       placeYOffset += placeSpacing;
     });
     
@@ -284,30 +285,29 @@ function DiagramContent({
       
       // Create edge if student is assigned
       if (student.assignedPlace) {
-        // Find the quota request this student is assigned to
-        const requestId = (student.assignedPlace as any).quotaRequestId;
-        const quota = quotas.find(q => q.requestId === requestId);
-        
-        // If no specific request, try to match by place+dept (backward compatibility)
-        const fallbackQuota = !quota ? quotas.find(q => 
-          q.placeId === student.assignedPlace?.placeId && 
-          q.departmentId === student.assignedPlace?.departmentId
-        ) : null;
-        
-        const targetQuota = quota || fallbackQuota;
-        
+        // Match quota by requestId + departmentId (handles multi-entity requests correctly)
+        const targetQuota = quotas.find(q =>
+          q.requestId === student.assignedPlace!.quotaRequestId &&
+          q.departmentId === student.assignedPlace!.departmentId
+        ) ?? quotas.find(q =>
+          // Fallback: match by place + dept when quotaRequestId is absent
+          q.placeId === student.assignedPlace!.placeId &&
+          q.departmentId === student.assignedPlace!.departmentId
+        );
+
         if (targetQuota) {
-          const placeNodeId = `place-${targetQuota.requestId}`;
-          const assignedCount = requestAssignmentCounts.get(targetQuota.requestId) || 0;
+          const placeNodeId = `place-${targetQuota.requestId}__${targetQuota.departmentId}`;
+          const countKey = `${targetQuota.requestId}__${targetQuota.departmentId}`;
+          const assignedCount = assignmentCounts.get(countKey) || 0;
           const isOverCapacity = assignedCount > targetQuota.quota;
-          
+
           edges.push({
-            id: `edge-${targetQuota.requestId}-${student.id}`,
+            id: `edge-${targetQuota.requestId}__${targetQuota.departmentId}-${student.id}`,
             source: placeNodeId,
             target: `student-${student.id}`,
             type: 'custom',
             animated: isOverCapacity,
-            style: { 
+            style: {
               stroke: isOverCapacity ? '#ef4444' : '#10b981',
               strokeWidth: isOverCapacity ? 4 : 3,
             },
@@ -321,8 +321,11 @@ function DiagramContent({
               placeId: student.assignedPlace.placeId,
               departmentId: student.assignedPlace.departmentId,
               studentId: student.id,
-              onDelete: () => handleDeleteEdge(`edge-${targetQuota.requestId}-${student.id}`, student.id)
-            }
+              onDelete: () => handleDeleteEdge(
+                `edge-${targetQuota.requestId}__${targetQuota.departmentId}-${student.id}`,
+                student.id,
+              ),
+            },
           });
         }
       }
@@ -374,9 +377,9 @@ function DiagramContent({
   // Handle new connection creation (assign student to place)
   const onConnect = useCallback(
     (params: Connection | Edge) => {
-      // Find the quota based on the source node ID (which is now place-${requestId})
+      // Find the quota based on the source node ID (place-${requestId}__${departmentId})
       const sourceNodeId = params.source;
-      const matchingQuota = quotas.find(q => `place-${q.requestId}` === sourceNodeId);
+      const matchingQuota = quotas.find(q => `place-${q.requestId}__${q.departmentId}` === sourceNodeId);
       
       const studentId = params.target?.replace('student-', '');
       

@@ -1020,42 +1020,96 @@ export function PlacementTaskView({
 
   // Get available quota requests with capacity for student assignment
   const getAvailableQuotaRequests = () => {
-    // Filter approved coordinator quota requests that match the placement's study/program/period
-    return coordinatorQuotaRequests
-      .filter(request => {
-        // Only show approved requests
-        if (request.status !== 'approved') return false;
+    // Each approved request may have entityDistributions — expand those into one entry each.
+    // Non-entity requests produce a single entry (legacy behaviour).
+    const result: Array<{
+      id: string; // unique key (may be "requestId-entityId" for distributions)
+      praksisPlaceId: string;
+      praksisPlaceName: string;
+      departmentId: string;
+      departmentName: string;
+      requestedCapacity: number;
+      approvedCapacity?: number;
+      startDate: string;
+      endDate: string;
+      emne?: string;
+      studyId: string;
+      programId: string;
+      assignedCount: number;
+      availableCount: number;
+      _quotaRequestId: string; // original CoordinatorQuotaRequest.id for assignment tracking
+      _entityId?: string;      // entity distribution entityId, if applicable
+    }> = [];
 
-        // Match study and program
-        const matchesStudy = request.studyId === (metadataFormData.studyId || placement.studyId);
-        const matchesProgram = request.programId === (metadataFormData.programId || placement.programId);
-        
-        if (!matchesStudy || !matchesProgram) return false;
+    for (const request of coordinatorQuotaRequests) {
+      if (request.status !== 'approved') continue;
 
-        // Calculate assigned count for this request
-        const assignedCount = students.filter(
-          s => s.assignedPraksisPlace?.quotaRequestId === request.id
-        ).length;
+      const matchesStudy = request.studyId === (metadataFormData.studyId || placement.studyId);
+      const matchesProgram = request.programId === (metadataFormData.programId || placement.programId);
+      if (!matchesStudy || !matchesProgram) continue;
 
+      if (request.entityDistributions && request.entityDistributions.length > 0) {
+        // Expand into one entry per entity distribution
+        for (const entity of request.entityDistributions) {
+          const capacity = entity.approvedQuota ?? entity.requestedQuota;
+          const assignedCount = students.filter(
+            s =>
+              s.assignedPraksisPlace?.quotaRequestId === request.id &&
+              s.assignedPraksisPlace?.entityId === entity.entityId,
+          ).length;
+          const availableCount = capacity - assignedCount;
+          if (availableCount <= 0) continue;
+
+          result.push({
+            id: `${request.id}-${entity.id}`,
+            praksisPlaceId: request.praksisPlaceId,
+            praksisPlaceName: request.praksisPlaceName,
+            departmentId: entity.entityId,
+            departmentName: entity.entityName,
+            requestedCapacity: entity.requestedQuota,
+            approvedCapacity: entity.approvedQuota,
+            startDate: request.startDate,
+            endDate: request.endDate,
+            emne: request.emne,
+            studyId: request.studyId,
+            programId: request.programId,
+            assignedCount,
+            availableCount,
+            _quotaRequestId: request.id,
+            _entityId: entity.entityId,
+          });
+        }
+      } else {
+        // Legacy: no entity distributions — treat whole request as one entry
         const approvedCapacity = request.approvedCapacity ?? request.requestedCapacity;
-        const availableCount = approvedCapacity - assignedCount;
-
-        // Only show requests with available capacity
-        return availableCount > 0;
-      })
-      .map(request => {
         const assignedCount = students.filter(
-          s => s.assignedPraksisPlace?.quotaRequestId === request.id
+          s => s.assignedPraksisPlace?.quotaRequestId === request.id,
         ).length;
-        const approvedCapacity = request.approvedCapacity ?? request.requestedCapacity;
         const availableCount = approvedCapacity - assignedCount;
+        if (availableCount <= 0) continue;
 
-        return {
-          ...request,
+        result.push({
+          id: request.id,
+          praksisPlaceId: request.praksisPlaceId,
+          praksisPlaceName: request.praksisPlaceName,
+          departmentId: request.departmentId,
+          departmentName: request.departmentName,
+          requestedCapacity: request.requestedCapacity,
+          approvedCapacity: request.approvedCapacity,
+          startDate: request.startDate,
+          endDate: request.endDate,
+          emne: request.emne,
+          studyId: request.studyId,
+          programId: request.programId,
           assignedCount,
           availableCount,
-        };
-      });
+          _quotaRequestId: request.id,
+          _entityId: undefined,
+        });
+      }
+    }
+
+    return result;
   };
 
   // Get available quotas (not yet assigned)
@@ -3044,7 +3098,8 @@ export function PlacementTaskView({
                           request.praksisPlaceId,
                           request.departmentId,
                           false,
-                          request.id
+                          request._quotaRequestId,
+                          request._entityId,
                         );
                         toast.success(
                           `Assigned ${selectedStudent.name} to ${request.praksisPlaceName} - ${request.departmentName}`
@@ -3206,10 +3261,10 @@ export function PlacementTaskView({
             ? {
                 placeId: s.assignedPraksisPlace.placeId,
                 placeName: s.assignedPraksisPlace.placeName,
-                departmentId:
-                  s.assignedPraksisPlace.departmentId,
-                departmentName:
-                  s.assignedPraksisPlace.departmentName,
+                departmentId: s.assignedPraksisPlace.departmentId,
+                departmentName: s.assignedPraksisPlace.departmentName,
+                quotaRequestId: s.assignedPraksisPlace.quotaRequestId,
+                entityId: s.assignedPraksisPlace.entityId,
               }
             : undefined,
         }))}
@@ -3323,8 +3378,9 @@ export function PlacementTaskView({
                       placeName,
                       departmentId,
                       departmentName,
+                      entityId: departmentId, // for entity distributions, departmentId IS the entityId
                       quotaRequestId,
-                      placementTaskId: placement.id, // Add placement ID so SK can filter by completed placements
+                      placementTaskId: placement.id,
                       startDate: placement.startDate,
                       endDate: placement.endDate,
                       placementTitle: placement.title,
