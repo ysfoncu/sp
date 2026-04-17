@@ -23,7 +23,6 @@ import {
   XCircle,
   HelpCircle,
 } from "lucide-react";
-import svgPaths from "../imports/svg-fb62ovpra4";
 import imgButton from "figma:asset/b43e117ee3af1d4270d7dc2e21fae9993aece0e2.png";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -324,7 +323,6 @@ export function PlacementTaskView({
   };
 
   // Calculate stats
-  const activeStudentsCount = students.length;
   const placementsMadeCount = students.filter(
     (s) => s.assignedPraksisPlace,
   ).length;
@@ -396,7 +394,9 @@ export function PlacementTaskView({
                   s.assignedPraksisPlace?.quotaRequestId === req.id
               ).length;
               
-              const entityApprovedCapacity = entity.approvedQuota ?? 0;
+              // Mirror legacy fallback: use requestedQuota when approvedQuota was never explicitly set
+              const entityApprovedCapacity =
+                entity.approvedQuota !== undefined ? entity.approvedQuota : entity.requestedQuota;
               const entityAvailableCapacity = Math.max(0, entityApprovedCapacity - entityAssignedCount);
               totalAvailable += entityAvailableCapacity;
             }
@@ -984,8 +984,26 @@ export function PlacementTaskView({
   };
 
   // Handle approve quota request
-  const handleApproveRequest = async (requestId: string, approvedCapacity: number) => {
-    if (onCoordinatorQuotaRequestUpdate) {
+  const handleApproveRequest = async (requestId: string, approvedCapacity: number, entityId?: string) => {
+    if (!onCoordinatorQuotaRequestUpdate) return;
+
+    if (entityId) {
+      // Per-entity approval: update only this entity's approvedQuota inside entityDistributions
+      const request = coordinatorQuotaRequests.find(r => r.id === requestId);
+      if (request?.entityDistributions) {
+        const updatedDistributions = request.entityDistributions.map(e =>
+          e.entityId === entityId ? { ...e, approvedQuota: approvedCapacity } : e
+        );
+        // Promote the whole request to 'approved' only once every entity has been approved
+        const allApproved = updatedDistributions.every(e => e.approvedQuota !== undefined);
+        onCoordinatorQuotaRequestUpdate(requestId, {
+          entityDistributions: updatedDistributions,
+          ...(allApproved ? { status: 'approved' as const } : {}),
+        });
+        toast.success(`Approved capacity of ${approvedCapacity} for ${request.entityDistributions.find(e => e.entityId === entityId)?.entityName ?? entityId}`);
+      }
+    } else {
+      // Legacy single-entity request
       onCoordinatorQuotaRequestUpdate(requestId, {
         status: 'approved',
         approvedCapacity,
@@ -1004,8 +1022,26 @@ export function PlacementTaskView({
   };
 
   // Handle delete quota request
-  const handleDeleteRequest = (requestId: string) => {
-    if (onCoordinatorQuotaRequestUpdate) {
+  const handleDeleteRequest = (requestId: string, entityId?: string) => {
+    if (!onCoordinatorQuotaRequestUpdate) return;
+
+    if (entityId) {
+      // Per-entity delete: remove only this entity from entityDistributions
+      const request = coordinatorQuotaRequests.find(r => r.id === requestId);
+      if (request?.entityDistributions) {
+        const updatedDistributions = request.entityDistributions.filter(
+          e => e.entityId !== entityId,
+        );
+        if (updatedDistributions.length === 0) {
+          // No entities left — reject the whole request
+          onCoordinatorQuotaRequestUpdate(requestId, { status: 'rejected' });
+        } else {
+          onCoordinatorQuotaRequestUpdate(requestId, { entityDistributions: updatedDistributions });
+        }
+        toast.success('Entity removed from quota request');
+      }
+    } else {
+      // Single-entity or whole-request delete
       onCoordinatorQuotaRequestUpdate(requestId, { status: 'rejected' });
       toast.success('Quota request deleted successfully');
     }
@@ -1172,148 +1208,6 @@ export function PlacementTaskView({
   const availableQuotas = getAvailableQuotas();
 
   // Calculate available quotas for AI Auto-Assign based on coordinator quota requests
-  const getAvailableQuotasForAI = () => {
-    if (!coordinatorQuotaRequests) return [];
-    
-    const placementContext = {
-      studyId: metadataFormData.studyId || placement.studyId,
-      programId: metadataFormData.programId || placement.programId,
-      emne: metadataFormData.emne || placement.emne,
-      startDate: metadataFormData.startDate || placement.startDate,
-      endDate: metadataFormData.endDate || placement.endDate,
-    };
-
-    // Helper: Check if placement dates are within quota request dates
-    const placementWithinQuotaDates = (
-      placementStart: string,
-      placementEnd: string,
-      quotaStart: string,
-      quotaEnd: string
-    ): boolean => {
-      const ps = new Date(placementStart);
-      const pe = new Date(placementEnd);
-      const qs = new Date(quotaStart);
-      const qe = new Date(quotaEnd);
-      ps.setHours(0, 0, 0, 0);
-      pe.setHours(0, 0, 0, 0);
-      qs.setHours(0, 0, 0, 0);
-      qe.setHours(0, 0, 0, 0);
-      return ps >= qs && pe <= qe;
-    };
-
-    const quotaItems = [];
-
-    for (const request of coordinatorQuotaRequests) {
-      // Filter 1: Match study + program
-      if (
-        request.studyId !== placementContext.studyId ||
-        request.programId !== placementContext.programId
-      ) {
-        continue;
-      }
-
-      // Filter 2: Match emne (if provided in both)
-      if (placementContext.emne && request.emne && request.emne !== placementContext.emne) {
-        continue;
-      }
-
-      // Filter 3: Only show approved or pending
-      if (request.status !== 'approved' && request.status !== 'pending') {
-        continue;
-      }
-
-      // Filter 4: Placement dates must be within quota request dates
-      if (
-        placementContext.startDate &&
-        placementContext.endDate &&
-        !placementWithinQuotaDates(
-          placementContext.startDate,
-          placementContext.endDate,
-          request.startDate,
-          request.endDate
-        )
-      ) {
-        continue;
-      }
-
-      // Handle multi-entity requests - create separate item for each entity
-      if (request.entityDistributions && request.entityDistributions.length > 0) {
-        for (const entity of request.entityDistributions) {
-          // Calculate assigned students for this specific entity
-          const entityAssignedCount = students.filter(
-            (s) =>
-              s.assignedPraksisPlace?.placeId === request.praksisPlaceId &&
-              s.assignedPraksisPlace?.entityId === entity.entityId &&
-              s.assignedPraksisPlace?.quotaRequestId === request.id
-          ).length;
-
-          // Determine capacities based on status
-          let approvedCapacity = 0;
-          if (request.status === 'approved') {
-            approvedCapacity = entity.approvedQuota ?? 0;
-          }
-
-          const availableCount = Math.max(0, approvedCapacity - entityAssignedCount);
-
-          // Only include if there's available capacity
-          if (availableCount > 0) {
-            quotaItems.push({
-              requestId: request.id,
-              placeId: request.praksisPlaceId,
-              placeName: request.praksisPlaceName,
-              departmentId: entity.entityId,
-              departmentName: entity.entityName,
-              availableCount,
-            });
-          }
-        }
-      } else {
-        // Legacy single-entity request
-        const assignedCount = students.filter(
-          (s) =>
-            s.assignedPraksisPlace?.placeId === request.praksisPlaceId &&
-            s.assignedPraksisPlace?.departmentId === request.departmentId &&
-            s.assignedPraksisPlace?.quotaRequestId === request.id
-        ).length;
-
-        // Determine capacities based on status
-        let approvedCapacity = 0;
-        if (request.status === 'approved') {
-          approvedCapacity = request.approvedCapacity ?? request.requestedCapacity;
-        }
-
-        const availableCount = Math.max(0, approvedCapacity - assignedCount);
-
-        // Only include if there's available capacity
-        if (availableCount > 0) {
-          quotaItems.push({
-            requestId: request.id,
-            placeId: request.praksisPlaceId,
-            placeName: request.praksisPlaceName,
-            departmentId: request.departmentId,
-            departmentName: request.departmentName,
-            availableCount,
-          });
-        }
-      }
-    }
-
-    return quotaItems;
-  };
-  
-  const availableQuotasForAI = getAvailableQuotasForAI();
-
-  // Calculate total approved quotas from available quotas table
-  const totalApprovedQuotasFromTable = availableQuotasForAI.reduce(
-    (sum, q) => sum + (q.availableCount || 0),
-    0
-  );
-
-  // Calculate total students with assigned praksis place
-  const totalStudentsAssigned = students.filter(
-    (s) => s.assignedPraksisPlace
-  ).length;
-
   // Calculate total available quota
   const totalAvailableQuota = availableQuotas.reduce(
     (sum, q) => sum + q.availableCount,
@@ -1505,7 +1399,7 @@ export function PlacementTaskView({
   return (
     <div className="flex h-full w-full">
       {/* Main Content */}
-      <div className="flex flex-col flex-1 bg-gray-50 min-h-full overflow-auto">
+      <div className="flex flex-col flex-1 bg-white min-h-full overflow-auto">
         {/* Header */}
         <div className="bg-white border-b border-gray-200 px-7 py-6">
           {/* Back Button and Breadcrumbs */}
@@ -1563,127 +1457,16 @@ export function PlacementTaskView({
               )}
             </div>
 
-            <div className="content-stretch flex gap-[12px] items-center">
-              {/* Students Stat Card */}
-              <div className="bg-white h-[30px] relative rounded-[8px] shrink-0">
-                <div className="absolute border border-[#f3f4f6] border-solid inset-0 pointer-events-none rounded-[8px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_-1px_rgba(0,0,0,0.1)]" />
-                <div className="flex flex-col justify-center size-full">
-                  <div className="content-stretch flex flex-col h-full items-start justify-center px-[8px] py-[16px] relative">
-                    <div className="content-stretch flex gap-[8px] items-center relative shrink-0">
-                      <div className="relative shrink-0 size-[20px]">
-                        <svg
-                          className="block size-full"
-                          fill="none"
-                          preserveAspectRatio="none"
-                          viewBox="0 0 20 20"
-                        >
-                          <g>
-                            <path
-                              d={svgPaths.p45d700}
-                              stroke="#2B7FFF"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="1.75"
-                            />
-                            <path
-                              d="M18.3333 8.33333V13.3333"
-                              stroke="#2B7FFF"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="1.75"
-                            />
-                            <path
-                              d={svgPaths.p1ead9c00}
-                              stroke="#2B7FFF"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="1.75"
-                            />
-                          </g>
-                        </svg>
-                      </div>
-                      <div className="relative shrink-0">
-                        <div className="bg-clip-padding border-0 border-[transparent] border-solid content-stretch flex gap-[8px] items-center leading-[normal] not-italic relative">
-                          <p className="font-['Inter',sans-serif] font-normal relative shrink-0 text-[#4a5565] text-[12.25px] tracking-[-0.0179px]">
-                            Students
-                          </p>
-                          <div className="content-stretch flex items-center relative shrink-0">
-                            <p className="font-['Inter',sans-serif] font-semibold relative shrink-0 text-[#101828] text-[18px] text-center tracking-[0.2355px]">
-                              {placementsMadeCount}
-                            </p>
-                            <p className="font-['Inter',sans-serif] font-normal relative shrink-0 text-[#4a5565] text-[14px] tracking-[-0.0179px]">
-                              /{activeStudentsCount}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quota Stat Card */}
-              <div className="bg-white h-[30px] relative rounded-[8px] shrink-0">
-                <div className="absolute border border-[#f3f4f6] border-solid inset-0 pointer-events-none rounded-[8px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1),0px_1px_2px_-1px_rgba(0,0,0,0.1)]" />
-                <div className="flex flex-col justify-center size-full">
-                  <div className="content-stretch flex flex-col h-full items-start justify-center px-[8px] py-[16px] relative">
-                    <div className="content-stretch flex gap-[8px] items-center relative shrink-0">
-                      <div className="relative shrink-0 size-[20px]">
-                        <svg
-                          className="block size-full"
-                          fill="none"
-                          preserveAspectRatio="none"
-                          viewBox="0 0 20 20"
-                        >
-                          <g>
-                            <path
-                              d={svgPaths.p1d609380}
-                              stroke="#AD46FF"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="1.75"
-                            />
-                            <path
-                              d={svgPaths.p3fe63d80}
-                              stroke="#AD46FF"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="1.75"
-                            />
-                          </g>
-                        </svg>
-                      </div>
-                      <div className="relative shrink-0">
-                        <div className="bg-clip-padding border-0 border-[transparent] border-solid content-stretch flex gap-[8px] items-center leading-[normal] not-italic relative">
-                          <p className="font-['Inter',sans-serif] font-normal relative shrink-0 text-[#4a5565] text-[12.25px] tracking-[-0.0179px]">
-                            Quota
-                          </p>
-                          <div className="content-stretch flex items-center relative shrink-0">
-                            <p className="font-['Inter',sans-serif] font-semibold relative shrink-0 text-[#101828] text-[18px] text-center tracking-[0.2355px]">
-                              {totalApprovedQuotasFromTable}
-                            </p>
-                            <p className="font-['Inter',sans-serif] font-normal relative shrink-0 text-[#4a5565] text-[14px] tracking-[-0.0179px]">
-                              /{totalStudentsAssigned}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Help Button */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsHelpOverlayOpen(true)}
-                className="flex items-center gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-300"
-              >
-                <HelpCircle className="h-4 w-4" />
-                <span className="font-medium">Help</span>
-              </Button>
-            </div>
+            {/* Help Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsHelpOverlayOpen(true)}
+              className="flex items-center gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-300"
+            >
+              <HelpCircle className="h-4 w-4" />
+              <span className="font-medium">Help</span>
+            </Button>
           </div>
         </div>
 

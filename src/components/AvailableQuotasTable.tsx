@@ -1,8 +1,7 @@
-import { useMemo, useState, Fragment } from "react";
-import { Clock, UserPlus, Plus, ChevronDown, ChevronRight, User, AlertTriangle, Check, Pencil, Trash2, CheckCircle } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Clock, UserPlus, Plus, AlertTriangle, Check, Pencil, Trash2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
 import { Student } from "../types/placementTask";
 import { PraksisPlace } from "../types/praksisPlace";
@@ -18,7 +17,8 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { toast } from "sonner@2.0.3";
 
-// Entity-level quota item (for multi-entity requests)
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export interface EntityQuotaItem {
   entityId: string;
   entityName: string;
@@ -29,55 +29,61 @@ export interface EntityQuotaItem {
   assignedStudents: Student[];
 }
 
-// Grouped quota request item (parent request with potentially multiple entities)
 export interface QuotaRequestItem {
-  // From the request
   requestId: string;
   praksisPlaceId: string;
   praksisPlaceName: string;
-  
-  // Multi-entity support
-  isMultiEntity: boolean; // true if request has entityDistributions
-  entities: EntityQuotaItem[]; // Array of entities (departments/units)
-  
-  // Legacy single-entity fields (for backward compatibility)
+  isMultiEntity: boolean;
+  entities: EntityQuotaItem[];
   departmentId: string;
   departmentName: string;
-  
-  // Capacity tracking (aggregated across all entities)
-  approvedCapacity: number; // Total approvedCapacity across all entities
-  pendingCapacity: number; // Total pendingCapacity across all entities
-  assignedCount: number; // Total assigned across all entities
-  availableCount: number; // Total available across all entities
-  requestedCapacity: number; // Total requested across all entities
-  
-  // Assigned students list (all students across all entities)
+  approvedCapacity: number;
+  pendingCapacity: number;
+  assignedCount: number;
+  availableCount: number;
+  requestedCapacity: number;
   assignedStudents: Student[];
-  
-  // Request metadata
   status: 'pending' | 'approved' | 'rejected' | 'fulfilled';
   startDate: string;
   endDate: string;
 }
 
+// Grouped hierarchy types
+interface GroupedRequest {
+  requestId: string;
+  status: 'pending' | 'approved' | 'rejected' | 'fulfilled';
+  startDate: string;
+  endDate: string;
+  entities: QuotaRequestItem[];
+  totalRequested: number;
+  totalApproved: number;
+  totalAssigned: number;
+  totalAvailable: number;
+}
+
+interface GroupedPlace {
+  praksisPlaceId: string;
+  praksisPlaceName: string;
+  requests: GroupedRequest[];
+  totalRequested: number;
+  totalApproved: number;
+  totalAssigned: number;
+  totalAvailable: number;
+}
+
+// ─── Props ────────────────────────────────────────────────────────────────────
+
 interface AvailableQuotasTableProps {
-  // Data sources
   coordinatorQuotaRequests: CoordinatorQuotaRequest[];
   students: Student[];
   praksisPlaces: PraksisPlace[];
-
-  // Placement context for filtering
   placementId: string;
   studyId?: string;
   programId?: string;
   emne?: string;
   startDate?: string;
   endDate?: string;
-
-  // Publication status
   isPublished?: boolean;
-
-  // Actions
   onQuickAssign: (quotaInfo: {
     requestId: string;
     praksisPlaceId: string;
@@ -85,115 +91,68 @@ interface AvailableQuotasTableProps {
     departmentId: string;
     departmentName: string;
     availableCapacity: number;
-    entityId?: string; // For multi-entity requests
+    entityId?: string;
   }) => void;
-
   onRequestMoreQuotas?: () => void;
-  onApproveRequest?: (requestId: string, approvedCapacity: number) => void;
+  onApproveRequest?: (requestId: string, approvedCapacity: number, entityId?: string) => void;
   onEditRequest?: (requestId: string) => void;
-  onDeleteRequest?: (requestId: string) => void;
+  onDeleteRequest?: (requestId: string, entityId?: string) => void;
 }
 
-// Helper: Check if placement dates are within quota request dates
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function placementWithinQuotaDates(
-  placementStart: string,
-  placementEnd: string,
-  quotaStart: string,
-  quotaEnd: string
+  placementStart: string, placementEnd: string,
+  quotaStart: string, quotaEnd: string
 ): boolean {
-  const ps = new Date(placementStart);
-  const pe = new Date(placementEnd);
-  const qs = new Date(quotaStart);
-  const qe = new Date(quotaEnd);
-
-  ps.setHours(0, 0, 0, 0);
-  pe.setHours(0, 0, 0, 0);
-  qs.setHours(0, 0, 0, 0);
-  qe.setHours(0, 0, 0, 0);
-
-  // Placement must be completely within quota date range
+  const ps = new Date(placementStart); ps.setHours(0, 0, 0, 0);
+  const pe = new Date(placementEnd);   pe.setHours(0, 0, 0, 0);
+  const qs = new Date(quotaStart);     qs.setHours(0, 0, 0, 0);
+  const qe = new Date(quotaEnd);       qe.setHours(0, 0, 0, 0);
   return ps >= qs && pe <= qe;
 }
 
-// Helper: Filter and transform coordinator quota requests
+function fmtDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
 function processQuotaRequests(
   coordinatorRequests: CoordinatorQuotaRequest[],
   students: Student[],
-  placementContext: {
-    placementId: string;
-    studyId?: string;
-    programId?: string;
-    emne?: string;
-    startDate?: string;
-    endDate?: string;
-  }
+  ctx: { placementId: string; studyId?: string; programId?: string; emne?: string; startDate?: string; endDate?: string; }
 ): QuotaRequestItem[] {
-  // Return empty if missing required context
-  if (
-    !placementContext.studyId ||
-    !placementContext.programId ||
-    !placementContext.startDate ||
-    !placementContext.endDate
-  ) {
-    return [];
-  }
+  if (!ctx.studyId || !ctx.programId || !ctx.startDate || !ctx.endDate) return [];
 
   const items: QuotaRequestItem[] = [];
 
   for (const request of coordinatorRequests) {
-    // Filter 1: Match study + program
-    if (
-      request.studyId !== placementContext.studyId ||
-      request.programId !== placementContext.programId
-    ) {
-      continue;
-    }
+    if (request.studyId !== ctx.studyId || request.programId !== ctx.programId) continue;
+    if (ctx.emne && request.emne && request.emne !== ctx.emne) continue;
+    if (request.status !== 'approved' && request.status !== 'pending') continue;
+    if (!placementWithinQuotaDates(ctx.startDate, ctx.endDate, request.startDate, request.endDate)) continue;
 
-    // Filter 2: Match emne (if provided in both)
-    if (placementContext.emne && request.emne && request.emne !== placementContext.emne) {
-      continue;
-    }
-
-    // Filter 3: Only show approved or pending
-    if (request.status !== 'approved' && request.status !== 'pending') {
-      continue;
-    }
-
-    // Filter 4: Placement dates must be within quota request dates
-    if (
-      !placementWithinQuotaDates(
-        placementContext.startDate,
-        placementContext.endDate,
-        request.startDate,
-        request.endDate
-      )
-    ) {
-      continue;
-    }
-
-    // Handle multi-entity requests - create separate row for each entity
     if (request.entityDistributions && request.entityDistributions.length > 0) {
       for (const entity of request.entityDistributions) {
-        // Calculate assigned students for this specific entity
         const entityAssignedStudents = students.filter(
           (s) =>
             s.assignedPraksisPlace?.placeId === request.praksisPlaceId &&
             s.assignedPraksisPlace?.entityId === entity.entityId &&
             s.assignedPraksisPlace?.quotaRequestId === request.id
         );
-
         const entityAssignedCount = entityAssignedStudents.length;
-        const entityApprovedCapacity = entity.approvedQuota ?? 0;
+        // Per-entity approval: entity.approvedQuota set means this entity was individually approved.
+        // Falls back to requestedQuota for whole-request approvals (legacy path).
+        const entityExplicitlyApproved = entity.approvedQuota !== undefined;
+        const entityApprovedCapacity = entityExplicitlyApproved
+          ? entity.approvedQuota!
+          : request.status === 'approved' ? entity.requestedQuota : 0;
         const entityAvailableCount = Math.max(0, entityApprovedCapacity - entityAssignedCount);
-        
-        let pendingCapacity = 0;
-        let approvedCapacity = 0;
-        
-        if (request.status === 'approved') {
-          approvedCapacity = entityApprovedCapacity;
-        } else if (request.status === 'pending') {
-          pendingCapacity = entity.requestedQuota;
-        }
+
+        // Status is per-entity: approved if this entity's quota was set, regardless of parent status
+        const entityStatus: QuotaRequestItem['status'] =
+          entityExplicitlyApproved || request.status === 'approved' ? 'approved' : 'pending';
+        const approvedCapacity = entityStatus === 'approved' ? entityApprovedCapacity : 0;
+        const pendingCapacity  = entityStatus === 'pending'  ? entity.requestedQuota : 0;
 
         items.push({
           requestId: request.id,
@@ -201,13 +160,13 @@ function processQuotaRequests(
           praksisPlaceName: request.praksisPlaceName,
           departmentId: entity.entityId,
           departmentName: entity.entityName,
-          approvedCapacity: approvedCapacity,
-          pendingCapacity: pendingCapacity,
+          approvedCapacity,
+          pendingCapacity,
           assignedCount: entityAssignedCount,
           availableCount: entityAvailableCount,
           requestedCapacity: entity.requestedQuota,
           assignedStudents: entityAssignedStudents,
-          status: request.status,
+          status: entityStatus,
           startDate: request.startDate,
           endDate: request.endDate,
           isMultiEntity: true,
@@ -215,7 +174,7 @@ function processQuotaRequests(
             entityId: entity.entityId,
             entityName: entity.entityName,
             requestedCapacity: entity.requestedQuota,
-            approvedCapacity: approvedCapacity,
+            approvedCapacity,
             assignedCount: entityAssignedCount,
             availableCount: entityAvailableCount,
             assignedStudents: entityAssignedStudents,
@@ -223,25 +182,17 @@ function processQuotaRequests(
         });
       }
     } else {
-      // Legacy single-entity request
       const assignedStudents = students.filter(
         (s) =>
           s.assignedPraksisPlace?.placeId === request.praksisPlaceId &&
           s.assignedPraksisPlace?.departmentId === request.departmentId &&
           s.assignedPraksisPlace?.quotaRequestId === request.id
       );
-
       const assignedCount = assignedStudents.length;
-      
       let approvedCapacity = 0;
       let pendingCapacity = 0;
-      
-      if (request.status === 'approved') {
-        approvedCapacity = request.approvedCapacity ?? request.requestedCapacity;
-      } else if (request.status === 'pending') {
-        pendingCapacity = request.requestedCapacity;
-      }
-
+      if (request.status === 'approved') approvedCapacity = request.approvedCapacity ?? request.requestedCapacity;
+      else if (request.status === 'pending') pendingCapacity = request.requestedCapacity;
       const availableCount = Math.max(0, approvedCapacity - assignedCount);
 
       items.push({
@@ -250,12 +201,12 @@ function processQuotaRequests(
         praksisPlaceName: request.praksisPlaceName,
         departmentId: request.departmentId,
         departmentName: request.departmentName,
-        approvedCapacity: approvedCapacity,
-        pendingCapacity: pendingCapacity,
-        assignedCount: assignedCount,
-        availableCount: availableCount,
+        approvedCapacity,
+        pendingCapacity,
+        assignedCount,
+        availableCount,
         requestedCapacity: request.requestedCapacity,
-        assignedStudents: assignedStudents,
+        assignedStudents,
         status: request.status,
         startDate: request.startDate,
         endDate: request.endDate,
@@ -264,77 +215,75 @@ function processQuotaRequests(
           entityId: request.departmentId,
           entityName: request.departmentName,
           requestedCapacity: request.requestedCapacity,
-          approvedCapacity: approvedCapacity,
-          assignedCount: assignedCount,
-          availableCount: availableCount,
-          assignedStudents: assignedStudents,
+          approvedCapacity,
+          assignedCount,
+          availableCount,
+          assignedStudents,
         }],
       });
     }
   }
 
-  // Sort by praksis place name, then department name
   return items.sort((a, b) => {
-    const nameCompare = a.praksisPlaceName.localeCompare(b.praksisPlaceName);
-    if (nameCompare !== 0) return nameCompare;
-    return a.departmentName.localeCompare(b.departmentName);
+    const n = a.praksisPlaceName.localeCompare(b.praksisPlaceName);
+    return n !== 0 ? n : a.departmentName.localeCompare(b.departmentName);
   });
 }
 
-// Helper: Calculate chart data for a specific quota request
-function calculateQuotaChartData(
-  quota: QuotaRequestItem,
-  placementStartDate: string,
-  placementEndDate: string
-) {
-  const startDate = new Date(placementStartDate);
-  const endDate = new Date(placementEndDate);
-  startDate.setHours(0, 0, 0, 0);
-  endDate.setHours(0, 0, 0, 0);
+function groupQuotaItems(items: QuotaRequestItem[]): GroupedPlace[] {
+  const placeMap = new Map<string, GroupedPlace>();
 
-  const chartData = [];
-  const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-  const interval = Math.max(1, Math.ceil(totalDays / 12)); // Show ~12 data points
-
-  for (let i = 0; i <= totalDays; i++) {
-    const currentDate = new Date(startDate);
-    currentDate.setDate(currentDate.getDate() + i);
-
-    // Simple logic: if current date is within quota date range, show capacity
-    const quotaStart = new Date(quota.startDate);
-    const quotaEnd = new Date(quota.endDate);
-    quotaStart.setHours(0, 0, 0, 0);
-    quotaEnd.setHours(0, 0, 0, 0);
-
-    let approvedCount = 0;
-    let inReviewCount = 0;
-
-    if (currentDate >= quotaStart && currentDate <= quotaEnd) {
-      if (quota.status === 'approved') {
-        approvedCount = quota.approvedCapacity;
-      } else if (quota.status === 'pending') {
-        inReviewCount = quota.pendingCapacity;
-      }
-    }
-
-    // Add data points at intervals to keep chart readable
-    if (i % interval === 0 || i === totalDays) {
-      chartData.push({
-        day: i,
-        approved: approvedCount,
-        inReview: inReviewCount,
-        date: currentDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+  for (const item of items) {
+    if (!placeMap.has(item.praksisPlaceId)) {
+      placeMap.set(item.praksisPlaceId, {
+        praksisPlaceId: item.praksisPlaceId,
+        praksisPlaceName: item.praksisPlaceName,
+        requests: [],
+        totalRequested: 0,
+        totalApproved: 0,
+        totalAssigned: 0,
+        totalAvailable: 0,
       });
     }
+    const place = placeMap.get(item.praksisPlaceId)!;
+
+    let reqGroup = place.requests.find(r => r.requestId === item.requestId);
+    if (!reqGroup) {
+      reqGroup = {
+        requestId: item.requestId,
+        status: item.status,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        entities: [],
+        totalRequested: 0,
+        totalApproved: 0,
+        totalAssigned: 0,
+        totalAvailable: 0,
+      };
+      place.requests.push(reqGroup);
+    }
+
+    reqGroup.entities.push(item);
+    reqGroup.totalRequested  += item.requestedCapacity;
+    reqGroup.totalApproved   += item.approvedCapacity;
+    reqGroup.totalAssigned   += item.assignedCount;
+    reqGroup.totalAvailable  += item.availableCount;
+
+    place.totalRequested  += item.requestedCapacity;
+    place.totalApproved   += item.approvedCapacity;
+    place.totalAssigned   += item.assignedCount;
+    place.totalAvailable  += item.availableCount;
   }
 
-  return chartData;
+  return Array.from(placeMap.values());
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AvailableQuotasTable({
   coordinatorQuotaRequests,
   students,
-  praksisPlaces,
+  praksisPlaces: _praksisPlaces,
   placementId,
   studyId,
   programId,
@@ -348,60 +297,31 @@ export default function AvailableQuotasTable({
   onEditRequest,
   onDeleteRequest,
 }: AvailableQuotasTableProps) {
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [warningDialogRequest, setWarningDialogRequest] = useState<QuotaRequestItem | null>(null);
   const [approvalDialogRequest, setApprovalDialogRequest] = useState<QuotaRequestItem | null>(null);
   const [approvedQuantity, setApprovedQuantity] = useState<number>(0);
   const [showPublishWarning, setShowPublishWarning] = useState(false);
   const [deleteConfirmRequest, setDeleteConfirmRequest] = useState<QuotaRequestItem | null>(null);
 
-  // Process quota requests based on placement context
   const quotaItems = useMemo(
-    () =>
-      processQuotaRequests(
-        coordinatorQuotaRequests,
-        students,
-        {
-          placementId,
-          studyId,
-          programId,
-          emne,
-          startDate,
-          endDate,
-        }
-      ),
+    () => processQuotaRequests(coordinatorQuotaRequests, students, {
+      placementId, studyId, programId, emne, startDate, endDate,
+    }),
     [coordinatorQuotaRequests, students, placementId, studyId, programId, emne, startDate, endDate]
   );
 
-  // Calculate summary stats
-  const totalApprovedCapacity = quotaItems.reduce((sum, q) => sum + q.approvedCapacity, 0);
-  const totalPendingCapacity = quotaItems.reduce((sum, q) => sum + q.pendingCapacity, 0);
-  const totalAssigned = quotaItems.reduce((sum, q) => sum + q.assignedCount, 0);
-  const totalAvailable = quotaItems.reduce((sum, q) => sum + q.availableCount, 0);
-  const hasPendingRequests = quotaItems.some(q => q.status === 'pending');
+  const groupedPlaces = useMemo(() => groupQuotaItems(quotaItems), [quotaItems]);
 
-  // Toggle row expansion
-  const toggleRow = (requestId: string) => {
-    setExpandedRows((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(requestId)) {
-        newSet.delete(requestId);
-      } else {
-        newSet.add(requestId);
-      }
-      return newSet;
-    });
-  };
-
-  // Check if all quotas are fully assigned
+  const totalApprovedCapacity = quotaItems.reduce((s, q) => s + q.approvedCapacity, 0);
+  const totalPendingCapacity  = quotaItems.reduce((s, q) => s + q.pendingCapacity, 0);
+  const totalAssigned         = quotaItems.reduce((s, q) => s + q.assignedCount, 0);
+  const totalAvailable        = quotaItems.reduce((s, q) => s + q.availableCount, 0);
+  const totalRequested        = quotaItems.reduce((s, q) => s + q.requestedCapacity, 0);
+  const hasPendingRequests    = quotaItems.some(q => q.status === 'pending');
   const allQuotasFullyAssigned = quotaItems.length > 0 && totalAvailable === 0 && !hasPendingRequests;
 
-  // Handle opening warning dialog
-  const handleWarningClick = (quota: QuotaRequestItem) => {
-    setWarningDialogRequest(quota);
-  };
+  const handleWarningClick = (quota: QuotaRequestItem) => setWarningDialogRequest(quota);
 
-  // Handle opening approval dialog
   const handleProceedToApproval = () => {
     if (warningDialogRequest) {
       setApprovedQuantity(warningDialogRequest.requestedCapacity);
@@ -410,399 +330,296 @@ export default function AvailableQuotasTable({
     }
   };
 
-  // Handle final approval
   const handleConfirmApproval = () => {
     if (approvalDialogRequest && onApproveRequest) {
-      onApproveRequest(approvalDialogRequest.requestId, approvedQuantity);
+      // Pass departmentId as entityId so the handler can update only this entity's approvedQuota
+      onApproveRequest(
+        approvalDialogRequest.requestId,
+        approvedQuantity,
+        approvalDialogRequest.isMultiEntity ? approvalDialogRequest.departmentId : undefined,
+      );
       setApprovalDialogRequest(null);
       setApprovedQuantity(0);
     }
   };
 
-  // Show empty state if no placement context
+  // ─── Empty / loading states ───────────────────────────────────────────────
+
   if (!studyId || !programId || !startDate || !endDate) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-12">
-        <div className="text-center">
-          <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
-            Complete Placement Details
-          </h3>
-          <p className="text-sm text-gray-500 mb-6">
-            Fill out the placement metadata above to view available quotas
-          </p>
-        </div>
+      <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+        <Clock className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+        <h3 className="text-sm font-medium text-gray-900 mb-1">Complete Placement Details</h3>
+        <p className="text-xs text-gray-500">Fill out the placement metadata above to view available quotas</p>
       </div>
     );
   }
 
-  // Show empty state if no quota requests
   if (quotaItems.length === 0) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-12">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
-            <Plus className="h-8 w-8 text-gray-400" />
-          </div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
-            No Quota Requests Yet
-          </h3>
-          <p className="text-sm text-gray-500 mb-6">
-            Request quotas from praksis places to start assigning students
-          </p>
-          {onRequestMoreQuotas && (
-            <Button
-              onClick={onRequestMoreQuotas}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Request Quota
-            </Button>
-          )}
+      <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+        <div className="inline-flex items-center justify-center w-12 h-12 bg-gray-100 rounded-full mb-3">
+          <Plus className="h-6 w-6 text-gray-400" />
         </div>
+        <h3 className="text-sm font-medium text-gray-900 mb-1">No Quota Requests Yet</h3>
+        <p className="text-xs text-gray-500 mb-4">Request quotas from praksis places to start assigning students</p>
+        {onRequestMoreQuotas && (
+          <Button onClick={onRequestMoreQuotas} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Plus className="h-4 w-4 mr-2" />
+            Request Quota
+          </Button>
+        )}
       </div>
     );
   }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="bg-white rounded-lg border border-gray-200">
+
       {/* Header */}
-      <div className="border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-semibold text-gray-900">
-              Available Quotas
-            </h3>
-            <p className="text-sm text-gray-500 mt-1">
-              {quotaItems.length} quota request{quotaItems.length !== 1 ? 's' : ''} • {totalAvailable} available placement{totalAvailable !== 1 ? 's' : ''}
-            </p>
-          </div>
+      <div className="border-b border-gray-200 px-4 py-3 flex items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Available Quotas</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {quotaItems.length} request{quotaItems.length !== 1 ? 's' : ''} · {totalAvailable} available
+          </p>
+        </div>
+        {onRequestMoreQuotas && (
+          <Button
+            onClick={onRequestMoreQuotas}
+            variant="outline"
+            size="sm"
+            className="flex-shrink-0 h-7 text-xs px-2.5 text-blue-600 border-blue-200 hover:bg-blue-50"
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Request
+          </Button>
+        )}
+      </div>
+
+      {/* All quotas fully assigned banner */}
+      {allQuotasFullyAssigned && (
+        <div className="bg-amber-50 border-b border-amber-100 px-4 py-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-medium text-amber-800">All quotas fully assigned</p>
           {onRequestMoreQuotas && (
-            <Button
-              onClick={onRequestMoreQuotas}
-              variant="outline"
-              size="sm"
-              className="text-blue-600 border-blue-600 hover:bg-blue-50"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Request More Quotas
+            <Button onClick={onRequestMoreQuotas} size="sm" className="bg-amber-600 hover:bg-amber-700 text-white h-6 text-xs px-2">
+              <Plus className="h-3 w-3 mr-1" />
+              Request More
             </Button>
           )}
         </div>
-      </div>
-
-      {/* All quotas fully assigned message */}
-      {allQuotasFullyAssigned && (
-        <div className="bg-amber-50 border-b border-amber-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex-shrink-0">
-                <Clock className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-amber-900">
-                  All quotas are fully assigned
-                </p>
-                <p className="text-sm text-amber-700">
-                  Request more quotas to assign additional students
-                </p>
-              </div>
-            </div>
-            {onRequestMoreQuotas && (
-              <Button
-                onClick={onRequestMoreQuotas}
-                size="sm"
-                className="bg-amber-600 hover:bg-amber-700 text-white"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Request More
-              </Button>
-            )}
-          </div>
-        </div>
       )}
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="w-10"></th>
-              <th className="w-12"></th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Praksis Place
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Department
-              </th>
-              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Requested
-              </th>
-              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-green-50">
-                Approved
-              </th>
-              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Assigned 
-              </th>
-              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Available
-              </th>
-              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {quotaItems.map((quota, index) => {
-              const isExpanded = expandedRows.has(quota.requestId + '-' + quota.departmentId);
-              const hasAssignedStudents = quota.assignedStudents.length > 0;
-              const hasAvailability = quota.availableCount > 0;
-              const isPending = quota.status === 'pending';
+      {/* Grouped list: Place → Request → Entities */}
+      <div>
+        {groupedPlaces.map((place, placeIdx) => (
+          <div key={place.praksisPlaceId} className={placeIdx > 0 ? 'border-t-2 border-gray-100' : ''}>
 
-              // Calculate chart data for this quota
-              const chartData = startDate && endDate
-                ? calculateQuotaChartData(quota, startDate, endDate)
-                : [];
-              
-              const rowKey = `${quota.requestId}-${quota.departmentId}`;
+            {/* ── Place header ── */}
+            <div className="bg-gray-50 px-4 py-2.5 flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-gray-900 truncate">{place.praksisPlaceName}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  {place.requests.reduce((n, r) => n + r.entities.length, 0)} unit{place.requests.reduce((n, r) => n + r.entities.length, 0) !== 1 ? 's' : ''}
+                  {' · '}
+                  {place.requests.length} request{place.requests.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <div className="text-right flex-shrink-0 ml-2">
+                <p className={`text-sm font-semibold ${place.totalAvailable > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                  {place.totalAvailable} avail
+                </p>
+                <p className="text-[10px] text-gray-400">{place.totalApproved} approved</p>
+              </div>
+            </div>
+
+            {/* ── Requests within this place ── */}
+            {place.requests.map((reqGroup, reqIdx) => {
+              const isPendingReq = reqGroup.status === 'pending';
+              const showRequestHeader = place.requests.length > 1;
 
               return (
-                <Fragment key={rowKey}>
-                  <tr className="hover:bg-gray-50">
-                    {/* Expand/Collapse Icon */}
-                    <td className="px-6 py-4">
-                      {hasAssignedStudents && (
-                        <button
-                          onClick={() => toggleRow(quota.requestId + '-' + quota.departmentId)}
-                          className="text-gray-400 hover:text-gray-600"
-                        >
-                          {isExpanded ? (
-                            <ChevronDown className="h-5 w-5" />
-                          ) : (
-                            <ChevronRight className="h-5 w-5" />
-                          )}
-                        </button>
-                      )}
-                    </td>
+                <div key={reqGroup.requestId}>
 
-                    {/* Warning Icon for Pending Requests */}
-                    <td className="px-3 py-4">
-                      {isPending && (
-                        <button
-                          onClick={() => handleWarningClick(quota)}
-                          className="text-amber-500 hover:text-amber-600 transition-colors"
-                          title="Approval pending"
-                        >
-                          <CheckCircle className="h-5 w-5 text-green-600" />
-                        </button>
-                      )}
-                    </td>
-
-                    {/* Praksis Place */}
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">
-                        {quota.praksisPlaceName}
+                  {/* Request sub-header — only when place has multiple requests */}
+                  {showRequestHeader && (
+                    <div className={`flex items-center gap-2 px-4 py-1.5 ${reqIdx === 0 ? 'border-t border-gray-100' : 'border-t border-dashed border-gray-200'}`}>
+                      <div className="flex-1 h-px bg-gray-100" />
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {isPendingReq && (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-amber-50 text-amber-700 border-amber-200">
+                            <Clock className="h-2 w-2 mr-0.5" />
+                            Pending
+                          </Badge>
+                        )}
+                        <span className="text-[10px] text-gray-400 font-medium">
+                          {fmtDate(reqGroup.startDate)} – {fmtDate(reqGroup.endDate)}
+                        </span>
                       </div>
-                    </td>
+                      <div className="flex-1 h-px bg-gray-100" />
+                    </div>
+                  )}
 
-                    {/* Department */}
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-gray-900">
-                        {quota.departmentName}
-                      </div>
-                    </td>
+                  {/* ── Entity rows ── */}
+                  {reqGroup.entities.map((entity) => {
+                    const rowKey = `${entity.requestId}-${entity.departmentId}`;
+                    const isPending = entity.status === 'pending';
+                    const hasAvailability = entity.availableCount > 0;
+                    const isFull = !isPending && entity.approvedCapacity > 0 && entity.availableCount === 0;
 
-                    {/* Pending Requests */}
-                    <td className="px-6 py-4 text-center">
-                      {quota.status === 'pending' ? (
-                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                          <Clock className="h-3 w-3 mr-1" />
-                          {quota.pendingCapacity}
-                        </Badge>
-                      ) : quota.status === 'approved' ? (
-                        <span className="text-sm font-medium text-gray-900">
-                          {quota.requestedCapacity}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">0</span>
-                      )}
-                    </td>
-
-                    {/* Approved Requests */}
-                    <td className="px-6 py-4 text-center bg-green-50">
-                      {quota.approvedCapacity > 0 ? (
-                        <span className="text-sm font-semibold text-green-700">
-                          {quota.approvedCapacity}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">0</span>
-                      )}
-                    </td>
-
-                    {/* Assigned Students */}
-                    <td className="px-6 py-4 text-center">
-                      {quota.assignedCount > 0 ? (
-                        <button
-                          onClick={() => toggleRow(quota.requestId + '-' + quota.departmentId)}
-                          className="text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                        >
-                          {quota.assignedCount}
-                        </button>
-                      ) : (
-                        <span className="text-sm text-gray-400">0</span>
-                      )}
-                    </td>
-
-                    {/* Available Capacity */}
-                    <td className="px-6 py-4 text-center">
-                      {quota.availableCount > 0 ? (
-                        <span className="text-sm font-medium text-green-600">
-                          {quota.availableCount}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">0</span>
-                      )}
-                    </td>
-
-                    {/* Actions */}
-                    <td className="px-6 py-4 text-center">
-                      {isPending ? (
-                        <div className="flex items-center justify-center gap-2">
-                          {onEditRequest && (
-                            <button
-                              onClick={() => onEditRequest(quota.requestId)}
-                              className="text-gray-600 hover:text-blue-600 transition-colors"
-                              title="Edit request"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                          )}
-                          {onDeleteRequest && (
-                            <button
-                              onClick={() => setDeleteConfirmRequest(quota)}
-                              className="text-gray-600 hover:text-red-600 transition-colors"
-                              title="Delete request"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                    return (
+                      <div
+                        key={rowKey}
+                        className={`px-4 py-2.5 flex items-center gap-2 transition-colors ${
+                          isPending ? 'bg-amber-100/70' : isFull ? 'bg-gray-50/40' : 'hover:bg-blue-50/20'
+                        }`}
+                      >
+                        {/* Entity name */}
+                        <div className="flex-1 min-w-0 flex items-center gap-1.5 pl-2">
+                          <div className="w-1 h-1 rounded-full bg-gray-300 flex-shrink-0" />
+                          <p className="text-sm text-gray-800 truncate">{entity.departmentName}</p>
+                          {isFull && (
+                            <Badge variant="outline" className="text-[9px] h-4 px-1 bg-gray-100 text-gray-400 border-gray-200 flex-shrink-0">
+                              Full
+                            </Badge>
                           )}
                         </div>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!hasAvailability}
-                          onClick={() => {
-                            if (!isPublished) {
-                              setShowPublishWarning(true);
-                            } else {
-                              // Validate that we have valid department info before proceeding
-                              if (!quota.departmentId || !quota.departmentName) {
-                                console.error('[QuickAssign] Invalid quota data - missing department:', quota);
-                                toast.error('Cannot assign students: Department information is missing');
-                                return;
-                              }
-                              
-                              onQuickAssign({
-                                requestId: quota.requestId,
-                                praksisPlaceId: quota.praksisPlaceId,
-                                praksisPlaceName: quota.praksisPlaceName,
-                                departmentId: quota.departmentId,
-                                departmentName: quota.departmentName,
-                                availableCapacity: quota.availableCount,
-                                entityId: quota.departmentId, // Pass entityId (same as departmentId for each row)
-                              });
-                            }
-                          }}
-                          className={
-                            hasAvailability
-                              ? "text-blue-600 border-blue-600 hover:bg-blue-50"
-                              : ""
-                          }
-                        >
-                          <UserPlus className="h-4 w-4 mr-2" />
-                          Assign
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
 
-                  {/* Expanded row - Show assigned students + chart */}
-                  {isExpanded && hasAssignedStudents && (
-                    <tr>
-                      <td colSpan={9} className="px-6 py-4 bg-gray-50">
-                        <div className="space-y-4">
-                          {/* Assigned Students List */}
-                          <div>
-                            <h4 className="text-sm font-medium text-gray-900 mb-3">
-                              Assigned Students ({quota.assignedStudents.length})
-                            </h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                              {quota.assignedStudents.map((student) => (
-                                <div
-                                  key={student.id}
-                                  className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-3"
-                                >
-                                  <div className="flex-shrink-0">
-                                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                                      <User className="h-4 w-4 text-blue-600" />
-                                    </div>
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-gray-900 truncate">
-                                      {student.name}
-                                    </p>
-                                    <p className="text-xs text-gray-500 truncate">
-                                      {student.email}
-                                    </p>
-                                  </div>
-                                </div>
-                              ))}
+                        {/* Stats */}
+                        {isPending ? (
+                          <div className="flex-shrink-0 text-xs text-right">
+                            <span className="font-bold text-amber-700">{entity.requestedCapacity}</span>
+                            <span className="text-gray-400 ml-0.5 text-[10px]"> req</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {/* req / apr */}
+                            <div className="flex flex-col items-center leading-none">
+                              <span className="text-xs font-semibold text-gray-800">
+                                {entity.requestedCapacity}
+                                <span className="text-gray-300 mx-0.5">/</span>
+                                {entity.approvedCapacity}
+                              </span>
+                              <span className="text-[9px] text-gray-400 mt-0.5">req·apr</span>
+                            </div>
+                            <span className="text-gray-200 text-sm leading-none">|</span>
+                            {/* avail / asgn */}
+                            <div className="flex flex-col items-center leading-none">
+                              <span className="text-xs font-semibold">
+                                <span className={entity.availableCount > 0 ? 'text-green-600' : 'text-gray-400'}>
+                                  {entity.availableCount}
+                                </span>
+                                <span className="text-gray-300 mx-0.5">/</span>
+                                <span className="text-blue-600">{entity.assignedCount}</span>
+                              </span>
+                              <span className="text-[9px] text-gray-400 mt-0.5">avail·asgn</span>
                             </div>
                           </div>
+                        )}
 
-                          {/* Chart */}
-                          {chartData.length > 0 && (
-                            <div>
-                              <h4 className="text-sm font-medium text-gray-900 mb-3">
-                                Capacity Timeline
-                              </h4>
-                              
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
+                        {/* Action */}
+                        {isPending ? (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {onEditRequest && (
+                              <button
+                                onClick={() => onEditRequest(entity.requestId)}
+                                className="h-6 w-6 flex items-center justify-center rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                title="Edit"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onDeleteRequest && (
+                              <button
+                                onClick={() => setDeleteConfirmRequest(entity)}
+                                className="h-6 w-6 flex items-center justify-center rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleWarningClick(entity)}
+                              className="h-6 w-6 flex items-center justify-center rounded text-green-600 hover:text-green-700 hover:bg-green-50 transition-colors"
+                              title="Approve request"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!hasAvailability}
+                            onClick={() => {
+                              if (!isPublished) {
+                                setShowPublishWarning(true);
+                              } else {
+                                if (!entity.departmentId || !entity.departmentName) {
+                                  toast.error('Cannot assign students: Department information is missing');
+                                  return;
+                                }
+                                onQuickAssign({
+                                  requestId: entity.requestId,
+                                  praksisPlaceId: entity.praksisPlaceId,
+                                  praksisPlaceName: entity.praksisPlaceName,
+                                  departmentId: entity.departmentId,
+                                  departmentName: entity.departmentName,
+                                  availableCapacity: entity.availableCount,
+                                  entityId: entity.departmentId,
+                                });
+                              }
+                            }}
+                            className={`h-7 w-7 p-0 flex-shrink-0 ml-[5px] ${hasAvailability ? 'text-blue-600 border-blue-200 hover:bg-blue-50' : ''}`}
+                            title="Assign students"
+                          >
+                            <UserPlus className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               );
             })}
-          </tbody>
-        </table>
+          </div>
+        ))}
       </div>
 
-      {/* Footer Summary */}
-      <div className="border-t border-gray-200 bg-gray-50 px-6 py-4">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-gray-600">Total Capacity:</span>
-          <div className="flex items-center gap-6">
-            <span className="text-gray-900">
-              <span className="font-medium">{totalApprovedCapacity}</span> approved
+      {/* Footer summary */}
+      <div className="border-t border-gray-100 bg-gray-50 px-4 py-2.5 rounded-b-lg">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-gray-500 font-medium">Total</span>
+          <div className="flex items-center gap-3 text-gray-600">
+            <span>
+              <span className="font-semibold text-gray-800">{totalRequested}</span>
+              <span className="text-gray-300 mx-0.5">/</span>
+              <span className="font-semibold text-gray-800">{totalApprovedCapacity}</span>
+              <span className="text-gray-400 ml-1">req·apr</span>
+            </span>
+            <span className="text-gray-200">|</span>
+            <span>
+              <span className={`font-semibold ${totalAvailable > 0 ? 'text-green-600' : 'text-gray-400'}`}>{totalAvailable}</span>
+              <span className="text-gray-300 mx-0.5">/</span>
+              <span className="font-semibold text-blue-600">{totalAssigned}</span>
+              <span className="text-gray-400 ml-1">avail·asgn</span>
             </span>
             {totalPendingCapacity > 0 && (
-              <span className="text-amber-700">
-                <span className="font-medium">{totalPendingCapacity}</span> pending
-              </span>
+              <>
+                <span className="text-gray-200">|</span>
+                <span>
+                  <span className="font-semibold text-amber-700">{totalPendingCapacity}</span>
+                  <span className="text-gray-400 ml-1">pending</span>
+                </span>
+              </>
             )}
-            <span className="text-gray-900">
-              <span className="font-medium">{totalAssigned}</span> assigned
-            </span>
-            <span className="text-green-600">
-              <span className="font-medium">{totalAvailable}</span> available
-            </span>
           </div>
         </div>
       </div>
+
+      {/* ─── Dialogs ──────────────────────────────────────────────────────── */}
 
       {/* Warning Dialog */}
       <Dialog open={!!warningDialogRequest} onOpenChange={() => setWarningDialogRequest(null)}>
@@ -835,16 +652,8 @@ export default function AvailableQuotasTable({
             </div>
           )}
           <DialogFooter className="flex gap-2 sm:gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setWarningDialogRequest(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleProceedToApproval}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
+            <Button variant="outline" onClick={() => setWarningDialogRequest(null)}>Cancel</Button>
+            <Button onClick={handleProceedToApproval} className="bg-green-600 hover:bg-green-700 text-white">
               <Check className="h-4 w-4 mr-2" />
               Approve Request
             </Button>
@@ -893,23 +702,16 @@ export default function AvailableQuotasTable({
                   onChange={(e) => setApprovedQuantity(Number(e.target.value))}
                   className="text-lg font-medium"
                 />
-                <p className="text-xs text-gray-500">
-                  Enter a value between 0 and {approvalDialogRequest.requestedCapacity}
-                </p>
+                <p className="text-xs text-gray-500">Enter a value between 0 and {approvalDialogRequest.requestedCapacity}</p>
               </div>
             </div>
           )}
           <DialogFooter className="flex gap-2 sm:gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setApprovalDialogRequest(null)}
-            >
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setApprovalDialogRequest(null)}>Cancel</Button>
             <Button
               onClick={handleConfirmApproval}
               className="bg-green-600 hover:bg-green-700 text-white"
-              disabled={approvedQuantity < 0 || (approvalDialogRequest && approvedQuantity > approvalDialogRequest.requestedCapacity)}
+              disabled={approvedQuantity < 0 || (approvalDialogRequest ? approvedQuantity > approvalDialogRequest.requestedCapacity : false)}
             >
               <Check className="h-4 w-4 mr-2" />
               Confirm Approval
@@ -930,10 +732,7 @@ export default function AvailableQuotasTable({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              onClick={() => setShowPublishWarning(false)}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
+            <Button onClick={() => setShowPublishWarning(false)} className="bg-blue-600 hover:bg-blue-700 text-white">
               Got it
             </Button>
           </DialogFooter>
@@ -971,16 +770,14 @@ export default function AvailableQuotasTable({
             </div>
           )}
           <DialogFooter className="flex gap-2 sm:gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteConfirmRequest(null)}
-            >
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setDeleteConfirmRequest(null)}>Cancel</Button>
             <Button
               onClick={() => {
                 if (deleteConfirmRequest && onDeleteRequest) {
-                  onDeleteRequest(deleteConfirmRequest.requestId);
+                  onDeleteRequest(
+                    deleteConfirmRequest.requestId,
+                    deleteConfirmRequest.isMultiEntity ? deleteConfirmRequest.departmentId : undefined,
+                  );
                   setDeleteConfirmRequest(null);
                 }
               }}
