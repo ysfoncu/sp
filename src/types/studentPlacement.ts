@@ -25,6 +25,8 @@ export interface PlacementTaskState {
   documentsAttached: boolean;
   finalPublished: boolean;
   completedTasks: string[]; // Task IDs
+  assignmentPublished?: boolean;
+  assignmentPublishedDate?: string;
 }
 
 // Mock data for Student Placements

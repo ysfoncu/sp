@@ -22,6 +22,13 @@ import {
   Clock,
   XCircle,
   HelpCircle,
+  Search,
+  ChevronUp,
+  ArrowUpDown,
+  AlertTriangle,
+  Maximize2,
+  Minimize2,
+  Pencil,
 } from "lucide-react";
 import imgButton from "figma:asset/b43e117ee3af1d4270d7dc2e21fae9993aece0e2.png";
 import { Button } from "./ui/button";
@@ -45,7 +52,6 @@ import {
   SelectValue,
 } from "./ui/select";
 import { PlacementTasksModal } from "./PlacementTasksModal";
-import { SlideOverAssignStudent } from "./SlideOverAssignStudent";
 import { QuickAssignStudentsModal } from "./QuickAssignStudentsModal";
 import {
   SlideOverManageQuota,
@@ -130,6 +136,8 @@ interface PlacementTaskViewProps {
     documentsAttached: boolean;
     finalPublished: boolean;
     completedTasks: string[];
+    assignmentPublished?: boolean;
+    assignmentPublishedDate?: string;
   };
   onTaskStateUpdate?: (state: any) => void;
   onboardingStep?: number;
@@ -212,8 +220,6 @@ export function PlacementTaskView({
     useState<PlacementTask[]>(placementTasks);
   const [isTasksModalOpen, setIsTasksModalOpen] =
     useState(false);
-  const [isAssignModalOpen, setIsAssignModalOpen] =
-    useState(false);
   const [isManageQuotaModalOpen, setIsManageQuotaModalOpen] =
     useState(false);
   const [isRequestQuotaModalOpen, setIsRequestQuotaModalOpen] =
@@ -259,6 +265,17 @@ export function PlacementTaskView({
   // Actions dropdown state
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] =
     useState(false);
+  const [isStudentsExpanded, setIsStudentsExpanded] = useState(false);
+  const [isAssignmentPublished, setIsAssignmentPublished] = useState(
+    initialTaskState?.assignmentPublished ?? false
+  );
+  const [assignmentPublishedDate, setAssignmentPublishedDate] = useState<string | null>(
+    initialTaskState?.assignmentPublishedDate ?? null
+  );
+  const [isPublishConfirmOpen, setIsPublishConfirmOpen] = useState(false);
+  const [wasEverPublished, setWasEverPublished] = useState(
+    initialTaskState?.assignmentPublished ?? false
+  );
 
   // Congratulations state for completed placement
   const [showCongratulations, setShowCongratulations] =
@@ -312,6 +329,8 @@ export function PlacementTaskView({
 
   // Visual filter: show only unassigned students in the table
   const [showUnassignedOnly, setShowUnassignedOnly] = useState(false);
+  const [studentSearch, setStudentSearch] = useState('');
+  const [studentSortDir, setStudentSortDir] = useState<'asc' | 'desc' | null>(null);
 
   const toggleColumn = (
     column: keyof typeof visibleColumns,
@@ -419,6 +438,19 @@ export function PlacementTaskView({
         return sum;
       }, 0)
     : 0;
+
+  // Build a set of "placeName|entityName" keys for all quota entities in this placement
+  // Used to flag placement history records that overlap with available quotas
+  const quotaEntityKeys = new Set<string>(
+    coordinatorQuotaRequests.flatMap((req) => {
+      if (req.entityDistributions && req.entityDistributions.length > 0) {
+        return req.entityDistributions.map(
+          (e) => `${req.praksisPlaceName.toLowerCase()}|${e.entityName.toLowerCase()}`
+        );
+      }
+      return [`${req.praksisPlaceName.toLowerCase()}|${req.departmentName.toLowerCase()}`];
+    })
+  );
 
   // Only use coordinator approved quotas (available capacity)
   // The old quota system (totalFixedQuotas, totalApprovedRequestQuotas) is deprecated
@@ -606,41 +638,7 @@ export function PlacementTaskView({
     onBack();
   };
 
-  const handleCompleteAndPublish = () => {
-    const task6 = tasks.find((t) => t.step === "6/6");
-    if (!task6) return;
-
-    const mandatoryTasks = tasks.filter(
-      (t) => t.status === "mandatory" && t.id !== task6.id,
-    );
-    const allMandatoryCompleted = mandatoryTasks.every(
-      (t) => t.completed,
-    );
-
-    if (!allMandatoryCompleted) {
-      alert(
-        "Cannot publish: Please complete all mandatory tasks before publishing.",
-      );
-      return;
-    }
-
-    // Mark task 6/6 as complete
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === task6.id ? { ...t, completed: true } : t,
-      ),
-    );
-
-    // Update placement status to "completed"
-    if (onPlacementStatusUpdate) {
-      onPlacementStatusUpdate(placement.id, "completed");
-    }
-
-    // Show congratulations
-    setShowCongratulations(true);
-  };
-
-  const handleFirstPublish = (
+const handleFirstPublish = (
     deadline: string,
     message: string,
   ) => {
@@ -784,11 +782,7 @@ export function PlacementTaskView({
     });
   };
 
-  const handleBulkAssign = () => {
-    setIsAssignModalOpen(true);
-  };
-
-  const handleSaveQuotas = (newQuotas: QuotaSelection[]) => {
+const handleSaveQuotas = (newQuotas: QuotaSelection[]) => {
     setQuotas(newQuotas);
 
     // Create QuotaRequest objects for contact person view
@@ -1239,24 +1233,16 @@ export function PlacementTaskView({
     }
   }, [studentsImported, students.length, totalQuotas]);
 
-  // Auto-complete Step 3/6 (previously 4/7) when all students are assigned
+  // Auto-complete or auto-uncomplete Step 3/6 based on whether all students are assigned
   useEffect(() => {
-    if (students.length > 0) {
-      const allStudentsAssigned = students.every(
-        (s) => s.assignedPraksisPlace,
-      );
-
-      // Only auto-complete, never auto-uncomplete
-      if (allStudentsAssigned) {
-        setTasks((prev) =>
-          prev.map(
-            (t, idx) =>
-              idx === 2 ? { ...t, completed: true } : t, // Task 3/6 is at index 2
-          ),
-        );
-      }
-    }
-  }, [students]);
+    if (!studentsImported || students.length === 0) return;
+    const allAssigned = students.every((s) => s.assignedPraksisPlace);
+    setTasks((prev) =>
+      prev.map((t, idx) =>
+        idx === 2 ? { ...t, completed: allAssigned } : t,
+      ),
+    );
+  }, [students, studentsImported]);
 
   // Initialize tasks completion state from initialTaskState (only once)
   useEffect(() => {
@@ -1316,9 +1302,11 @@ export function PlacementTaskView({
           tasks.find((t) => t.step === "6/6")?.completed ||
           false,
         completedTasks: completedTaskIds,
+        assignmentPublished: isAssignmentPublished,
+        assignmentPublishedDate: assignmentPublishedDate ?? undefined,
       });
     }
-  }, [students, quotas, studentsImported, tasks, placement.id]);
+  }, [students, quotas, studentsImported, tasks, placement.id, isAssignmentPublished, assignmentPublishedDate]);
 
   // Handle AI Assistant actions
   const handleAIAction = (action: string, data: any) => {
@@ -1457,16 +1445,47 @@ export function PlacementTaskView({
               )}
             </div>
 
-            {/* Help Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsHelpOverlayOpen(true)}
-              className="flex items-center gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-300"
-            >
-              <HelpCircle className="h-4 w-4" />
-              <span className="font-medium">Help</span>
-            </Button>
+            {/* Top-right controls: task chip / edit button + Help */}
+            <div className="flex items-center gap-2">
+              {/* When published: show Edit button to re-enter edit mode */}
+              {isAssignmentPublished ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAssignmentPublished(false)}
+                  className="flex items-center gap-2 text-gray-600 hover:text-gray-800 border-gray-300"
+                >
+                  <Pencil className="h-4 w-4" />
+                  <span className="font-medium">Edit</span>
+                </Button>
+              ) : (
+                /* Compact current-task chip */
+                currentTask && placement.status !== "draft" && (
+                  <button
+                    type="button"
+                    onClick={() => setIsTasksModalOpen(true)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
+                      currentTask.step === "6/6"
+                        ? "bg-green-50 border-green-200 text-green-800 hover:bg-green-100"
+                        : "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100"
+                    }`}
+                  >
+                    <span className="font-bold">{currentTask.step}</span>
+                    <span className="max-w-[180px] truncate">{currentTask.title}</span>
+                  </button>
+                )
+              )}
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsHelpOverlayOpen(true)}
+                className="flex items-center gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-300"
+              >
+                <HelpCircle className="h-4 w-4" />
+                <span className="font-medium">Help</span>
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -1486,135 +1505,6 @@ export function PlacementTaskView({
           </div>
         )}
 
-        {/* Current Task Banner */}
-        {currentTask && placement.status !== "draft" && (
-          <div className="pt-4 bg-white">
-            {/* Amber Banner for non-6/6 tasks */}
-            {currentTask.step !== "6/6" && (
-                <div
-                  className={`border rounded-xl p-4 flex items-start justify-between bg-amber-50 border-amber-100`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="bg-purple-100 p-2 rounded-lg mt-0.5">
-                      <svg
-                        className="h-5 w-5 text-purple-600"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                    </div>
-                    <div>
-                      <div className="font-semibold text-gray-900">
-                        {currentTask.step} {currentTask.title}
-                      </div>
-                      <div className="text-sm text-gray-600 mt-0.5">
-                        {currentTask.description}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-
-                    {/* Add Publish button for step 2/6 */}
-                    {currentTask.step === "2/6" &&
-                      currentTask.actionType === "publish" && (
-                        <Button
-                          onClick={() =>
-                            handleTaskAction(currentTask.id)
-                          }
-                          disabled={currentTask.completed}
-                          className="bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          Publish
-                        </Button>
-                      )}
-                    
-                    {/* Add action button for steps 4/6 and 5/6 */}
-                    {(currentTask.step === "4/6" || currentTask.step === "5/6") && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleTaskAction(currentTask.id)}
-                        disabled={currentTask.completed}
-                        className="h-8 w-full text-xs font-medium"
-                      >
-                        {currentTask.completed ? 'Completed' : currentTask.actionLabel}
-                      </Button>
-                    )}
-
-                    <Button
-                      variant="link"
-                      onClick={() => setIsTasksModalOpen(true)}
-                      className="text-gray-700 hover:text-gray-900 font-medium text-sm"
-                    >
-                      View all
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-            {/* Special Banner for 6/6 Second publish */}
-            {currentTask.step === "6/6" &&
-              !currentTask.completed &&
-              (() => {
-                const mandatoryTasks = tasks.filter(
-                  (t) =>
-                    t.status === "mandatory" &&
-                    t.id !== currentTask.id,
-                );
-                const allMandatoryCompleted =
-                  mandatoryTasks.every((t) => t.completed);
-
-                return (
-                  allMandatoryCompleted && (
-                    <div className="border rounded-xl p-4 flex items-start justify-between bg-amber-50 border-amber-100">
-                      <div className="flex items-start gap-3">
-                        <div className="bg-purple-100 p-2 rounded-lg mt-0.5">
-                          <svg
-                            className="h-5 w-5 text-purple-600"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
-                          </svg>
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-900">
-                            {currentTask.step}{" "}
-                            {currentTask.title}
-                          </div>
-                          <div className="text-sm text-gray-600 mt-0.5">
-                            All mandatory tasks completed. Ready
-                            to publish placement!
-                          </div>
-                        </div>
-                      </div>
-                      <Button
-                        onClick={handleCompleteAndPublish}
-                        className="bg-green-600 hover:bg-green-700 text-white"
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Complete and publish placement
-                      </Button>
-                    </div>
-                  )
-                );
-              })()}
-          </div>
-        )}
 
         {/* Congratulations Banner - Show when all tasks are completed */}
         {showCongratulations && !currentTask && (
@@ -1856,7 +1746,7 @@ export function PlacementTaskView({
           ) : (
             <div className="space-y-4 pt-6">
               {/* Validation Alerts - full width */}
-              {students.length > 0 && totalQuotas < students.length && !allStudentsAssigned && (
+              {!isStudentsExpanded && students.length > 0 && totalQuotas < students.length && !allStudentsAssigned && (
                 <Alert className="bg-amber-50 border-amber-200">
                   <Info className="h-4 w-4 text-amber-600" />
                   <AlertTitle className="text-amber-900">
@@ -1881,11 +1771,64 @@ export function PlacementTaskView({
                 </Alert>
               )}
 
+              {/* Assignment publish banner — shown when all students are assigned */}
+              {studentsImported && allStudentsAssigned && students.length > 0 && (
+                <div className={`border rounded-xl p-4 flex items-center justify-between ${
+                  isAssignmentPublished
+                    ? "bg-green-50 border-green-200"
+                    : "bg-green-50 border-green-300"
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <div className="bg-green-100 p-2 rounded-lg flex-shrink-0">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-green-900">
+                        {isAssignmentPublished
+                          ? "Assignments published"
+                          : "All students assigned — ready to publish"}
+                      </div>
+                      <div className="text-sm text-green-700 mt-0.5">
+                        {isAssignmentPublished
+                          ? `Published on ${assignmentPublishedDate}`
+                          : "Publishing will lock all assignments and notify the praksis places."}
+                      </div>
+                    </div>
+                  </div>
+                  {!isAssignmentPublished && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {wasEverPublished && (
+                        <Button
+                          variant="outline"
+                          onClick={() => setIsAssignmentPublished(true)}
+                          className="border-gray-300 text-gray-600 hover:bg-gray-50"
+                        >
+                          Cancel edit
+                        </Button>
+                      )}
+                      <Button
+                        onClick={() => setIsPublishConfirmOpen(true)}
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Publish assignments
+                      </Button>
+                    </div>
+                  )}
+                  {isAssignmentPublished && (
+                    <div className="flex items-center gap-1.5 text-green-700 text-sm flex-shrink-0">
+                      <CheckCircle className="h-4 w-4" />
+                      <span className="font-medium">Published</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Split panel: quotas on the left, students on the right */}
               <div className="flex gap-4 items-start">
 
                 {/* LEFT PANEL: Available Quotas — sticky sidebar */}
-                <div className="w-[400px] flex-shrink-0 sticky top-6 max-h-[calc(100vh-220px)] overflow-y-auto rounded-lg border border-gray-200 bg-white">
+                {!isStudentsExpanded && <div className="w-[400px] flex-shrink-0 sticky top-6 max-h-[calc(100vh-220px)] overflow-y-auto rounded-lg border border-gray-200 bg-white">
                   <AvailableQuotasTable
                     coordinatorQuotaRequests={coordinatorQuotaRequests}
                     students={students}
@@ -1897,13 +1840,14 @@ export function PlacementTaskView({
                     startDate={metadataFormData.startDate || placement.startDate}
                     endDate={metadataFormData.endDate || placement.endDate}
                     isPublished={isFirstPublishCompleted}
+                    readOnly={isAssignmentPublished}
                     onQuickAssign={handleQuickAssign}
                     onRequestMoreQuotas={handleRequestMoreQuotas}
                     onApproveRequest={handleApproveRequest}
                     onEditRequest={handleEditRequest}
                     onDeleteRequest={handleDeleteRequest}
                   />
-                </div>{/* end LEFT PANEL */}
+                </div>}{/* end LEFT PANEL */}
 
                 {/* RIGHT PANEL: Students */}
                 <div className="flex-1 min-w-0">
@@ -1948,6 +1892,27 @@ export function PlacementTaskView({
                           {showUnassignedOnly ? 'Showing unassigned only' : 'Show unassigned only'}
                         </button>
                       )}
+                      {/* Search field */}
+                      {students.length > 0 && (
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder="Search students…"
+                            value={studentSearch}
+                            onChange={(e) => setStudentSearch(e.target.value)}
+                            className="h-6 pl-7 pr-6 text-xs border border-gray-200 rounded-md bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400 w-44"
+                          />
+                          {studentSearch && (
+                            <button
+                              onClick={() => setStudentSearch('')}
+                              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                     {students.length > 0 && (
                       <div className="flex items-center gap-2 mt-1.5">
@@ -1965,6 +1930,7 @@ export function PlacementTaskView({
                   </div>
                   <div className="flex gap-2">
                     {/* Network Diagram Button */}
+                    {!isAssignmentPublished && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -1976,6 +1942,7 @@ export function PlacementTaskView({
                       <Network className="h-4 w-4" />
                       Diagram
                     </Button>
+                    )}
 
                     <Button
                       variant="outline"
@@ -2121,8 +2088,18 @@ export function PlacementTaskView({
                       )}
                     </div>
 
+                    {/* Expand / collapse sidebar */}
+                    <button
+                      type="button"
+                      onClick={() => setIsStudentsExpanded((v) => !v)}
+                      title={isStudentsExpanded ? "Collapse — show quotas panel" : "Expand — hide quotas panel"}
+                      className="p-1.5 rounded-md border border-gray-300 text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                    >
+                      {isStudentsExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                    </button>
+
                     {/* Actions Dropdown */}
-                    <div className="relative">
+                    {!isAssignmentPublished && <div className="relative">
                       <Button
                         size="sm"
                         disabled={selectedStudents.size === 0}
@@ -2155,34 +2132,6 @@ export function PlacementTaskView({
 
                             {/* Menu */}
                             <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 overflow-hidden">
-                              <button
-                                onClick={() => {
-                                  handleBulkAssign();
-                                  setIsActionsDropdownOpen(
-                                    false,
-                                  );
-                                }}
-                                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-3"
-                              >
-                                <Users className="h-4 w-4 text-gray-500" />
-                                <div>
-                                  <div className="font-medium">
-                                    Assign to praksis places
-                                  </div>
-                                  <div className="text-xs text-gray-500 mt-0.5">
-                                    Assign{" "}
-                                    {selectedStudents.size}{" "}
-                                    student
-                                    {selectedStudents.size !== 1
-                                      ? "s"
-                                      : ""}{" "}
-                                    to departments
-                                  </div>
-                                </div>
-                              </button>
-
-                              <div className="border-t border-gray-100" />
-
                               <button
                                 onClick={() => {
                                   // Open file picker for bulk file attachment
@@ -2268,7 +2217,7 @@ export function PlacementTaskView({
                             </div>
                           </>
                         )}
-                    </div>
+                    </div>}
                   </div>
                 </div>
 
@@ -2298,8 +2247,16 @@ export function PlacementTaskView({
                         />
                       </th>
                       {visibleColumns.student && (
-                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                          Student
+                        <th
+                          className="px-4 py-3 text-left text-sm font-semibold text-gray-700 cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                          onClick={() => setStudentSortDir(d => d === 'asc' ? 'desc' : d === 'desc' ? null : 'asc')}
+                        >
+                          <div className="flex items-center gap-1">
+                            Student
+                            {studentSortDir === 'asc'  ? <ChevronUp    className="h-3.5 w-3.5 text-blue-500" /> :
+                             studentSortDir === 'desc' ? <ChevronDown   className="h-3.5 w-3.5 text-blue-500" /> :
+                                                         <ArrowUpDown   className="h-3.5 w-3.5 text-gray-400" />}
+                          </div>
                         </th>
                       )}
                       {visibleColumns.placementHistory && (
@@ -2337,6 +2294,11 @@ export function PlacementTaskView({
                   <tbody>
                     {students
                       .filter(s => !showUnassignedOnly || !s.assignedPraksisPlace)
+                      .filter(s => !studentSearch.trim() || s.name.toLowerCase().includes(studentSearch.toLowerCase()))
+                      .sort((a, b) =>
+                        studentSortDir === 'asc'  ?  a.name.localeCompare(b.name) :
+                        studentSortDir === 'desc' ?  b.name.localeCompare(a.name) : 0
+                      )
                       .map((student) => (
                       <tr
                         key={student.id}
@@ -2391,43 +2353,59 @@ export function PlacementTaskView({
                                   return (
                                     <>
                                       {displayPlacements.map(
-                                        (placement) => (
-                                          <div
-                                            key={
-                                              placement.placementId
-                                            }
-                                            className="flex items-center gap-2"
-                                          >
-                                            <Badge
-                                              variant="outline"
-                                              className={`text-xs ${
-                                                placement.status ===
-                                                "current"
-                                                  ? "bg-blue-50 text-blue-700 border-blue-200"
-                                                  : placement.status ===
-                                                      "upcoming"
-                                                    ? "bg-green-50 text-green-700 border-green-200"
-                                                    : "bg-gray-50 text-gray-600 border-gray-200"
-                                              }`}
+                                        (placement) => {
+                                          const statusColor =
+                                            placement.status === "current"
+                                              ? "border-l-blue-400 bg-blue-50"
+                                              : placement.status === "upcoming"
+                                              ? "border-l-green-400 bg-green-50"
+                                              : "border-l-gray-300 bg-gray-50";
+                                          const textColor =
+                                            placement.status === "current"
+                                              ? "text-blue-800"
+                                              : placement.status === "upcoming"
+                                              ? "text-green-800"
+                                              : "text-gray-600";
+                                          const topLine = [
+                                            placement.year,
+                                            placement.semester,
+                                            placement.emne,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" / ");
+                                          const placeLabel = placement.unitName
+                                            ? `${placement.praksisPlaceName} / ${placement.unitName}`
+                                            : placement.praksisPlaceName;
+                                          const isConflict =
+                                            placement.praksisPlaceName &&
+                                            placement.unitName &&
+                                            quotaEntityKeys.has(
+                                              `${placement.praksisPlaceName.toLowerCase()}|${placement.unitName.toLowerCase()}`
+                                            );
+                                          return (
+                                            <div
+                                              key={placement.placementId}
+                                              className={`border-l-2 pl-2 py-0.5 rounded-sm ${statusColor}`}
                                             >
-                                              {placement.status ===
-                                                "current" &&
-                                                "🔵 Current"}
-                                              {placement.status ===
-                                                "upcoming" &&
-                                                "🟢 Upcoming"}
-                                              {placement.status ===
-                                                "previous" &&
-                                                "⚪ Previous"}
-                                            </Badge>
-                                            <span className="text-xs text-gray-600">
-                                              {
-                                                placement.semester
-                                              }{" "}
-                                              {placement.year}
-                                            </span>
-                                          </div>
-                                        ),
+                                              <div className={`text-xs font-medium ${textColor} flex items-center gap-1`}>
+                                                {isConflict && (
+                                                  <span title="Student has already been placed at this entity">
+                                                    <AlertTriangle className="h-3 w-3 text-red-500 flex-shrink-0" />
+                                                  </span>
+                                                )}
+                                                {topLine}
+                                              </div>
+                                              {placeLabel && (
+                                                <div
+                                                  className="text-xs text-gray-500 truncate max-w-[200px]"
+                                                  title={placeLabel}
+                                                >
+                                                  {placeLabel}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        },
                                       )}
                                       {student.placementHistory
                                         .length > 2 && (
@@ -2458,16 +2436,9 @@ export function PlacementTaskView({
                         {visibleColumns.assignedPlace && (
                           <td className="px-4 py-4">
                             {student.assignedPraksisPlace ? (
-                              <div
-                                onClick={() => {
-                                  setSelectedStudent(student);
-                                  setIsAssignModalOpen(true);
-                                }}
-                                className="cursor-pointer hover:bg-blue-50 -m-2 p-2 rounded-lg transition-colors group"
-                              >
-                                <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center justify-between gap-2">
                                   <div className="flex-1">
-                                    <div className="font-medium text-gray-800 group-hover:text-blue-600 text-[12px]">
+                                    <div className="font-medium text-gray-800 text-[12px]">
                                       {
                                         student
                                           .assignedPraksisPlace
@@ -2518,26 +2489,28 @@ export function PlacementTaskView({
                                       </Badge>
                                     )}
                                   </div>
-                                  <Badge
-                                    variant="outline"
-                                    className="bg-red-50 text-red-600 border-red-200 text-xs cursor-pointer hover:bg-red-100"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setStudents((prev) =>
-                                        prev.map((s) =>
-                                          s.id === student.id
-                                            ? { ...s, assignedPraksisPlace: undefined }
-                                            : s,
-                                        ),
-                                      );
-                                      toast.success(`${student.name} detached from praksis place`);
-                                    }}
-                                  >
-                                    Detach
-                                  </Badge>
+                                  {!isAssignmentPublished && (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-red-50 text-red-600 border-red-200 text-xs cursor-pointer hover:bg-red-100"
+                                      onClick={(e: React.MouseEvent) => {
+                                        e.stopPropagation();
+                                        setStudents((prev) =>
+                                          prev.map((s) =>
+                                            s.id === student.id
+                                              ? { ...s, assignedPraksisPlace: undefined }
+                                              : s,
+                                          ),
+                                        );
+                                        toast.success(`${student.name} detached from praksis place`);
+                                      }}
+                                    >
+                                      Detach
+                                    </Badge>
+                                  )}
                                 </div>
-                              </div>
                             ) : (
+                              !isAssignmentPublished && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -2553,6 +2526,7 @@ export function PlacementTaskView({
                               >
                                 Add praksis place
                               </Button>
+                              )
                             )}
                           </td>
                         )}
@@ -2823,26 +2797,39 @@ export function PlacementTaskView({
           onTaskAction={handleTaskAction}
         />
 
-        <SlideOverAssignStudent
-          isOpen={isAssignModalOpen}
-          onClose={() => {
-            setIsAssignModalOpen(false);
-            setSelectedStudent(null);
-            setSelectedStudents(new Set());
-          }}
-          student={selectedStudent}
-          students={
-            selectedStudents.size > 0
-              ? students.filter((s) =>
-                  selectedStudents.has(s.id),
-                )
-              : undefined
-          }
-          praksisPlaces={praksisPlaces}
-          quotas={quotas}
-          onAssign={handleAssignStudent}
-          allStudents={students}
-        />
+        {/* Publish assignments confirm dialog */}
+        <Dialog open={isPublishConfirmOpen} onOpenChange={setIsPublishConfirmOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Publish assignments?</DialogTitle>
+              <DialogDescription>
+                Publishing will lock all student assignments. Detach and reassign actions will be disabled and quota request actions will be read-only. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setIsPublishConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="bg-green-600 hover:bg-green-700 text-white"
+                onClick={() => {
+                  const now = new Date().toLocaleString('en-GB', {
+                    day: 'numeric', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                  });
+                  setIsAssignmentPublished(true);
+                  setWasEverPublished(true);
+                  setAssignmentPublishedDate(now);
+                  setIsPublishConfirmOpen(false);
+                  toast.success('Assignments published successfully');
+                }}
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Publish assignments
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Quick Assign Modal - from Available Quotas Table */}
         {selectedQuotaForAssignment && (
@@ -2911,7 +2898,15 @@ export function PlacementTaskView({
                   );
                 }
 
-                return availableRequests.map((request) => (
+                return availableRequests.map((request) => {
+                  const conflictHistory = (selectedStudent?.placementHistory ?? []).filter(
+                    (h) =>
+                      h.praksisPlaceName?.toLowerCase() === request.praksisPlaceName.toLowerCase() &&
+                      h.unitName?.toLowerCase() === request.departmentName.toLowerCase()
+                  );
+                  const hasConflict = conflictHistory.length > 0;
+
+                  return (
                   <button
                     key={request.id}
                     onClick={() => {
@@ -2931,17 +2926,24 @@ export function PlacementTaskView({
                         setSelectedStudent(null);
                       }
                     }}
-                    className="w-full p-4 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left group"
+                    className={`w-full p-4 border rounded-lg transition-all text-left group ${
+                      hasConflict
+                        ? 'border-amber-300 bg-amber-50 hover:border-amber-400'
+                        : 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
+                    }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <Building2 className="h-4 w-4 text-gray-500" />
+                          <Building2 className="h-4 w-4 text-gray-500 flex-shrink-0" />
                           <span className="font-medium text-gray-900">
                             {request.praksisPlaceName}
                           </span>
                         </div>
-                        <div className="text-sm text-gray-600 ml-6">
+                        <div className="flex items-center gap-1.5 text-sm text-gray-600 ml-6">
+                          {hasConflict && (
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                          )}
                           {request.departmentName}
                         </div>
                         {request.emne && (
@@ -2964,8 +2966,42 @@ export function PlacementTaskView({
                             })}
                           </span>
                         </div>
+
+                        {/* Conflict history records */}
+                        {hasConflict && (
+                          <div className="mt-2 ml-6 space-y-1">
+                            {conflictHistory.map((h) => {
+                              const statusColor =
+                                h.status === 'current'
+                                  ? 'border-l-blue-400 bg-blue-50 text-blue-700'
+                                  : h.status === 'upcoming'
+                                  ? 'border-l-green-400 bg-green-50 text-green-700'
+                                  : 'border-l-amber-400 bg-amber-100 text-amber-800';
+                              const label =
+                                h.status === 'current' ? 'Current' :
+                                h.status === 'upcoming' ? 'Upcoming' : 'Previous';
+                              const topLine = [h.year, h.semester, h.emne]
+                                .filter(Boolean)
+                                .join(' / ');
+                              return (
+                                <div
+                                  key={h.placementId}
+                                  className={`border-l-2 pl-2 py-0.5 rounded-sm ${statusColor}`}
+                                >
+                                  <div className="text-xs font-medium">
+                                    {label} · {topLine}
+                                  </div>
+                                  <div className="text-xs opacity-70">
+                                    {h.praksisPlaceName}
+                                    {h.unitName && ` / ${h.unitName}`}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex flex-col items-end gap-1">
+                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
                         <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                           {request.availableCount} available
                         </Badge>
@@ -2975,7 +3011,8 @@ export function PlacementTaskView({
                       </div>
                     </div>
                   </button>
-                ));
+                  );
+                });
               })()}
             </div>
           </DialogContent>

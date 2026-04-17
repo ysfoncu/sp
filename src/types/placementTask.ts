@@ -26,6 +26,7 @@ export interface Student {
     id: string;
     name: string;
   }>;
+  priorities?: string;
   customRequestSubmitted: boolean;
   customRequest?: {
     preferredPlaceName: string;
@@ -34,10 +35,12 @@ export interface Student {
   };
   placementHistory?: {
     placementId: string;
-    placementName: string;
     status: "previous" | "current" | "upcoming";
     semester: string;
     year: string;
+    emne?: string; // Subject code, e.g. "SYK301"
+    praksisPlaceName?: string; // e.g. "Oslo University Hospital HF"
+    unitName?: string; // Optional sub-unit, e.g. "Kirurgisk klinikk"
   }[];
   attachedFiles?: {
     id: string;
@@ -136,17 +139,21 @@ export const mockStudents: Student[] = [
     placementHistory: [
       {
         placementId: "p1",
-        placementName: "Nursing Placement Fall 2024",
         status: "previous",
         semester: "Fall",
         year: "2024",
+        emne: "SYK201",
+        praksisPlaceName: "Oslo University Hospital HF",
+        unitName: "Akuttavdeling",
       },
       {
         placementId: "p2",
-        placementName: "Clinical Practice Spring 2025",
         status: "previous",
         semester: "Spring",
         year: "2025",
+        emne: "SYK301",
+        praksisPlaceName: "Bergen Kommune",
+        unitName: "Solhaugen Sykehjem",
       },
     ],
   },
@@ -167,31 +174,39 @@ export const mockStudents: Student[] = [
     placementHistory: [
       {
         placementId: "p5",
-        placementName: "Foundation Fall 2023",
         status: "previous",
         semester: "Fall",
         year: "2023",
+        emne: "SYK101",
+        praksisPlaceName: "Trondheim Mental Health Services",
+        unitName: "Adult Psychiatry",
       },
       {
         placementId: "p6",
-        placementName: "Intermediate Spring 2024",
         status: "previous",
         semester: "Spring",
         year: "2024",
+        emne: "SYK201",
+        praksisPlaceName: "Bergen Kommune",
+        unitName: "Fjellsiden Sykehjem",
       },
       {
         placementId: "p7",
-        placementName: "Advanced Fall 2024",
         status: "previous",
         semester: "Fall",
         year: "2024",
+        emne: "SYK301",
+        praksisPlaceName: "Oslo University Hospital HF",
+        unitName: "Kirurgisk klinikk",
       },
       {
         placementId: "current",
-        placementName: "Advanced Clinical Fall 2025",
         status: "current",
         semester: "Fall",
         year: "2025",
+        emne: "SYK401",
+        praksisPlaceName: "Oslo University Hospital HF",
+        unitName: "Akuttklinikk",
       },
     ],
   },
@@ -212,10 +227,12 @@ export const mockStudents: Student[] = [
     placementHistory: [
       {
         placementId: "p9",
-        placementName: "Specialization Spring 2026",
         status: "upcoming",
         semester: "Spring",
         year: "2026",
+        emne: "SYK202",
+        praksisPlaceName: "Bergen Kommune",
+        unitName: "Strandsiden Omsorgssenter",
       },
     ],
   },

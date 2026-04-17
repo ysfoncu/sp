@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Users } from 'lucide-react';
+import { X, Users, AlertTriangle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Student } from '../types/placementTask';
 
@@ -120,14 +120,24 @@ export function QuickAssignStudentsModal({
                   const isSelected = selectedStudentIds.has(student.id);
                   const isDisabled = !isSelected && !canSelectMore;
 
+                  // Find history records that match this entity
+                  const conflictHistory = (student.placementHistory ?? []).filter(
+                    (h) =>
+                      h.praksisPlaceName?.toLowerCase() === praksisPlaceName.toLowerCase() &&
+                      h.unitName?.toLowerCase() === departmentName.toLowerCase()
+                  );
+                  const hasConflict = conflictHistory.length > 0;
+
                   return (
                     <label
                       key={student.id}
-                      className={`flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer ${
+                      className={`flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer ${
                         isSelected
                           ? 'bg-blue-50 border-blue-200'
                           : isDisabled
                           ? 'bg-gray-50 border-gray-200 cursor-not-allowed opacity-60'
+                          : hasConflict
+                          ? 'bg-amber-50 border-amber-200 hover:border-amber-300'
                           : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                       }`}
                     >
@@ -137,17 +147,56 @@ export function QuickAssignStudentsModal({
                         checked={isSelected}
                         disabled={isDisabled}
                         onChange={() => handleToggleStudent(student.id)}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+                        className="h-4 w-4 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed flex-shrink-0"
                       />
 
                       {/* Student Info */}
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-gray-900 text-sm">
-                          {student.name}
+                        <div className="flex items-center gap-1.5">
+                          {hasConflict && (
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                          )}
+                          <span className="font-medium text-gray-900 text-sm">
+                            {student.name}
+                          </span>
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
                           {student.email}
                         </div>
+
+                        {/* Conflict history records */}
+                        {hasConflict && (
+                          <div className="mt-2 space-y-1">
+                            {conflictHistory.map((h) => {
+                              const statusColor =
+                                h.status === 'current'
+                                  ? 'border-l-blue-400 bg-blue-50 text-blue-700'
+                                  : h.status === 'upcoming'
+                                  ? 'border-l-green-400 bg-green-50 text-green-700'
+                                  : 'border-l-amber-400 bg-amber-100 text-amber-800';
+                              const label =
+                                h.status === 'current' ? 'Current' :
+                                h.status === 'upcoming' ? 'Upcoming' : 'Previous';
+                              const topLine = [h.year, h.semester, h.emne]
+                                .filter(Boolean)
+                                .join(' / ');
+                              return (
+                                <div
+                                  key={h.placementId}
+                                  className={`border-l-2 pl-2 py-0.5 rounded-sm ${statusColor}`}
+                                >
+                                  <div className="text-xs font-medium">
+                                    {label} · {topLine}
+                                  </div>
+                                  <div className="text-xs opacity-70">
+                                    {h.praksisPlaceName}
+                                    {h.unitName && ` / ${h.unitName}`}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
 
                       {/* Year Badge */}

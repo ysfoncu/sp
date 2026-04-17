@@ -84,6 +84,7 @@ interface AvailableQuotasTableProps {
   startDate?: string;
   endDate?: string;
   isPublished?: boolean;
+  readOnly?: boolean;
   onQuickAssign: (quotaInfo: {
     requestId: string;
     praksisPlaceId: string;
@@ -291,6 +292,7 @@ export default function AvailableQuotasTable({
   startDate,
   endDate,
   isPublished = false,
+  readOnly = false,
   onQuickAssign,
   onRequestMoreQuotas,
   onApproveRequest,
@@ -386,7 +388,7 @@ export default function AvailableQuotasTable({
             {quotaItems.length} request{quotaItems.length !== 1 ? 's' : ''} · {totalAvailable} available
           </p>
         </div>
-        {onRequestMoreQuotas && (
+        {onRequestMoreQuotas && !readOnly && (
           <Button
             onClick={onRequestMoreQuotas}
             variant="outline"
@@ -520,7 +522,7 @@ export default function AvailableQuotasTable({
                         )}
 
                         {/* Action */}
-                        {isPending ? (
+                        {!readOnly && (isPending ? (
                           <div className="flex items-center gap-1 flex-shrink-0">
                             {onEditRequest && (
                               <button
@@ -577,7 +579,7 @@ export default function AvailableQuotasTable({
                           >
                             <UserPlus className="h-3.5 w-3.5" />
                           </Button>
-                        )}
+                        ))}
                       </div>
                     );
                   })}
