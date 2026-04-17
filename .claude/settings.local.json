@@ -6,7 +6,8 @@
       "Bash(cd:*)",
       "Bash(python3:*)",
       "Bash(npm run:*)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(node_modules/.bin/tsc --noEmit)"
     ]
   }
 }
