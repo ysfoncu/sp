@@ -2490,6 +2490,7 @@ export function PlacementTaskView({
                 </div>
 
                 {/* Students Table */}
+                <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
@@ -3020,6 +3021,7 @@ export function PlacementTaskView({
                     ))}
                     </tbody>
                 </table>
+                </div>{/* end overflow-x-auto */}
               </div>
                 </>
             )}
