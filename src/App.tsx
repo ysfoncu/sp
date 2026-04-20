@@ -1080,6 +1080,13 @@ export default function App() {
                     placement={selectedStudentPlacement}
                     praksisPlaces={praksisPlaces}
                     quotaRequests={quotaRequests}
+                    allPlacementsData={placementTaskStates
+                      .filter((ts) => ts.placementId !== selectedStudentPlacement.id)
+                      .map((ts) => ({
+                        placementId: ts.placementId,
+                        placementTitle: studentPlacements.find((p) => p.id === ts.placementId)?.title ?? ts.placementId,
+                        students: ts.students,
+                      }))}
                     initialTaskState={placementTaskStates.find(
                       (ts) =>
                         ts.placementId ===

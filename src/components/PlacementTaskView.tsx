@@ -11,6 +11,7 @@ import {
   placementTasks,
   mockStudents,
 } from "../types/placementTask";
+import { CrossPlacementData } from "./AvailableQuotasTable";
 import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
 import { toast } from "sonner@2.0.3";
 import AvailableQuotasTable from "./AvailableQuotasTable";
@@ -73,6 +74,7 @@ interface PlacementTaskViewProps {
     assignmentPublishedDate?: string;
   };
   onTaskStateUpdate?: (state: any) => void;
+  allPlacementsData?: CrossPlacementData[];
   onboardingStep?: number;
   onboardingData?: any;
   setOnboardingStep?: (step: number) => void;
@@ -103,6 +105,7 @@ export function PlacementTaskView({
   onPlacementDelete,
   initialTaskState,
   onTaskStateUpdate,
+  allPlacementsData = [],
   onboardingStep,
   onboardingData,
   setOnboardingStep,
@@ -402,7 +405,12 @@ export function PlacementTaskView({
               s.assignedPraksisPlace?.quotaRequestId === request.id &&
               s.assignedPraksisPlace?.entityId === entity.entityId,
           ).length;
-          const availableCount = capacity - assignedCount;
+          const crossConsumed = allPlacementsData.flatMap((d) => d.students).filter(
+            (s) =>
+              s.assignedPraksisPlace?.quotaRequestId === request.id &&
+              s.assignedPraksisPlace?.entityId === entity.entityId,
+          ).length;
+          const availableCount = capacity - crossConsumed - assignedCount;
           if (availableCount <= 0) continue;
 
           result.push({
@@ -430,7 +438,10 @@ export function PlacementTaskView({
         const assignedCount = students.filter(
           (s) => s.assignedPraksisPlace?.quotaRequestId === request.id,
         ).length;
-        const availableCount = approvedCapacity - assignedCount;
+        const crossConsumed = allPlacementsData.flatMap((d) => d.students).filter(
+          (s) => s.assignedPraksisPlace?.quotaRequestId === request.id,
+        ).length;
+        const availableCount = approvedCapacity - crossConsumed - assignedCount;
         if (availableCount <= 0) continue;
 
         result.push({
@@ -538,6 +549,7 @@ export function PlacementTaskView({
       );
     } else if (task.actionType === "publish") {
       if (task.step === "2/6") {
+        setIsTasksModalOpen(false);
         setIsFirstPublishModalOpen(true);
         return;
       }
@@ -1469,6 +1481,7 @@ export function PlacementTaskView({
                     <AvailableQuotasTable
                       coordinatorQuotaRequests={coordinatorQuotaRequests}
                       students={students}
+                      crossPlacementData={allPlacementsData}
                       praksisPlaces={praksisPlaces}
                       placementId={placement.id}
                       studyId={placementStudyId}
