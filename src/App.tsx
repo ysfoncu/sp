@@ -216,6 +216,9 @@ export default function App() {
     QuotaOffering[]
   >(mockQuotaOfferings);
 
+  // Node Slots State - stores student capacity per organization node, keyed by praksisPlaceId
+  const [nodeSlots, setNodeSlots] = useState<Record<string, Record<string, number>>>({});
+
   // Coordinator Quota Requests State - PK person requesting capacity from praksis places
   const [
     coordinatorQuotaRequests,
@@ -1306,6 +1309,7 @@ export default function App() {
                         placementTaskStates={
                           placementTaskStates
                         }
+                        nodeSlots={nodeSlots}
                         onRequestCreate={
                           handleCoordinatorQuotaRequestCreate
                         }
@@ -1332,6 +1336,10 @@ export default function App() {
                             }
                             onPlacesUpdate={
                               handlePraksisPlacesUpdate
+                            }
+                            nodeSlots={nodeSlots}
+                            onNodeSlotsChange={(placeId, slots) =>
+                              setNodeSlots((prev) => ({ ...prev, [placeId]: slots }))
                             }
                           />
                         )}

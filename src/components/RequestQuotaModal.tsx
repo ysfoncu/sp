@@ -74,6 +74,7 @@ interface RequestQuotaModalProps {
   // Edit mode
   editingRequest?: CoordinatorQuotaRequest;
   onUpdate?: (requestId: string, updates: Partial<CoordinatorQuotaRequest>) => void;
+  nodeSlots?: Record<string, Record<string, number>>;
 }
 
 export function RequestQuotaModal({
@@ -89,6 +90,7 @@ export function RequestQuotaModal({
   onSave,
   editingRequest,
   onUpdate,
+  nodeSlots = {},
 }: RequestQuotaModalProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [selectedPraksisPlaceId, setSelectedPraksisPlaceId] = useState<string>('');
@@ -670,6 +672,7 @@ export function RequestQuotaModal({
                         disabled={false}
                         showOptionalLabel={false}
                         skipPlaceSelection={true}
+                        nodeSlots={nodeSlots}
                       />
                     </div>
                   )}
@@ -714,23 +717,39 @@ export function RequestQuotaModal({
                                   {entity.entityName || 'Not selected'}
                                 </td>
                                 <td className="px-4 py-3 text-center">
-                                  <div className="flex justify-center">
-                                    <Input
-                                      type="number"
-                                      min="1"
-                                      max="999"
-                                      value={entity.requestedQuota || ''}
-                                      onChange={(e) => {
-                                        handleUpdateEntity(entity.id, 'requestedQuota', parseInt(e.target.value, 10) || 0);
-                                        setErrors((prev) => ({ ...prev, [`entity-quota-${index}`]: '' }));
-                                      }}
-                                      placeholder="0"
-                                      className={cn("w-20 text-center", errors[`entity-quota-${index}`] && 'border-red-500')}
-                                    />
-                                  </div>
-                                  {errors[`entity-quota-${index}`] && (
-                                    <p className="text-xs text-red-600 mt-1">{errors[`entity-quota-${index}`]}</p>
-                                  )}
+                                  {(() => {
+                                    const slotMax = nodeSlots[selectedPraksisPlaceId]?.[entity.entityId];
+                                    const exceedsMax = slotMax !== undefined && (entity.requestedQuota || 0) > slotMax;
+                                    return (
+                                      <div className="flex flex-col items-center gap-1">
+                                        <div className="flex items-center gap-1">
+                                          <Input
+                                            type="number"
+                                            min="1"
+                                            max={slotMax ?? 999}
+                                            value={entity.requestedQuota || ''}
+                                            onChange={(e) => {
+                                              let val = parseInt(e.target.value, 10) || 0;
+                                              if (slotMax !== undefined) val = Math.min(val, slotMax);
+                                              handleUpdateEntity(entity.id, 'requestedQuota', val);
+                                              setErrors((prev) => ({ ...prev, [`entity-quota-${index}`]: '' }));
+                                            }}
+                                            placeholder="0"
+                                            className={cn("w-16 text-center", (errors[`entity-quota-${index}`] || exceedsMax) && 'border-red-500')}
+                                          />
+                                          {slotMax !== undefined && (
+                                            <span className="text-xs text-gray-400 whitespace-nowrap">/ {slotMax}</span>
+                                          )}
+                                        </div>
+                                        {exceedsMax && (
+                                          <p className="text-xs text-red-600">Max {slotMax}</p>
+                                        )}
+                                        {errors[`entity-quota-${index}`] && !exceedsMax && (
+                                          <p className="text-xs text-red-600">{errors[`entity-quota-${index}`]}</p>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                   <Button

@@ -19,6 +19,7 @@ interface HierarchicalOrganizationSelectorProps {
   placeholder?: string;
   showOptionalLabel?: boolean;
   skipPlaceSelection?: boolean;
+  nodeSlots?: Record<string, Record<string, number>>;
 }
 
 function getTypeIcon(type: string) {
@@ -61,6 +62,7 @@ export function HierarchicalOrganizationSelector({
   placeholder: _placeholder = "Select organization unit",
   showOptionalLabel = false,
   skipPlaceSelection = false,
+  nodeSlots = {},
 }: HierarchicalOrganizationSelectorProps) {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [nodeQuotas, setNodeQuotas] = useState<Record<string, number>>({});
@@ -168,28 +170,40 @@ export function HierarchicalOrganizationSelector({
               className="flex items-center gap-1 flex-shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
-              <input
-                type="number"
-                min={1}
-                max={999}
-                value={nodeQuotas[node.id] ?? 1}
-                onChange={(e) =>
-                  setNodeQuotas((prev) => ({
-                    ...prev,
-                    [node.id]: Math.max(1, parseInt(e.target.value, 10) || 1),
-                  }))
-                }
-                disabled={disabled}
-                className="w-12 h-6 text-xs text-center border border-gray-300 rounded px-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
-              />
-              <button
-                type="button"
-                onClick={(e) => handleAddClick(node, e)}
-                disabled={disabled || isAdded}
-                className="w-6 h-6 flex items-center justify-center rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
+              {(() => {
+                const slotMax = selectedPraksisPlaceId ? nodeSlots[selectedPraksisPlaceId]?.[node.id] : undefined;
+                const currentQty = nodeQuotas[node.id] ?? 1;
+                const isOverMax = slotMax !== undefined && currentQty > slotMax;
+                const isAtZeroMax = slotMax === 0;
+                return (
+                  <>
+                    <input
+                      type="number"
+                      min={1}
+                      max={slotMax ?? 999}
+                      value={currentQty}
+                      onChange={(e) => {
+                        let val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                        if (slotMax !== undefined) val = Math.min(val, Math.max(1, slotMax));
+                        setNodeQuotas((prev) => ({ ...prev, [node.id]: val }));
+                      }}
+                      disabled={disabled || isAtZeroMax}
+                      className="w-12 h-6 text-xs text-center border border-gray-300 rounded px-1 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-40"
+                    />
+                    {slotMax !== undefined && (
+                      <span className="text-xs text-gray-400 whitespace-nowrap">/{slotMax}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => handleAddClick(node, e)}
+                      disabled={disabled || isAdded || isOverMax || isAtZeroMax}
+                      className="w-6 h-6 flex items-center justify-center rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>

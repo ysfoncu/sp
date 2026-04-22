@@ -69,6 +69,7 @@ interface CoordinatorQuotasViewProps {
   studies: Study[];
   currentUserName: string;
   placementTaskStates?: PlacementTaskState[];
+  nodeSlots?: Record<string, Record<string, number>>;
   onRequestCreate: (
     request: Omit<
       CoordinatorQuotaRequest,
@@ -90,6 +91,7 @@ export function CoordinatorQuotasView({
   studies,
   currentUserName,
   placementTaskStates = [],
+  nodeSlots = {},
   onRequestCreate,
   onRequestUpdate,
   onRequestDelete,
@@ -1262,6 +1264,7 @@ export function CoordinatorQuotasView({
         studies={studies}
         existingRequests={quotaRequests}
         currentUserName={currentUserName}
+        nodeSlots={nodeSlots}
       />
 
       {/* Delete Confirmation Dialog */}
