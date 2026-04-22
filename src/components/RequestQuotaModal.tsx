@@ -29,13 +29,13 @@ import {
   ChevronLeft,
   Trash2,
   AlertCircle,
+  ClipboardCheck,
 } from 'lucide-react';
 import { CoordinatorQuotaRequest, EntityDistribution } from '../types/coordinatorQuotaRequest';
 import { PraksisPlace } from '../types/praksisPlace';
 import { format } from 'date-fns';
 import { HierarchicalOrganizationSelector } from './HierarchicalOrganizationSelector';
 
-// Study type for compatibility with CoordinatorQuotasView
 export interface Study {
   id: string;
   name: string;
@@ -69,9 +69,7 @@ interface RequestQuotaModalProps {
   currentUserName: string;
   existingRequests: CoordinatorQuotaRequest[];
   studies?: Study[];
-  // Legacy prop names for backward compatibility
   onSave?: (request: Omit<CoordinatorQuotaRequest, 'id' | 'requestedDate' | 'status'>) => void;
-  // Edit mode
   editingRequest?: CoordinatorQuotaRequest;
   onUpdate?: (requestId: string, updates: Partial<CoordinatorQuotaRequest>) => void;
   nodeSlots?: Record<string, Record<string, number>>;
@@ -85,7 +83,7 @@ export function RequestQuotaModal({
   existingQuotas: _existingQuotas,
   praksisPlaces,
   currentUserName,
-  existingRequests: _existingRequests,
+  existingRequests,
   studies,
   onSave,
   editingRequest,
@@ -98,22 +96,14 @@ export function RequestQuotaModal({
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
   const [notes, setNotes] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  
-  // State for study/program selection when no placement is provided
   const [selectedStudyId, setSelectedStudyId] = useState<string>('');
   const [selectedProgramId, setSelectedProgramId] = useState<string>('');
   const [emne, setEmne] = useState<string>('');
-
-  // NEW: Entity distributions state
   const [entityDistributions, setEntityDistributions] = useState<EntityDistribution[]>([]);
 
-  // Ref for scrolling to bottom
   const dialogContentRef = useRef<HTMLDivElement>(null);
-
-  // Total number of steps is always 3
   const totalSteps = 3;
 
-  // Reset form when modal opens/closes
   useEffect(() => {
     if (!isOpen) {
       setCurrentStep(1);
@@ -128,28 +118,23 @@ export function RequestQuotaModal({
       setEntityDistributions([]);
     } else {
       setCurrentStep(1);
-      // Auto-populate dates from placement if available
       if (placement?.startDate && placement?.endDate) {
         setStartDate(new Date(placement.startDate));
         setEndDate(new Date(placement.endDate));
       }
-      // If editing a request, populate fields with existing data
       if (editingRequest) {
         setSelectedPraksisPlaceId(editingRequest.praksisPlaceId);
         setStartDate(new Date(editingRequest.startDate));
         setEndDate(new Date(editingRequest.endDate));
         setNotes(editingRequest.notes || '');
-        // If placement is not provided, populate study and program
         if (!placement) {
           setSelectedStudyId(editingRequest.studyId);
           setSelectedProgramId(editingRequest.programId);
           setEmne(editingRequest.emne || '');
         }
-        // Load entity distributions if available, otherwise create from legacy fields
         if (editingRequest.entityDistributions && editingRequest.entityDistributions.length > 0) {
           setEntityDistributions(editingRequest.entityDistributions);
         } else if (editingRequest.departmentId && editingRequest.departmentName) {
-          // Create a single distribution from legacy fields
           setEntityDistributions([{
             id: `entity-${Date.now()}`,
             entityId: editingRequest.departmentId,
@@ -161,77 +146,63 @@ export function RequestQuotaModal({
     }
   }, [isOpen, placement, editingRequest]);
 
-  // Get available programs for selected study
-  const availablePrograms =
-    studies?.find((s) => s.id === selectedStudyId)?.programs || [];
+  const availablePrograms = studies?.find((s) => s.id === selectedStudyId)?.programs || [];
 
-  // Remove entity distribution
   const handleRemoveEntity = (id: string) => {
     setEntityDistributions(entityDistributions.filter((e) => e.id !== id));
   };
 
-  // Update entity distribution
   const handleUpdateEntity = (id: string, field: keyof EntityDistribution, value: any) => {
     setEntityDistributions(
-      entityDistributions.map((e) =>
-        e.id === id ? { ...e, [field]: value } : e
-      )
+      entityDistributions.map((e) => (e.id === id ? { ...e, [field]: value } : e))
     );
   };
 
-  // Calculate total requested quota
-  const getTotalRequestedQuota = () => {
-    return entityDistributions.reduce((sum, e) => sum + (e.requestedQuota || 0), 0);
+  const getTotalRequestedQuota = () =>
+    entityDistributions.reduce((sum, e) => sum + (e.requestedQuota || 0), 0);
+
+  const getStatusBadgeClass = (status: CoordinatorQuotaRequest['status']) => {
+    switch (status) {
+      case 'approved':  return 'bg-green-100 text-green-700 border-green-200';
+      case 'pending':   return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      case 'rejected':  return 'bg-red-100 text-red-700 border-red-200';
+      case 'fulfilled': return 'bg-blue-100 text-blue-700 border-blue-200';
+      default:          return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
   };
 
-  // Validate current step
   const validateStep = (step: number): boolean => {
     const newErrors: Record<string, string> = {};
 
     if (step === 1) {
-      // Step 1: Study/Program selection + Dates
       if (!placement) {
-        if (!selectedStudyId) {
-          newErrors.study = 'Please select a study';
-        }
-        if (!selectedProgramId) {
-          newErrors.program = 'Please select a program';
-        }
+        if (!selectedStudyId) newErrors.study = 'Please select a study';
+        if (!selectedProgramId) newErrors.program = 'Please select a program';
       }
-      if (!startDate) {
-        newErrors.startDate = 'Please select a start date';
-      }
-      if (!endDate) {
-        newErrors.endDate = 'Please select an end date';
-      }
-      if (startDate && endDate && endDate <= startDate) {
+      if (!startDate) newErrors.startDate = 'Please select a start date';
+      if (!endDate) newErrors.endDate = 'Please select an end date';
+      if (startDate && endDate && endDate <= startDate)
         newErrors.endDate = 'End date must be after start date';
-      }
+      if (!selectedPraksisPlaceId)
+        newErrors.praksisPlace = 'Please select a praksis place';
     }
 
     if (step === 2) {
-      // Step 2: Praksis Place and Entity distributions
-      if (!selectedPraksisPlaceId) {
-        newErrors.praksisPlace = 'Please select a praksis place';
-      }
       if (entityDistributions.length === 0) {
         newErrors.entities = 'Please add at least one entity distribution';
       } else {
-        // Validate each entity distribution
-        let hasInvalidEntity = false;
+        let hasInvalid = false;
         entityDistributions.forEach((entity, index) => {
           if (!entity.entityId || !entity.entityName) {
             newErrors[`entity-${index}`] = 'Please select an entity';
-            hasInvalidEntity = true;
+            hasInvalid = true;
           }
           if (!entity.requestedQuota || entity.requestedQuota <= 0) {
             newErrors[`entity-quota-${index}`] = 'Quota must be greater than 0';
-            hasInvalidEntity = true;
+            hasInvalid = true;
           }
         });
-        if (hasInvalidEntity) {
-          newErrors.entities = 'Please fix entity distribution errors';
-        }
+        if (hasInvalid) newErrors.entities = 'Please fix entity distribution errors';
       }
     }
 
@@ -239,7 +210,6 @@ export function RequestQuotaModal({
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle next step
   const handleNext = () => {
     if (validateStep(currentStep)) {
       setCurrentStep(currentStep + 1);
@@ -247,36 +217,20 @@ export function RequestQuotaModal({
     }
   };
 
-  // Handle back step
   const handleBack = () => {
     setCurrentStep(currentStep - 1);
     setErrors({});
   };
 
-  // Handle submit
   const handleSubmit = () => {
-    if (!validateStep(2)) {
-      return;
-    }
+    if (!validateStep(2)) return;
 
-    const selectedPlace = praksisPlaces.find(
-      (p) => p.id === selectedPraksisPlaceId
-    );
+    const selectedPlace = praksisPlaces.find((p) => p.id === selectedPraksisPlaceId);
+    if (!selectedPlace || !startDate || !endDate) return;
 
-    if (!selectedPlace || !startDate || !endDate) {
-      return;
-    }
-
-    // Get study and program info
     let studyId, studyName, programId, programName, universityId, universityName;
-    
     if (placement) {
-      studyId = placement.studyId;
-      studyName = placement.studyName;
-      programId = placement.programId;
-      programName = placement.programName;
-      universityId = placement.universityId;
-      universityName = placement.universityName;
+      ({ studyId, studyName, programId, programName, universityId, universityName } = placement);
     } else {
       const selectedStudy = studies?.find((s) => s.id === selectedStudyId);
       const selectedProgram = selectedStudy?.programs.find((p) => p.id === selectedProgramId);
@@ -284,30 +238,22 @@ export function RequestQuotaModal({
       studyName = selectedStudy?.name || '';
       programId = selectedProgramId;
       programName = selectedProgram?.name || '';
-      universityId = 'U1'; // Oslo University
+      universityId = 'U1';
       universityName = 'Oslo University';
     }
 
-    // Calculate total requested capacity
     const totalRequestedCapacity = getTotalRequestedQuota();
-
-    // For backward compatibility, use the first entity or create a default entry
     const firstEntity = entityDistributions[0] || {
       entityId: '',
       entityName: 'Multiple entities',
       requestedQuota: totalRequestedCapacity,
     };
 
-    const request: Omit<
-      CoordinatorQuotaRequest,
-      'id' | 'requestedDate' | 'status'
-    > = {
+    const request: Omit<CoordinatorQuotaRequest, 'id' | 'requestedDate' | 'status'> = {
       placementId: placement?.id ?? '',
       praksisPlaceId: selectedPlace.id,
       praksisPlaceName: selectedPlace.name,
-      // Entity distributions (NEW)
-      entityDistributions: entityDistributions,
-      // Legacy fields for backward compatibility
+      entityDistributions,
       departmentId: firstEntity.entityId,
       departmentName: firstEntity.entityName,
       universityId,
@@ -333,20 +279,15 @@ export function RequestQuotaModal({
     onClose();
   };
 
-  // Get step title and description
   const getStepInfo = () => {
-    if (currentStep === 1) {
-      return {
-        title: 'Step 1: Select Study, Program & Period',
-        description: 'Choose the study, program, and time period for this quota request',
-      };
-    }
-    if (currentStep === 2) {
-      return {
-        title: 'Step 2: Select Praksis Place & Entities',
-        description: 'Choose the praksis place and distribute quota across entities',
-      };
-    }
+    if (currentStep === 1) return {
+      title: 'Step 1: Request Details',
+      description: 'Fill in the request details and select a praksis place to see existing requests',
+    };
+    if (currentStep === 2) return {
+      title: 'Step 2: Entity Distribution',
+      description: 'Distribute the quota across departments within the selected praksis place',
+    };
     return {
       title: 'Step 3: Summary & Notes',
       description: 'Review your request and add any additional notes',
@@ -355,15 +296,20 @@ export function RequestQuotaModal({
 
   const stepInfo = getStepInfo();
 
+  // Active existing requests for the selected place (endDate > today)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const activeRequestsForPlace = existingRequests.filter(
+    (r) => r.praksisPlaceId === selectedPraksisPlaceId && new Date(r.endDate) > today
+  );
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
         <div ref={dialogContentRef}>
           <DialogHeader>
             <DialogTitle>{editingRequest ? 'Edit Quota Request' : 'Request Quota'}</DialogTitle>
-            <DialogDescription>
-              {stepInfo.description}
-            </DialogDescription>
+            <DialogDescription>{stepInfo.description}</DialogDescription>
           </DialogHeader>
 
           {/* Step Progress Indicator */}
@@ -374,23 +320,16 @@ export function RequestQuotaModal({
               const isCompleted = currentStep > stepNum;
               return (
                 <div key={i} className="flex items-center">
-                  <div
-                    className={cn(
-                      'w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-colors',
-                      isActive && 'bg-purple-600 text-white',
-                      isCompleted && 'bg-green-600 text-white',
-                      !isActive && !isCompleted && 'bg-gray-200 text-gray-600'
-                    )}
-                  >
+                  <div className={cn(
+                    'w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-colors',
+                    isActive && 'bg-purple-600 text-white',
+                    isCompleted && 'bg-green-600 text-white',
+                    !isActive && !isCompleted && 'bg-gray-200 text-gray-600'
+                  )}>
                     {stepNum}
                   </div>
                   {i < totalSteps - 1 && (
-                    <div
-                      className={cn(
-                        'w-12 h-1 mx-1 transition-colors',
-                        isCompleted ? 'bg-green-600' : 'bg-gray-200'
-                      )}
-                    />
+                    <div className={cn('w-12 h-1 mx-1 transition-colors', isCompleted ? 'bg-green-600' : 'bg-gray-200')} />
                   )}
                 </div>
               );
@@ -398,244 +337,50 @@ export function RequestQuotaModal({
           </div>
 
           <div className="space-y-6 py-4">
-            {/* Request Context - show if placement exists */}
-            {placement && currentStep === 1 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <GraduationCap className="h-5 w-5 text-blue-600 mt-0.5" />
-                  <div className="flex-1 space-y-1">
-                    <h3 className="font-semibold text-sm text-blue-900">
-                      Request Context
-                    </h3>
-                    <div className="text-sm text-blue-800 space-y-0.5">
-                      <div>
-                        <span className="font-medium">University:</span>{' '}
-                        {placement.universityName}
-                      </div>
-                      <div>
-                        <span className="font-medium">Study:</span>{' '}
-                        {placement.studyName}
-                      </div>
-                      <div>
-                        <span className="font-medium">Program:</span>{' '}
-                        {placement.programName}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
 
-            {/* Step 1: Study/Program Selection + Dates */}
+            {/* ── Step 1: 2-column — form left, existing requests right ─────── */}
             {currentStep === 1 && (
-              <div className="space-y-4">
-                {!placement && studies && (
-                  <>
-                    <h3 className="font-semibold text-sm text-gray-900">
-                      Academic Information
-                    </h3>
-                    
-                    {/* Study Selection */}
-                    <div className="space-y-2">
-                      <Label htmlFor="study">
-                        Study <span className="text-red-500">*</span>
-                      </Label>
-                      <Select
-                        value={selectedStudyId}
-                        onValueChange={(value: string) => {
-                          setSelectedStudyId(value);
-                          setSelectedProgramId('');
-                          setErrors((prev) => ({ ...prev, study: '' }));
-                        }}
-                      >
-                        <SelectTrigger
-                          id="study"
-                          className={cn(errors.study && 'border-red-500')}
-                        >
-                          <SelectValue placeholder="Select study" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {studies.map((study) => (
-                            <SelectItem key={study.id} value={study.id}>
-                              {study.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {errors.study && (
-                        <p className="text-sm text-red-600">{errors.study}</p>
-                      )}
-                    </div>
-
-                    {/* Program Selection */}
-                    <div className="space-y-2">
-                      <Label htmlFor="program">
-                        Program <span className="text-red-500">*</span>
-                      </Label>
-                      <Select
-                        value={selectedProgramId}
-                        onValueChange={(value: string) => {
-                          setSelectedProgramId(value);
-                          setErrors((prev) => ({ ...prev, program: '' }));
-                        }}
-                        disabled={!selectedStudyId}
-                      >
-                        <SelectTrigger
-                          id="program"
-                          className={cn(errors.program && 'border-red-500')}
-                        >
-                          <SelectValue placeholder="Select program" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availablePrograms.map((program) => (
-                            <SelectItem key={program.id} value={program.id}>
-                              {program.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {errors.program && (
-                        <p className="text-sm text-red-600">{errors.program}</p>
-                      )}
-                    </div>
-
-                    {/* Emne (Course/Subject) */}
-                    <div className="space-y-2">
-                      <Label htmlFor="emne">
-                        Emne <span className="text-gray-500 text-xs">(Optional)</span>
-                      </Label>
-                      <Input
-                        id="emne"
-                        type="text"
-                        value={emne}
-                        onChange={(e) => setEmne(e.target.value)}
-                        placeholder="Enter course or subject name"
-                        maxLength={100}
-                      />
-                    </div>
-                  </>
-                )}
-
-                <h3 className="font-semibold text-sm text-gray-900 pt-2">
-                  Placement Period
-                </h3>
-
-                {/* Period - Start Date & End Date */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>
-                      Start Date <span className="text-red-500">*</span>
-                    </Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            'w-full justify-start text-left font-normal',
-                            !startDate && 'text-muted-foreground',
-                            errors.startDate && 'border-red-500'
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {startDate ? (
-                            format(startDate, 'PPP')
-                          ) : (
-                            <span>Pick a date</span>
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={startDate}
-                          onSelect={(date: Date | undefined) => {
-                            setStartDate(date);
-                            setErrors((prev) => ({ ...prev, startDate: '' }));
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    {errors.startDate && (
-                      <p className="text-sm text-red-600">{errors.startDate}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>
-                      End Date <span className="text-red-500">*</span>
-                    </Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            'w-full justify-start text-left font-normal',
-                            !endDate && 'text-muted-foreground',
-                            errors.endDate && 'border-red-500'
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {endDate ? (
-                            format(endDate, 'PPP')
-                          ) : (
-                            <span>Pick a date</span>
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={endDate}
-                          onSelect={(date: Date | undefined) => {
-                            setEndDate(date);
-                            setErrors((prev) => ({ ...prev, endDate: '' }));
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    {errors.endDate && (
-                      <p className="text-sm text-red-600">{errors.endDate}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 2: Praksis Place & Entity Distributions */}
-            {currentStep === 2 && (
               <div className="grid grid-cols-2 gap-6 items-start">
 
-                {/* Left column: Praksis Place selector + hierarchy tree */}
+                {/* Left column: form */}
                 <div className="space-y-4">
-                  <h3 className="font-semibold text-sm text-gray-900">
-                    Praksis Place
-                  </h3>
+                  {/* Request Context banner */}
+                  {placement && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <GraduationCap className="h-5 w-5 text-blue-600 mt-0.5" />
+                        <div className="flex-1 space-y-0.5">
+                          <h3 className="font-semibold text-sm text-blue-900">Request Context</h3>
+                          <div className="text-sm text-blue-800">
+                            <div><span className="font-medium">University:</span> {placement.universityName}</div>
+                            <div><span className="font-medium">Study:</span> {placement.studyName}</div>
+                            <div><span className="font-medium">Program:</span> {placement.programName}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
+                  {/* 1. Praksis Place */}
+                  <h3 className="font-semibold text-sm text-gray-900">Praksis Place</h3>
                   <div className="space-y-2">
                     <Label htmlFor="praksisPlace">
                       Praksis Place <span className="text-red-500">*</span>
                     </Label>
                     <Select
                       value={selectedPraksisPlaceId}
-                      onValueChange={(value: string) => {
+                      onValueChange={(value) => {
                         setSelectedPraksisPlaceId(value);
                         setEntityDistributions([]);
                         setErrors((prev) => ({ ...prev, praksisPlace: '' }));
                       }}
                     >
-                      <SelectTrigger
-                        id="praksisPlace"
-                        className={cn(errors.praksisPlace && 'border-red-500')}
-                      >
+                      <SelectTrigger id="praksisPlace" className={cn(errors.praksisPlace && 'border-red-500')}>
                         <SelectValue placeholder="Select praksis place" />
                       </SelectTrigger>
                       <SelectContent>
                         {praksisPlaces.map((place) => (
-                          <SelectItem key={place.id} value={place.id}>
-                            {place.name}
-                          </SelectItem>
+                          <SelectItem key={place.id} value={place.id}>{place.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -644,41 +389,283 @@ export function RequestQuotaModal({
                     )}
                   </div>
 
-                  {selectedPraksisPlaceId && (
+                  {/* 2. Placement Period */}
+                  <h3 className="font-semibold text-sm text-gray-900 pt-1">Placement Period</h3>
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium">
-                        Add Entity to Distribution
-                      </Label>
-                      <HierarchicalOrganizationSelector
-                        praksisPlaces={praksisPlaces}
-                        selectedPraksisPlaceId={selectedPraksisPlaceId}
-                        selectedOrganizationNodeId={null}
-                        onPraksisPlaceSelect={() => {}}
-                        onOrganizationNodeSelect={() => {}}
-                        addedEntityIds={entityDistributions.map((e) => e.entityId)}
-                        onAddEntity={(nodeId, nodeName, quantity) => {
-                          const exists = entityDistributions.some(e => e.entityId === nodeId);
-                          if (!exists) {
-                            const newEntity: EntityDistribution = {
-                              id: `entity-${Date.now()}`,
-                              entityId: nodeId,
-                              entityName: nodeName,
-                              requestedQuota: quantity,
-                            };
-                            setEntityDistributions([...entityDistributions, newEntity]);
-                            setErrors((prev) => ({ ...prev, entities: '' }));
-                          }
-                        }}
-                        disabled={false}
-                        showOptionalLabel={false}
-                        skipPlaceSelection={true}
-                        nodeSlots={nodeSlots}
-                      />
+                      <Label>Start Date <span className="text-red-500">*</span></Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              'w-full justify-start text-left font-normal',
+                              !startDate && 'text-muted-foreground',
+                              errors.startDate && 'border-red-500'
+                            )}
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {startDate ? format(startDate, 'PPP') : <span>Pick a date</span>}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={startDate}
+                            onSelect={(date) => {
+                              setStartDate(date);
+                              setErrors((prev) => ({ ...prev, startDate: '' }));
+                            }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      {errors.startDate && <p className="text-sm text-red-600">{errors.startDate}</p>}
                     </div>
+
+                    <div className="space-y-2">
+                      <Label>End Date <span className="text-red-500">*</span></Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              'w-full justify-start text-left font-normal',
+                              !endDate && 'text-muted-foreground',
+                              errors.endDate && 'border-red-500'
+                            )}
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {endDate ? format(endDate, 'PPP') : <span>Pick a date</span>}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={endDate}
+                            onSelect={(date) => {
+                              setEndDate(date);
+                              setErrors((prev) => ({ ...prev, endDate: '' }));
+                            }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      {errors.endDate && <p className="text-sm text-red-600">{errors.endDate}</p>}
+                    </div>
+                  </div>
+
+                  {/* 3. Academic Information (only when no placement context) */}
+                  {!placement && studies && (
+                    <>
+                      <h3 className="font-semibold text-sm text-gray-900 pt-1">Academic Information</h3>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="study">Study <span className="text-red-500">*</span></Label>
+                        <Select
+                          value={selectedStudyId}
+                          onValueChange={(value) => {
+                            setSelectedStudyId(value);
+                            setSelectedProgramId('');
+                            setErrors((prev) => ({ ...prev, study: '' }));
+                          }}
+                        >
+                          <SelectTrigger id="study" className={cn(errors.study && 'border-red-500')}>
+                            <SelectValue placeholder="Select study" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {studies.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {errors.study && <p className="text-sm text-red-600">{errors.study}</p>}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="program">Program <span className="text-red-500">*</span></Label>
+                        <Select
+                          value={selectedProgramId}
+                          onValueChange={(value) => {
+                            setSelectedProgramId(value);
+                            setErrors((prev) => ({ ...prev, program: '' }));
+                          }}
+                          disabled={!selectedStudyId}
+                        >
+                          <SelectTrigger id="program" className={cn(errors.program && 'border-red-500')}>
+                            <SelectValue placeholder="Select program" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availablePrograms.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {errors.program && <p className="text-sm text-red-600">{errors.program}</p>}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="emne">Emne <span className="text-gray-500 text-xs">(Optional)</span></Label>
+                        <Input
+                          id="emne"
+                          value={emne}
+                          onChange={(e) => setEmne(e.target.value)}
+                          placeholder="Enter course or subject name"
+                          maxLength={100}
+                        />
+                      </div>
+                    </>
                   )}
                 </div>
 
-                {/* Right column: Entity Distributions table */}
+                {/* Right column: existing requests */}
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="font-semibold text-sm text-gray-900">Existing Requests</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Active requests (end date in the future)
+                    </p>
+                  </div>
+
+                  {!selectedPraksisPlaceId ? (
+                    <div className="border border-dashed border-gray-200 rounded-lg p-10 text-center bg-gray-50">
+                      <ClipboardCheck className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                      <p className="text-sm text-gray-400">
+                        Select a praksis place to see existing requests
+                      </p>
+                    </div>
+                  ) : activeRequestsForPlace.length === 0 ? (
+                    <div className="border border-gray-200 rounded-lg p-10 text-center bg-gray-50">
+                      <ClipboardCheck className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                      <p className="text-sm text-gray-500 font-medium">No active requests</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        No quota requests have been made for this praksis place yet
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Study / Program</th>
+                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Entity</th>
+                            <th className="px-3 py-2 text-center text-xs font-semibold text-gray-700">Req · Apr · Con</th>
+                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Period</th>
+                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-100">
+                          {activeRequestsForPlace.map((request) => {
+                            const hasEntityDist =
+                              request.entityDistributions && request.entityDistributions.length > 0;
+                            const entities = hasEntityDist
+                              ? request.entityDistributions!
+                              : [{
+                                  id: 'legacy',
+                                  entityId: request.departmentId,
+                                  entityName: request.departmentName,
+                                  requestedQuota: request.requestedCapacity,
+                                  approvedQuota: request.approvedCapacity,
+                                  consumedQuota: 0,
+                                }];
+                            const rowSpan = entities.length;
+
+                            return entities.map((entity, entityIndex) => {
+                              const isFirst = entityIndex === 0;
+                              return (
+                                <tr key={`${request.id}-${entity.id}`} className="hover:bg-gray-50 transition-colors">
+                                  {isFirst && (
+                                    <td className="px-3 py-2 align-top text-xs" rowSpan={rowSpan}>
+                                      <div className="font-medium text-gray-800">{request.studyName}</div>
+                                      <div className="text-gray-500">{request.programName}</div>
+                                    </td>
+                                  )}
+
+                                  <td className="px-3 py-2 text-xs font-medium text-blue-700">
+                                    {entity.entityName}
+                                  </td>
+
+                                  <td className="px-3 py-2 text-center">
+                                    <span className="text-xs font-bold text-purple-600">{entity.requestedQuota ?? '-'}</span>
+                                    <span className="text-xs text-gray-400"> · </span>
+                                    <span className="text-xs font-bold text-green-600">
+                                      {request.status === 'approved' && entity.approvedQuota !== undefined
+                                        ? entity.approvedQuota
+                                        : '-'}
+                                    </span>
+                                    <span className="text-xs text-gray-400"> · </span>
+                                    <span className="text-xs font-bold text-blue-600">
+                                      {entity.consumedQuota ?? 0}
+                                    </span>
+                                  </td>
+
+                                  {isFirst && (
+                                    <td className="px-3 py-2 align-top text-xs text-gray-600 whitespace-nowrap" rowSpan={rowSpan}>
+                                      <div>{format(new Date(request.startDate), 'MMM d, yy')}</div>
+                                      <div>{format(new Date(request.endDate), 'MMM d, yy')}</div>
+                                    </td>
+                                  )}
+
+                                  {isFirst && (
+                                    <td className="px-3 py-2 align-top" rowSpan={rowSpan}>
+                                      <Badge variant="outline" className={cn('text-xs', getStatusBadgeClass(request.status))}>
+                                        {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                                      </Badge>
+                                    </td>
+                                  )}
+                                </tr>
+                              );
+                            });
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Step 2: Entity Distribution ──────────────────────────────────── */}
+            {currentStep === 2 && (
+              <div className="grid grid-cols-2 gap-6 items-start">
+
+                {/* Left: tree */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-gray-900">Add Entities</h3>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">
+                      {praksisPlaces.find((p) => p.id === selectedPraksisPlaceId)?.name}
+                    </Label>
+                    <HierarchicalOrganizationSelector
+                      praksisPlaces={praksisPlaces}
+                      selectedPraksisPlaceId={selectedPraksisPlaceId}
+                      selectedOrganizationNodeId={null}
+                      onPraksisPlaceSelect={() => {}}
+                      onOrganizationNodeSelect={() => {}}
+                      addedEntityIds={entityDistributions.map((e) => e.entityId)}
+                      onAddEntity={(nodeId, nodeName, quantity) => {
+                        const exists = entityDistributions.some((e) => e.entityId === nodeId);
+                        if (!exists) {
+                          const newEntity: EntityDistribution = {
+                            id: `entity-${Date.now()}`,
+                            entityId: nodeId,
+                            entityName: nodeName,
+                            requestedQuota: quantity,
+                          };
+                          setEntityDistributions([...entityDistributions, newEntity]);
+                          setErrors((prev) => ({ ...prev, entities: '' }));
+                        }
+                      }}
+                      disabled={false}
+                      showOptionalLabel={false}
+                      skipPlaceSelection={true}
+                      nodeSlots={nodeSlots}
+                      expandFirstLevel={true}
+                    />
+                  </div>
+                </div>
+
+                {/* Right: entity distribution table */}
                 <div className="space-y-3">
                   <h3 className="font-semibold text-sm text-gray-900">
                     Entity Distributions <span className="text-red-500">*</span>
@@ -698,13 +685,13 @@ export function RequestQuotaModal({
                       <Label className="text-xs text-gray-600">
                         Selected Entities ({entityDistributions.length})
                       </Label>
-
                       <div className="border border-gray-200 rounded-lg overflow-hidden">
                         <table className="w-full">
                           <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
                               <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">#</th>
                               <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Entity Name</th>
+                              <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700">Max</th>
                               <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700">Quota</th>
                               <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 w-16">Action</th>
                             </tr>
@@ -715,6 +702,16 @@ export function RequestQuotaModal({
                                 <td className="px-4 py-3 text-sm text-gray-500">{index + 1}</td>
                                 <td className="px-4 py-3 text-sm font-medium text-gray-900">
                                   {entity.entityName || 'Not selected'}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {(() => {
+                                    const slotMax = nodeSlots[selectedPraksisPlaceId]?.[entity.entityId];
+                                    return slotMax !== undefined ? (
+                                      <span className="text-sm font-semibold text-orange-600">{slotMax}</span>
+                                    ) : (
+                                      <span className="text-xs text-gray-400">—</span>
+                                    );
+                                  })()}
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                   {(() => {
@@ -735,15 +732,10 @@ export function RequestQuotaModal({
                                               setErrors((prev) => ({ ...prev, [`entity-quota-${index}`]: '' }));
                                             }}
                                             placeholder="0"
-                                            className={cn("w-16 text-center", (errors[`entity-quota-${index}`] || exceedsMax) && 'border-red-500')}
+                                            className={cn('w-16 text-center', (errors[`entity-quota-${index}`] || exceedsMax) && 'border-red-500')}
                                           />
-                                          {slotMax !== undefined && (
-                                            <span className="text-xs text-gray-400 whitespace-nowrap">/ {slotMax}</span>
-                                          )}
                                         </div>
-                                        {exceedsMax && (
-                                          <p className="text-xs text-red-600">Max {slotMax}</p>
-                                        )}
+                                        {exceedsMax && <p className="text-xs text-red-600">Max {slotMax}</p>}
                                         {errors[`entity-quota-${index}`] && !exceedsMax && (
                                           <p className="text-xs text-red-600">{errors[`entity-quota-${index}`]}</p>
                                         )}
@@ -767,15 +759,10 @@ export function RequestQuotaModal({
                           </tbody>
                         </table>
                       </div>
-
                       <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-purple-900">
-                            Total Requested Quota
-                          </span>
-                          <span className="text-xl font-bold text-purple-600">
-                            {getTotalRequestedQuota()}
-                          </span>
+                          <span className="text-sm font-semibold text-purple-900">Total Requested Quota</span>
+                          <span className="text-xl font-bold text-purple-600">{getTotalRequestedQuota()}</span>
                         </div>
                       </div>
                     </div>
@@ -786,25 +773,21 @@ export function RequestQuotaModal({
                         <div>
                           <p className="text-sm font-medium text-amber-900">No entities added yet</p>
                           <p className="text-xs text-amber-700 mt-1">
-                            Select a praksis place and use the tree to add entities
+                            Use the tree on the left to add entities
                           </p>
                         </div>
                       </div>
                     </div>
                   )}
                 </div>
-
               </div>
             )}
 
-            {/* Step 3: Summary & Notes */}
+            {/* ── Step 3: Summary & Notes ───────────────────────────────────────── */}
             {currentStep === 3 && (
               <div className="space-y-4">
-                <h3 className="font-semibold text-sm text-gray-900">
-                  Request Summary
-                </h3>
+                <h3 className="font-semibold text-sm text-gray-900">Request Summary</h3>
 
-                {/* Summary Card */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -861,14 +844,11 @@ export function RequestQuotaModal({
                   <div className="pt-2 border-t border-blue-300">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs text-blue-700">Total Quota</Label>
-                      <span className="text-xl font-bold text-purple-600">
-                        {getTotalRequestedQuota()}
-                      </span>
+                      <span className="text-xl font-bold text-purple-600">{getTotalRequestedQuota()}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Notes */}
                 <div className="space-y-2">
                   <Label htmlFor="notes">
                     Notes <span className="text-gray-500 text-xs">(Optional)</span>
@@ -881,52 +861,31 @@ export function RequestQuotaModal({
                     rows={4}
                     maxLength={500}
                   />
-                  <p className="text-xs text-gray-500">
-                    {notes.length}/500 characters
-                  </p>
+                  <p className="text-xs text-gray-500">{notes.length}/500 characters</p>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Footer with Navigation */}
+          {/* Footer */}
           <DialogFooter className="flex justify-between items-center pt-4 border-t">
             <div className="flex gap-2">
               {currentStep > 1 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleBack}
-                  className="flex items-center gap-1"
-                >
+                <Button type="button" variant="outline" onClick={handleBack} className="flex items-center gap-1">
                   <ChevronLeft className="h-4 w-4" />
                   Back
                 </Button>
               )}
             </div>
             <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onClose}
-              >
-                Cancel
-              </Button>
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
               {currentStep < totalSteps ? (
-                <Button
-                  type="button"
-                  onClick={handleNext}
-                  className="flex items-center gap-1"
-                >
+                <Button type="button" onClick={handleNext} className="flex items-center gap-1">
                   Next
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               ) : (
-                <Button
-                  type="button"
-                  onClick={handleSubmit}
-                  className="bg-purple-600 hover:bg-purple-700"
-                >
+                <Button type="button" onClick={handleSubmit} className="bg-purple-600 hover:bg-purple-700">
                   {editingRequest ? 'Update Request' : 'Submit Request'}
                 </Button>
               )}

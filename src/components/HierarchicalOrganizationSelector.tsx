@@ -20,6 +20,7 @@ interface HierarchicalOrganizationSelectorProps {
   showOptionalLabel?: boolean;
   skipPlaceSelection?: boolean;
   nodeSlots?: Record<string, Record<string, number>>;
+  expandFirstLevel?: boolean;
 }
 
 function getTypeIcon(type: string) {
@@ -63,17 +64,23 @@ export function HierarchicalOrganizationSelector({
   showOptionalLabel = false,
   skipPlaceSelection = false,
   nodeSlots = {},
+  expandFirstLevel = false,
 }: HierarchicalOrganizationSelectorProps) {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [nodeQuotas, setNodeQuotas] = useState<Record<string, number>>({});
 
   const selectedPlace = praksisPlaces.find((p) => p.id === selectedPraksisPlaceId);
 
-  // When the place changes, collapse everything and reset per-node quotas
+  // When the place changes, reset quotas; optionally pre-expand root + its direct children
   useEffect(() => {
-    setExpandedNodes(new Set());
     setNodeQuotas({});
-  }, [selectedPraksisPlaceId]);
+    if (expandFirstLevel && selectedPlace?.organizationStructure) {
+      const root = selectedPlace.organizationStructure;
+      setExpandedNodes(new Set([root.id, ...root.children.map((c) => c.id)]));
+    } else {
+      setExpandedNodes(new Set());
+    }
+  }, [selectedPraksisPlaceId, expandFirstLevel]);
 
   const toggleExpand = (nodeId: string, e: React.MouseEvent) => {
     e.stopPropagation();
