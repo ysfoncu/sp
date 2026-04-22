@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Clock, UserPlus, Plus, AlertTriangle, Check, Pencil, Trash2 } from "lucide-react";
+import { Clock, UserPlus, Plus, AlertTriangle, Check, Pencil, Trash2, Info } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
@@ -19,11 +19,18 @@ import { toast } from "sonner@2.0.3";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface CrossPlacementData {
+  placementId: string;
+  placementTitle: string;
+  students: Student[];
+}
+
 export interface EntityQuotaItem {
   entityId: string;
   entityName: string;
   requestedCapacity: number;
   approvedCapacity: number;
+  crossPlacementConsumed: number;
   assignedCount: number;
   availableCount: number;
   assignedStudents: Student[];
@@ -39,6 +46,7 @@ export interface QuotaRequestItem {
   departmentName: string;
   approvedCapacity: number;
   pendingCapacity: number;
+  crossPlacementConsumed: number;
   assignedCount: number;
   availableCount: number;
   requestedCapacity: number;
@@ -76,6 +84,7 @@ interface GroupedPlace {
 interface AvailableQuotasTableProps {
   coordinatorQuotaRequests: CoordinatorQuotaRequest[];
   students: Student[];
+  crossPlacementData?: CrossPlacementData[];
   praksisPlaces: PraksisPlace[];
   placementId: string;
   studyId?: string;
@@ -120,8 +129,10 @@ function fmtDate(dateStr: string): string {
 function processQuotaRequests(
   coordinatorRequests: CoordinatorQuotaRequest[],
   students: Student[],
+  crossPlacementData: CrossPlacementData[],
   ctx: { placementId: string; studyId?: string; programId?: string; emne?: string; startDate?: string; endDate?: string; }
 ): QuotaRequestItem[] {
+  const crossPlacementStudents = crossPlacementData.flatMap((d) => d.students);
   if (!ctx.studyId || !ctx.programId || !ctx.startDate || !ctx.endDate) return [];
 
   const items: QuotaRequestItem[] = [];
@@ -141,13 +152,19 @@ function processQuotaRequests(
             s.assignedPraksisPlace?.quotaRequestId === request.id
         );
         const entityAssignedCount = entityAssignedStudents.length;
+        const crossPlacementConsumed = crossPlacementStudents.filter(
+          (s) =>
+            s.assignedPraksisPlace?.placeId === request.praksisPlaceId &&
+            s.assignedPraksisPlace?.entityId === entity.entityId &&
+            s.assignedPraksisPlace?.quotaRequestId === request.id
+        ).length;
         // Per-entity approval: entity.approvedQuota set means this entity was individually approved.
         // Falls back to requestedQuota for whole-request approvals (legacy path).
         const entityExplicitlyApproved = entity.approvedQuota !== undefined;
         const entityApprovedCapacity = entityExplicitlyApproved
           ? entity.approvedQuota!
           : request.status === 'approved' ? entity.requestedQuota : 0;
-        const entityAvailableCount = Math.max(0, entityApprovedCapacity - entityAssignedCount);
+        const entityAvailableCount = Math.max(0, entityApprovedCapacity - crossPlacementConsumed - entityAssignedCount);
 
         // Status is per-entity: approved if this entity's quota was set, regardless of parent status
         const entityStatus: QuotaRequestItem['status'] =
@@ -163,6 +180,7 @@ function processQuotaRequests(
           departmentName: entity.entityName,
           approvedCapacity,
           pendingCapacity,
+          crossPlacementConsumed,
           assignedCount: entityAssignedCount,
           availableCount: entityAvailableCount,
           requestedCapacity: entity.requestedQuota,
@@ -176,6 +194,7 @@ function processQuotaRequests(
             entityName: entity.entityName,
             requestedCapacity: entity.requestedQuota,
             approvedCapacity,
+            crossPlacementConsumed,
             assignedCount: entityAssignedCount,
             availableCount: entityAvailableCount,
             assignedStudents: entityAssignedStudents,
@@ -190,11 +209,17 @@ function processQuotaRequests(
           s.assignedPraksisPlace?.quotaRequestId === request.id
       );
       const assignedCount = assignedStudents.length;
+      const crossPlacementConsumed = crossPlacementStudents.filter(
+        (s) =>
+          s.assignedPraksisPlace?.placeId === request.praksisPlaceId &&
+          s.assignedPraksisPlace?.departmentId === request.departmentId &&
+          s.assignedPraksisPlace?.quotaRequestId === request.id
+      ).length;
       let approvedCapacity = 0;
       let pendingCapacity = 0;
       if (request.status === 'approved') approvedCapacity = request.approvedCapacity ?? request.requestedCapacity;
       else if (request.status === 'pending') pendingCapacity = request.requestedCapacity;
-      const availableCount = Math.max(0, approvedCapacity - assignedCount);
+      const availableCount = Math.max(0, approvedCapacity - crossPlacementConsumed - assignedCount);
 
       items.push({
         requestId: request.id,
@@ -204,6 +229,7 @@ function processQuotaRequests(
         departmentName: request.departmentName,
         approvedCapacity,
         pendingCapacity,
+        crossPlacementConsumed,
         assignedCount,
         availableCount,
         requestedCapacity: request.requestedCapacity,
@@ -217,6 +243,7 @@ function processQuotaRequests(
           entityName: request.departmentName,
           requestedCapacity: request.requestedCapacity,
           approvedCapacity,
+          crossPlacementConsumed,
           assignedCount,
           availableCount,
           assignedStudents,
@@ -284,6 +311,7 @@ function groupQuotaItems(items: QuotaRequestItem[]): GroupedPlace[] {
 export default function AvailableQuotasTable({
   coordinatorQuotaRequests,
   students,
+  crossPlacementData = [],
   praksisPlaces: _praksisPlaces,
   placementId,
   studyId,
@@ -305,20 +333,23 @@ export default function AvailableQuotasTable({
   const [showPublishWarning, setShowPublishWarning] = useState(false);
   const [deleteConfirmRequest, setDeleteConfirmRequest] = useState<QuotaRequestItem | null>(null);
 
+  const [detailItem, setDetailItem] = useState<QuotaRequestItem | null>(null);
+
   const quotaItems = useMemo(
-    () => processQuotaRequests(coordinatorQuotaRequests, students, {
+    () => processQuotaRequests(coordinatorQuotaRequests, students, crossPlacementData, {
       placementId, studyId, programId, emne, startDate, endDate,
     }),
-    [coordinatorQuotaRequests, students, placementId, studyId, programId, emne, startDate, endDate]
+    [coordinatorQuotaRequests, students, crossPlacementData, placementId, studyId, programId, emne, startDate, endDate]
   );
 
   const groupedPlaces = useMemo(() => groupQuotaItems(quotaItems), [quotaItems]);
 
-  const totalApprovedCapacity = quotaItems.reduce((s, q) => s + q.approvedCapacity, 0);
-  const totalPendingCapacity  = quotaItems.reduce((s, q) => s + q.pendingCapacity, 0);
-  const totalAssigned         = quotaItems.reduce((s, q) => s + q.assignedCount, 0);
-  const totalAvailable        = quotaItems.reduce((s, q) => s + q.availableCount, 0);
-  const totalRequested        = quotaItems.reduce((s, q) => s + q.requestedCapacity, 0);
+  const totalApprovedCapacity   = quotaItems.reduce((s, q) => s + q.approvedCapacity, 0);
+  const totalPendingCapacity    = quotaItems.reduce((s, q) => s + q.pendingCapacity, 0);
+  const totalConsumed           = quotaItems.reduce((s, q) => s + q.crossPlacementConsumed, 0);
+  const totalAssigned           = quotaItems.reduce((s, q) => s + q.assignedCount, 0);
+  const totalAvailable          = quotaItems.reduce((s, q) => s + q.availableCount, 0);
+  const totalRequested          = quotaItems.reduce((s, q) => s + q.requestedCapacity, 0);
   const hasPendingRequests    = quotaItems.some(q => q.status === 'pending');
   const allQuotasFullyAssigned = quotaItems.length > 0 && totalAvailable === 0 && !hasPendingRequests;
 
@@ -474,9 +505,10 @@ export default function AvailableQuotasTable({
                     return (
                       <div
                         key={rowKey}
-                        className={`px-4 py-2.5 flex items-center gap-2 transition-colors ${
-                          isPending ? 'bg-amber-100/70' : isFull ? 'bg-gray-50/40' : 'hover:bg-blue-50/20'
+                        className={`px-4 py-2.5 flex items-center gap-2 transition-colors cursor-pointer ${
+                          isPending ? 'bg-amber-100/70 hover:bg-amber-100' : isFull ? 'bg-gray-50/40 hover:bg-gray-100/60' : 'hover:bg-blue-50/40'
                         }`}
+                        onClick={() => setDetailItem(entity)}
                       >
                         {/* Entity name */}
                         <div className="flex-1 min-w-0 flex items-center gap-1.5 pl-2">
@@ -487,6 +519,7 @@ export default function AvailableQuotasTable({
                               Full
                             </Badge>
                           )}
+                          <Info className="h-3 w-3 text-gray-300 flex-shrink-0 ml-0.5" />
                         </div>
 
                         {/* Stats */}
@@ -507,23 +540,27 @@ export default function AvailableQuotasTable({
                               <span className="text-[9px] text-gray-400 mt-0.5">req·apr</span>
                             </div>
                             <span className="text-gray-200 text-sm leading-none">|</span>
-                            {/* avail / asgn */}
+                            {/* con / avail / asgn */}
                             <div className="flex flex-col items-center leading-none">
                               <span className="text-xs font-semibold">
+                                <span className={entity.crossPlacementConsumed > 0 ? 'text-orange-500' : 'text-gray-300'}>
+                                  {entity.crossPlacementConsumed}
+                                </span>
+                                <span className="text-gray-300 mx-0.5">/</span>
                                 <span className={entity.availableCount > 0 ? 'text-green-600' : 'text-gray-400'}>
                                   {entity.availableCount}
                                 </span>
                                 <span className="text-gray-300 mx-0.5">/</span>
                                 <span className="text-blue-600">{entity.assignedCount}</span>
                               </span>
-                              <span className="text-[9px] text-gray-400 mt-0.5">avail·asgn</span>
+                              <span className="text-[9px] text-gray-400 mt-0.5">con·avail·asgn</span>
                             </div>
                           </div>
                         )}
 
                         {/* Action */}
                         {!readOnly && (isPending ? (
-                          <div className="flex items-center gap-1 flex-shrink-0">
+                          <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                             {onEditRequest && (
                               <button
                                 onClick={() => onEditRequest(entity.requestId)}
@@ -555,7 +592,8 @@ export default function AvailableQuotasTable({
                             size="sm"
                             variant="outline"
                             disabled={!hasAvailability}
-                            onClick={() => {
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
                               if (!isPublished) {
                                 setShowPublishWarning(true);
                               } else {
@@ -603,10 +641,12 @@ export default function AvailableQuotasTable({
             </span>
             <span className="text-gray-200">|</span>
             <span>
+              <span className={`font-semibold ${totalConsumed > 0 ? 'text-orange-500' : 'text-gray-300'}`}>{totalConsumed}</span>
+              <span className="text-gray-300 mx-0.5">/</span>
               <span className={`font-semibold ${totalAvailable > 0 ? 'text-green-600' : 'text-gray-400'}`}>{totalAvailable}</span>
               <span className="text-gray-300 mx-0.5">/</span>
               <span className="font-semibold text-blue-600">{totalAssigned}</span>
-              <span className="text-gray-400 ml-1">avail·asgn</span>
+              <span className="text-gray-400 ml-1">con·avail·asgn</span>
             </span>
             {totalPendingCapacity > 0 && (
               <>
@@ -622,6 +662,97 @@ export default function AvailableQuotasTable({
       </div>
 
       {/* ─── Dialogs ──────────────────────────────────────────────────────── */}
+
+      {/* Detail Dialog */}
+      <Dialog open={!!detailItem} onOpenChange={(open: boolean) => !open && setDetailItem(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">{detailItem?.praksisPlaceName}</DialogTitle>
+            <DialogDescription className="text-sm font-medium text-gray-700 mt-0.5">
+              {detailItem?.departmentName}
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailItem && (() => {
+            const item = detailItem;
+            const perPlacement = crossPlacementData.map((d) => {
+              const count = d.students.filter((s) =>
+                s.assignedPraksisPlace?.quotaRequestId === item.requestId &&
+                (item.isMultiEntity
+                  ? s.assignedPraksisPlace?.entityId === item.departmentId
+                  : s.assignedPraksisPlace?.departmentId === item.departmentId)
+              ).length;
+              return { ...d, count };
+            }).filter((d) => d.count > 0);
+
+            return (
+              <div className="space-y-4">
+                {/* Capacity + dates */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Capacity</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {item.requestedCapacity} requested
+                      {item.approvedCapacity > 0 && (
+                        <span className="text-gray-400 font-normal"> / {item.approvedCapacity} approved</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Period</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {fmtDate(item.startDate)} – {fmtDate(item.endDate)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Assignment breakdown */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Assignment breakdown</p>
+                  <div className="border border-gray-100 rounded-lg overflow-hidden">
+                    {/* This placement */}
+                    <div className="flex items-center justify-between px-3 py-2 bg-blue-50/60 border-b border-gray-100">
+                      <span className="text-sm text-gray-700">This placement</span>
+                      <span className="text-sm font-semibold text-blue-600">{item.assignedCount} assigned</span>
+                    </div>
+
+                    {/* Cross-placement rows */}
+                    {perPlacement.length > 0 ? (
+                      perPlacement.map((d) => (
+                        <div key={d.placementId} className="flex items-center justify-between px-3 py-2 border-b border-gray-100 last:border-0">
+                          <span className="text-sm text-gray-700 truncate mr-2">{d.placementTitle}</span>
+                          <span className="text-sm font-semibold text-orange-500 flex-shrink-0">{d.count} consumed</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-gray-400 italic">No consumption in other placements</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Summary row */}
+                <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2.5 text-sm">
+                  <span className="text-gray-600">Total used</span>
+                  <span className="font-semibold text-gray-900">
+                    {item.crossPlacementConsumed + item.assignedCount}
+                    {item.approvedCapacity > 0 && <span className="text-gray-400 font-normal"> / {item.approvedCapacity}</span>}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-3 py-1 text-sm">
+                  <span className="text-gray-600">Available for this placement</span>
+                  <span className={`font-semibold ${item.availableCount > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                    {item.availableCount}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailItem(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Warning Dialog */}
       <Dialog open={!!warningDialogRequest} onOpenChange={() => setWarningDialogRequest(null)}>

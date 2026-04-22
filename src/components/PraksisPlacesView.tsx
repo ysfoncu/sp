@@ -58,6 +58,8 @@ interface PraksisPlacesViewProps {
   onPlaceClick: (place: PraksisPlace) => void;
   onCreatePlace: () => void;
   onPlacesUpdate?: (places: PraksisPlace[]) => void;
+  nodeSlots: Record<string, Record<string, number>>;
+  onNodeSlotsChange: (placeId: string, slots: Record<string, number>) => void;
 }
 
 export function PraksisPlacesView({
@@ -65,6 +67,8 @@ export function PraksisPlacesView({
   onPlaceClick,
   onCreatePlace,
   onPlacesUpdate,
+  nodeSlots,
+  onNodeSlotsChange,
 }: PraksisPlacesViewProps) {
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -84,9 +88,6 @@ export function PraksisPlacesView({
   const [selectedContactType, setSelectedContactType] = useState<string | null>(null);
   const [selectedSupervisorStatus, setSelectedSupervisorStatus] = useState<string | null>(null);
   const [hideChildItems, setHideChildItems] = useState(false);
-  
-  // Slots state - stores student capacity for each organization node
-  const [nodeSlots, setNodeSlots] = useState<Record<string, number>>({});
   
   // Filter dialog state
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
@@ -475,13 +476,14 @@ export function PraksisPlacesView({
 
   const nodesForSlots = getNodesForSlotsView();
 
+  // Slots for the currently selected place
+  const currentNodeSlots = selectedPlaceId ? (nodeSlots[selectedPlaceId] ?? {}) : {};
+
   // Handler for updating slot value
   const handleSlotChange = (nodeId: string, value: string) => {
+    if (!selectedPlaceId) return;
     const numValue = parseInt(value) || 0;
-    setNodeSlots(prev => ({
-      ...prev,
-      [nodeId]: numValue
-    }));
+    onNodeSlotsChange(selectedPlaceId, { ...currentNodeSlots, [nodeId]: numValue });
   };
 
   return (
@@ -1138,7 +1140,7 @@ export function PraksisPlacesView({
                                         type="number"
                                         min="0"
                                         placeholder="0"
-                                        value={nodeSlots[node.id] || ""}
+                                        value={currentNodeSlots[node.id] || ""}
                                         onChange={(e) => handleSlotChange(node.id, e.target.value)}
                                         className="h-9 w-32"
                                       />
@@ -1155,7 +1157,7 @@ export function PraksisPlacesView({
                               Total places: {nodesForSlots.length}
                             </span>
                             <span className="text-sm font-medium text-gray-900">
-                              Total capacity: {Object.values(nodeSlots).reduce((sum, val) => sum + (val || 0), 0)} students
+                              Total capacity: {Object.values(currentNodeSlots).reduce((sum, val) => sum + (val || 0), 0)} students
                             </span>
                           </div>
                         </div>

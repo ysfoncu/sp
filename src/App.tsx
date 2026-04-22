@@ -216,6 +216,9 @@ export default function App() {
     QuotaOffering[]
   >(mockQuotaOfferings);
 
+  // Node Slots State - stores student capacity per organization node, keyed by praksisPlaceId
+  const [nodeSlots, setNodeSlots] = useState<Record<string, Record<string, number>>>({});
+
   // Coordinator Quota Requests State - PK person requesting capacity from praksis places
   const [
     coordinatorQuotaRequests,
@@ -1080,6 +1083,14 @@ export default function App() {
                     placement={selectedStudentPlacement}
                     praksisPlaces={praksisPlaces}
                     quotaRequests={quotaRequests}
+                    nodeSlots={nodeSlots}
+                    allPlacementsData={placementTaskStates
+                      .filter((ts) => ts.placementId !== selectedStudentPlacement.id)
+                      .map((ts) => ({
+                        placementId: ts.placementId,
+                        placementTitle: studentPlacements.find((p) => p.id === ts.placementId)?.title ?? ts.placementId,
+                        students: ts.students,
+                      }))}
                     initialTaskState={placementTaskStates.find(
                       (ts) =>
                         ts.placementId ===
@@ -1299,6 +1310,7 @@ export default function App() {
                         placementTaskStates={
                           placementTaskStates
                         }
+                        nodeSlots={nodeSlots}
                         onRequestCreate={
                           handleCoordinatorQuotaRequestCreate
                         }
@@ -1325,6 +1337,10 @@ export default function App() {
                             }
                             onPlacesUpdate={
                               handlePraksisPlacesUpdate
+                            }
+                            nodeSlots={nodeSlots}
+                            onNodeSlotsChange={(placeId, slots) =>
+                              setNodeSlots((prev) => ({ ...prev, [placeId]: slots }))
                             }
                           />
                         )}
