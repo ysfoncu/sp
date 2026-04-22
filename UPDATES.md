@@ -17,11 +17,18 @@ A new Slots tab lets coordinators define a maximum student capacity per organiza
 > A quota request is normally made to a single department (entity) within a praksis place. A multi-entity request lets a coordinator request capacity from several departments within the same praksis place in a single submission — for example, requesting 5 spots from *Kirurgisk klinikk* and 3 from *Akuttavdeling* at Oslo University Hospital HF as one request, rather than two separate ones. Each department keeps its own quota, approval status, and assigned student count.
 
 ### Request Quota Dialog
-The Request Quota Dialog step 2 is restructured from a single-column form into a two-column layout: the hierarchical org-tree selector on the left, the entity distribution table on the right. Modal width increased to accommodate this.
+
+The dialog is reorganized into 3 steps:
+
+**Step 1** uses a two-column layout. The left column contains the form fields in this order: Praksis Place selector, Placement Period (start/end dates), and Academic Information (study, program, emne — only shown when opened outside a placement context). The right column reactively shows active existing requests for the selected praksis place (requests with an end date in the future), with columns Study/Program, Entity, Req · Apr · Con, Period, and Status. If no place is selected yet a placeholder is shown.
+
+**Step 2** shows the entity distribution. The left column is the org-tree for the selected place — first-level entities (clinics/departments directly under the root) are expanded by default. The right column is the entity distribution table with columns: #, Entity Name, **Max** (slot limit in orange, or — if none configured), Quota (editable input capped at Max), and Action. This makes the configured slot limit visible for every entity at a glance.
+
+**Step 3** is the summary: a review card showing all selections and a notes field.
 
 ### Slot Limits in Quota Requests
 
-The org-tree selector shows each node's configured slot limit as a fraction next to the quantity input (e.g. `3 / 10`). The input is capped at the slot maximum; the Add button is disabled if the limit is zero or exceeded. The entity distribution table enforces the same cap with an inline validation error.
+The org-tree selector shows each node's configured slot limit as a fraction next to the quantity input (e.g. `3 / 10`). The input is capped at the slot maximum; the Add button is disabled if the limit is zero or exceeded. The entity distribution table shows the slot limit as a dedicated Max column and enforces the cap with an inline validation error.
 
 ## Placement Task Page
 
@@ -83,15 +90,15 @@ Students who have a placement history at the same praksis place or department be
 ### 2. Create a multi-entity quota request (Capacity Planning)
 
 1. Open the **Capacity Planning** tab from the sidebar.
-2. Click **New Request** and choose **Oslo University Hospital HF** as the praksis place.
-3. In step 2, notice the two-column layout: org-tree on the left, entity distribution table on the right.
-4. In the org-tree, expand **Kirurgisk klinikk** and click it to add it. Enter `8` — the input is capped at 10 (the slot limit). The selector shows `8 / 10` next to the field.
-5. Now click **Akuttavdeling** (under Ortopedisk klinikk) and try entering `5`. The input is blocked at `3` (slot limit). Confirm the inline validation error appears.
-6. Set it to `2` instead, and click **Add**.
-7. The entity distribution table on the right now shows two rows: Kirurgisk klinikk (8) and Akuttavdeling (2).
-8. Submit the request. It appears in the requests list with status **Pending**.
-9. Approve **Kirurgisk klinikk** with quota `8`, but leave **Akuttavdeling** as pending — verify per-entity approval works independently.
-10. Create placement task from request by pressing -> 
+2. Click **New Request** — the dialog opens at step 1.
+3. In the left column select **Oslo University Hospital HF**. The right column immediately shows any active existing requests for that place.
+4. Set a start and end date, then click **Next**.
+5. In step 2, the org-tree opens with first-level nodes already expanded. Click **Kirurgisk klinikk** and enter `8` — the input is capped at 10 (the slot limit shown in the tree as `8 / 10`).
+6. Click **Akuttavdeling** (under Ortopedisk klinikk) and try entering `5`. The input is blocked at `3`. In the distribution table the **Max** column shows `3` in orange for this entity.
+7. Set it to `2` and click **Add**. The distribution table now shows two rows.
+8. Click **Next** to reach the summary, then **Submit**. The request appears in the list with status **Pending**.
+9. Approve **Kirurgisk klinikk** with quota `8`, leave **Akuttavdeling** pending — per-entity approval works independently.
+10. Create a placement task from the approved request by pressing →
 
 ---
 
