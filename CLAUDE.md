@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm install       # Install dependencies
 npm run dev       # Start dev server at http://localhost:3000 (auto-opens browser)
-npm run build     # Build to ./build/
+npm run build     # Build to ./dist/
 ```
 
 There are no tests or linting scripts configured.
