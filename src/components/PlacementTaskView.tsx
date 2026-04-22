@@ -74,6 +74,7 @@ interface PlacementTaskViewProps {
     assignmentPublishedDate?: string;
   };
   onTaskStateUpdate?: (state: any) => void;
+  nodeSlots?: Record<string, Record<string, number>>;
   allPlacementsData?: CrossPlacementData[];
   onboardingStep?: number;
   onboardingData?: any;
@@ -105,6 +106,7 @@ export function PlacementTaskView({
   onPlacementDelete,
   initialTaskState,
   onTaskStateUpdate,
+  nodeSlots = {},
   allPlacementsData = [],
   onboardingStep,
   onboardingData,
@@ -1565,6 +1567,7 @@ export function PlacementTaskView({
           coordinatorQuotaRequestsForPlacement={coordinatorQuotaRequests.filter(
             (req) => req.placementId === placement.id,
           )}
+          nodeSlots={nodeSlots}
           onCloseRequestQuota={() => {
             setIsRequestQuotaModalOpen(false);
             setEditingQuotaRequest(null);

@@ -776,7 +776,7 @@ export function CoordinatorQuotasView({
       {!isQuotaSearchMode && quotaRequests.length > 0 && (
         <Card className="p-0 overflow-hidden">
           <div className="p-5 border-b border-gray-200">
-            <h2 className="text-xl font-bold text-gray-800">
+            <h2 className="text-xl font-semibold text-gray-800">
               Available Quotas
             </h2>
             <p className="text-sm text-gray-600 mt-1">
@@ -785,47 +785,21 @@ export function CoordinatorQuotasView({
                 ? `Available capacity from praksis places (${filteredDistribution[0].dateRange.start} - ${filteredDistribution[0].dateRange.end})`
                 : "Available capacity from praksis places"}
             </p>
-            {/* Debug Info */}
-            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-              <p><strong>Debug:</strong> Total Requests: {quotaRequests.length} | 
-                Approved: {quotaRequests.filter(r => r.status === 'approved').length} | 
-                Pending: {quotaRequests.filter(r => r.status === 'pending').length}</p>
-              <p>First Request: {JSON.stringify({
-                id: quotaRequests[0]?.id,
-                status: quotaRequests[0]?.status,
-                universityId: quotaRequests[0]?.universityId,
-                startDate: quotaRequests[0]?.startDate,
-                endDate: quotaRequests[0]?.endDate,
-                studyId: quotaRequests[0]?.studyId,
-                programId: quotaRequests[0]?.programId,
-              })}</p>
-              <p>Filtered Distribution: {filteredDistribution.length} groups</p>
-              {filteredDistribution.length > 0 && (
-                <p>First Group: {JSON.stringify({
-                  study: filteredDistribution[0].studyName,
-                  program: filteredDistribution[0].programName,
-                  totalCapacity: filteredDistribution[0].totalCapacity,
-                  itemsCount: filteredDistribution[0].chartData.length,
-                  firstChartPoint: filteredDistribution[0].chartData[0],
-                  lastChartPoint: filteredDistribution[0].chartData[filteredDistribution[0].chartData.length - 1],
-                })}</p>
-              )}
-            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px]">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                  <th className="px-3 sm:px-6 py-3 text-left text-sm font-semibold text-gray-700">
                     Study / Program
                   </th>
-                  <th className="px-3 sm:px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
+                  <th className="px-3 sm:px-6 py-3 text-center text-sm font-semibold text-gray-700">
                     Approved
                   </th>
-                  <th className="px-3 sm:px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
+                  <th className="px-3 sm:px-6 py-3 text-center text-sm font-semibold text-gray-700">
                     Requested
                   </th>
-                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                  <th className="px-3 sm:px-6 py-3 text-left text-sm font-semibold text-gray-700">
                     Distributed Quota
                   </th>
                 </tr>
@@ -980,7 +954,7 @@ export function CoordinatorQuotasView({
       {/* My Requests Section */}
       <Card className="p-0 overflow-hidden mb-[50px]">
         <div className="p-5 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-800">
+          <h2 className="text-xl font-semibold text-gray-800">
             Quota Requests
           </h2>
           <p className="text-sm text-gray-600 mt-1">
@@ -992,34 +966,34 @@ export function CoordinatorQuotasView({
           <table className="w-full min-w-[900px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-sm font-semibold text-gray-700">
                   Study / Program
                 </th>
-                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-sm font-semibold text-gray-700">
                   Praksis Place
                 </th>
-                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-sm font-semibold text-gray-700">
                   Entities
                 </th>
-                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-sm font-semibold text-gray-700">
                   Contact
                 </th>
-                <th className="px-3 sm:px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-center text-sm font-semibold text-gray-700">
                   Requested
                 </th>
-                <th className="px-3 sm:px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-center text-sm font-semibold text-gray-700">
                   Approved
                 </th>
-                <th className="px-3 sm:px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-center text-sm font-semibold text-gray-700">
                   Consumed
                 </th>
-                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-sm font-semibold text-gray-700">
                   Period
                 </th>
-                <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-left text-sm font-semibold text-gray-700">
                   Status
                 </th>
-                <th className="px-3 sm:px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
+                <th className="px-3 sm:px-6 py-3 text-center text-sm font-semibold text-gray-700">
                   Actions
                 </th>
               </tr>

@@ -144,6 +144,7 @@ interface PlacementModalsProps {
   }>;
   currentUserName: string;
   coordinatorQuotaRequestsForPlacement: CoordinatorQuotaRequest[];
+  nodeSlots?: Record<string, Record<string, number>>;
   onCloseRequestQuota: () => void;
   onRequestQuotaSubmit: (
     data: Omit<CoordinatorQuotaRequest, "id" | "requestedDate" | "status">,
@@ -221,6 +222,7 @@ export function PlacementModals({
   existingQuotasForRequest,
   currentUserName,
   coordinatorQuotaRequestsForPlacement,
+  nodeSlots = {},
   onCloseRequestQuota,
   onRequestQuotaSubmit,
   onUpdateQuotaRequest,
@@ -467,6 +469,7 @@ export function PlacementModals({
         existingRequests={coordinatorQuotaRequestsForPlacement}
         editingRequest={editingQuotaRequest || undefined}
         onUpdate={onUpdateQuotaRequest}
+        nodeSlots={nodeSlots}
       />
 
       <AISupportSidebar

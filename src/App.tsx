@@ -1083,6 +1083,7 @@ export default function App() {
                     placement={selectedStudentPlacement}
                     praksisPlaces={praksisPlaces}
                     quotaRequests={quotaRequests}
+                    nodeSlots={nodeSlots}
                     allPlacementsData={placementTaskStates
                       .filter((ts) => ts.placementId !== selectedStudentPlacement.id)
                       .map((ts) => ({
