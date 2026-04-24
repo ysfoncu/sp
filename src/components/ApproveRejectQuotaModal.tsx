@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
-import { Calendar, Building2, GraduationCap, Users, FileText, AlertCircle } from 'lucide-react';
+import { Calendar, Building2, GraduationCap, Users, FileText, AlertCircle, X } from 'lucide-react';
 import { CoordinatorQuotaRequest } from '../types/coordinatorQuotaRequest';
 import { PraksisPlace } from '../types/praksisPlace';
 import { HierarchicalOrganizationSelector } from './HierarchicalOrganizationSelector';
@@ -28,7 +28,7 @@ interface ApproveRejectQuotaModalProps {
   isOpen: boolean;
   onClose: () => void;
   request: CoordinatorQuotaRequest | null;
-  onApprove: (id: string, responseNotes?: string, selectedDepartmentId?: string, approvedCapacity?: number, entityApprovals?: Record<string, number>) => void;
+  onApprove: (id: string, responseNotes?: string, selectedDepartmentId?: string, approvedCapacity?: number, entityApprovals?: Record<string, number>, entityStatuses?: Record<string, 'approved' | 'rejected'>) => void;
   onReject: (id: string, reason: string, responseNotes?: string) => void;
   praksisPlace?: PraksisPlace;
 }
@@ -51,6 +51,7 @@ export function ApproveRejectQuotaModal({
   const [selectedOrganizationNodeName, setSelectedOrganizationNodeName] = useState<string | null>(null);
   // State for multi-entity approval
   const [entityApprovals, setEntityApprovals] = useState<Record<string, number>>({});
+  const [entityRejections, setEntityRejections] = useState<Record<string, boolean>>({});
 
   // Check if department needs to be selected
   const needsDepartmentSelection = request && (!request.departmentId || request.departmentName === 'To be assigned by SK');
@@ -67,6 +68,7 @@ export function ApproveRejectQuotaModal({
       setSelectedOrganizationNodeId(null);
       setSelectedOrganizationNodeName(null);
       setEntityApprovals({});
+      setEntityRejections({});
     } else if (request) {
       // Set default approved capacity to the requested capacity
       setApprovedCapacity(String(request.requestedCapacity));
@@ -81,10 +83,13 @@ export function ApproveRejectQuotaModal({
       // Initialize entity approvals for multi-entity requests
       if (request.entityDistributions && request.entityDistributions.length > 0) {
         const initialApprovals: Record<string, number> = {};
+        const initialRejections: Record<string, boolean> = {};
         request.entityDistributions.forEach(entity => {
-          initialApprovals[entity.id] = entity.requestedQuota;
+          initialApprovals[entity.id] = entity.approvedQuota ?? entity.requestedQuota;
+          initialRejections[entity.id] = entity.status === 'rejected';
         });
         setEntityApprovals(initialApprovals);
+        setEntityRejections(initialRejections);
       }
     }
   }, [isOpen, request]);
@@ -96,19 +101,39 @@ export function ApproveRejectQuotaModal({
   const handleApprove = () => {
     // Handle multi-entity approval
     if (request.entityDistributions && request.entityDistributions.length > 0) {
-      // Validate that all entities have approval values
-      const allEntitiesHaveValues = request.entityDistributions.every(
-        entity => entityApprovals[entity.id] !== undefined && entityApprovals[entity.id] >= 0
-      );
-      
-      if (!allEntitiesHaveValues) {
-        setError('Please enter approval quantities for all entities');
+      // Check if all entities are rejected
+      const allRejected = request.entityDistributions.every(entity => entityRejections[entity.id]);
+      if (allRejected) {
+        setError('All entities are rejected. Use the Reject button to reject the entire request.');
         return;
       }
 
-      // Calculate total approved capacity
-      const totalApproved = Object.values(entityApprovals).reduce((sum, val) => sum + val, 0);
-      
+      // Validate non-rejected entities have approval values > 0
+      const nonRejectedEntities = request.entityDistributions.filter(e => !entityRejections[e.id]);
+      const allNonRejectedHaveValues = nonRejectedEntities.every(
+        entity => entityApprovals[entity.id] !== undefined && entityApprovals[entity.id] > 0
+      );
+
+      if (!allNonRejectedHaveValues) {
+        setError('Please enter approval quantities (greater than 0) for all non-rejected entities');
+        return;
+      }
+
+      // Build final approvals (rejected entities get 0)
+      const finalApprovals: Record<string, number> = {};
+      request.entityDistributions.forEach(entity => {
+        finalApprovals[entity.id] = entityRejections[entity.id] ? 0 : (entityApprovals[entity.id] || 0);
+      });
+
+      // Build entity statuses
+      const entityStatuses: Record<string, 'approved' | 'rejected'> = {};
+      request.entityDistributions.forEach(entity => {
+        entityStatuses[entity.id] = entityRejections[entity.id] ? 'rejected' : 'approved';
+      });
+
+      // Calculate total approved capacity (only non-rejected)
+      const totalApproved = nonRejectedEntities.reduce((sum, entity) => sum + (finalApprovals[entity.id] || 0), 0);
+
       if (totalApproved > request.requestedCapacity) {
         setError(`Total approved capacity (${totalApproved}) cannot exceed requested capacity (${request.requestedCapacity})`);
         return;
@@ -119,7 +144,8 @@ export function ApproveRejectQuotaModal({
         responseNotes.trim() || undefined,
         undefined,
         totalApproved,
-        entityApprovals
+        finalApprovals,
+        entityStatuses
       );
       onClose();
       return;
@@ -182,7 +208,7 @@ export function ApproveRejectQuotaModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Review Quota Request</DialogTitle>
           <DialogDescription>
@@ -249,34 +275,58 @@ export function ApproveRejectQuotaModal({
                           <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Entity</th>
                           <th className="px-3 py-2 text-center text-xs font-semibold text-gray-700">Requested</th>
                           <th className="px-3 py-2 text-center text-xs font-semibold text-gray-700">Approve</th>
+                          <th className="px-3 py-2 text-center text-xs font-semibold text-gray-700">Reject</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {request.entityDistributions.map((entity) => (
-                          <tr key={entity.id} className="hover:bg-gray-50">
-                            <td className="px-3 py-2 font-medium text-gray-800">{entity.entityName}</td>
-                            <td className="px-3 py-2 text-center">
-                              <span className="text-purple-600 font-bold">{entity.requestedQuota}</span>
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              <Input
-                                type="number"
-                                min="0"
-                                max={entity.requestedQuota}
-                                value={entityApprovals[entity.id] || ''}
-                                onChange={(e) => {
-                                  const value = parseInt(e.target.value) || 0;
-                                  setEntityApprovals({
-                                    ...entityApprovals,
-                                    [entity.id]: value
-                                  });
-                                  setError('');
-                                }}
-                                className="w-20 text-center"
-                              />
-                            </td>
-                          </tr>
-                        ))}
+                        {request.entityDistributions.map((entity) => {
+                          const isRejected = !!entityRejections[entity.id];
+                          return (
+                            <tr key={entity.id} className={isRejected ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                              <td className="px-3 py-2 font-medium text-gray-800">
+                                <span className={isRejected ? 'line-through text-gray-400' : ''}>{entity.entityName}</span>
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <span className={`font-bold ${isRejected ? 'text-gray-400' : 'text-purple-600'}`}>{entity.requestedQuota}</span>
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max={entity.requestedQuota}
+                                  value={isRejected ? '' : (entityApprovals[entity.id] ?? '')}
+                                  disabled={isRejected}
+                                  onChange={(e) => {
+                                    const value = parseInt(e.target.value) || 0;
+                                    setEntityApprovals({
+                                      ...entityApprovals,
+                                      [entity.id]: value
+                                    });
+                                    setError('');
+                                  }}
+                                  className={`w-20 text-center ${isRejected ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEntityRejections({ ...entityRejections, [entity.id]: !isRejected });
+                                    setError('');
+                                  }}
+                                  title={isRejected ? 'Undo rejection' : 'Reject this entity'}
+                                  className={`inline-flex items-center justify-center w-7 h-7 rounded-full border transition-colors ${
+                                    isRejected
+                                      ? 'bg-red-500 border-red-500 text-white hover:bg-red-600'
+                                      : 'border-gray-300 text-gray-400 hover:border-red-400 hover:text-red-500 hover:bg-red-50'
+                                  }`}
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -290,9 +340,19 @@ export function ApproveRejectQuotaModal({
                       <div className="text-center">
                         <span className="text-xs text-gray-600">To Approve</span>
                         <p className="text-lg font-bold text-green-600">
-                          {Object.values(entityApprovals).reduce((sum, val) => sum + val, 0)}
+                          {request.entityDistributions.reduce((sum, entity) =>
+                            entityRejections[entity.id] ? sum : sum + (entityApprovals[entity.id] || 0), 0
+                          )}
                         </p>
                       </div>
+                      {Object.values(entityRejections).some(Boolean) && (
+                        <div className="text-center">
+                          <span className="text-xs text-gray-600">Rejected</span>
+                          <p className="text-lg font-bold text-red-500">
+                            {request.entityDistributions.filter(e => entityRejections[e.id]).length}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

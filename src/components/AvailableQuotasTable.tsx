@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Clock, UserPlus, Plus, AlertTriangle, Check, Pencil, Trash2, Info } from "lucide-react";
+import { Clock, UserPlus, Plus, AlertTriangle, Check, Pencil, Trash2, Info, XCircle } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
@@ -166,8 +166,9 @@ function processQuotaRequests(
           : request.status === 'approved' ? entity.requestedQuota : 0;
         const entityAvailableCount = Math.max(0, entityApprovedCapacity - crossPlacementConsumed - entityAssignedCount);
 
-        // Status is per-entity: approved if this entity's quota was set, regardless of parent status
+        // Status is per-entity: respect explicit rejection, then check approval, else pending
         const entityStatus: QuotaRequestItem['status'] =
+          entity.status === 'rejected' ? 'rejected' :
           entityExplicitlyApproved || request.status === 'approved' ? 'approved' : 'pending';
         const approvedCapacity = entityStatus === 'approved' ? entityApprovedCapacity : 0;
         const pendingCapacity  = entityStatus === 'pending'  ? entity.requestedQuota : 0;
@@ -499,14 +500,18 @@ export default function AvailableQuotasTable({
                   {reqGroup.entities.map((entity) => {
                     const rowKey = `${entity.requestId}-${entity.departmentId}`;
                     const isPending = entity.status === 'pending';
+                    const isRejected = entity.status === 'rejected';
                     const hasAvailability = entity.availableCount > 0;
-                    const isFull = !isPending && entity.approvedCapacity > 0 && entity.availableCount === 0;
+                    const isFull = !isPending && !isRejected && entity.approvedCapacity > 0 && entity.availableCount === 0;
 
                     return (
                       <div
                         key={rowKey}
                         className={`px-4 py-2.5 flex items-center gap-2 transition-colors cursor-pointer ${
-                          isPending ? 'bg-amber-100/70 hover:bg-amber-100' : isFull ? 'bg-gray-50/40 hover:bg-gray-100/60' : 'hover:bg-blue-50/40'
+                          isPending ? 'bg-amber-100/70 hover:bg-amber-100' :
+                          isRejected ? 'bg-red-50/60 hover:bg-red-100/60' :
+                          isFull ? 'bg-gray-50/40 hover:bg-gray-100/60' :
+                          'hover:bg-blue-50/40'
                         }`}
                         onClick={() => setDetailItem(entity)}
                       >
@@ -591,7 +596,7 @@ export default function AvailableQuotasTable({
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={!hasAvailability}
+                            disabled={!hasAvailability || isRejected}
                             onClick={(e: React.MouseEvent) => {
                               e.stopPropagation();
                               if (!isPublished) {
@@ -612,8 +617,14 @@ export default function AvailableQuotasTable({
                                 });
                               }
                             }}
-                            className={`h-7 w-7 p-0 flex-shrink-0 ml-[5px] ${hasAvailability ? 'text-blue-600 border-blue-200 hover:bg-blue-50' : ''}`}
-                            title="Assign students"
+                            className={`h-7 w-7 p-0 flex-shrink-0 ml-[5px] ${
+                              isRejected
+                                ? 'text-red-400 border-red-200 bg-red-50 cursor-not-allowed'
+                                : hasAvailability
+                                  ? 'text-green-600 border-green-200 hover:bg-green-50'
+                                  : ''
+                            }`}
+                            title={isRejected ? 'Request rejected' : 'Assign students'}
                           >
                             <UserPlus className="h-3.5 w-3.5" />
                           </Button>
@@ -685,17 +696,28 @@ export default function AvailableQuotasTable({
               return { ...d, count };
             }).filter((d) => d.count > 0);
 
+            const isRejectedItem = item.status === 'rejected';
             return (
               <div className="space-y-4">
+                {/* Rejected banner */}
+                {isRejectedItem && (
+                  <div className="flex items-center gap-2.5 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg">
+                    <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                    <p className="text-sm font-medium text-red-700">This request has been rejected</p>
+                  </div>
+                )}
+
                 {/* Capacity + dates */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-gray-50 rounded-lg p-3">
+                  <div className={`rounded-lg p-3 ${isRejectedItem ? 'bg-red-50/60' : 'bg-gray-50'}`}>
                     <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Capacity</p>
                     <p className="text-sm font-semibold text-gray-900">
                       {item.requestedCapacity} requested
-                      {item.approvedCapacity > 0 && (
+                      {isRejectedItem ? (
+                        <span className="text-red-500 font-normal"> / rejected</span>
+                      ) : item.approvedCapacity > 0 ? (
                         <span className="text-gray-400 font-normal"> / {item.approvedCapacity} approved</span>
-                      )}
+                      ) : null}
                     </p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-3">
@@ -706,8 +728,8 @@ export default function AvailableQuotasTable({
                   </div>
                 </div>
 
-                {/* Assignment breakdown */}
-                <div>
+                {/* Assignment breakdown — hidden for rejected entities */}
+                {!isRejectedItem && <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Assignment breakdown</p>
                   <div className="border border-gray-100 rounded-lg overflow-hidden">
                     {/* This placement */}
@@ -728,9 +750,10 @@ export default function AvailableQuotasTable({
                       <div className="px-3 py-2 text-sm text-gray-400 italic">No consumption in other placements</div>
                     )}
                   </div>
-                </div>
+                </div>}
 
-                {/* Summary row */}
+                {/* Summary row — hidden for rejected entities */}
+                {!isRejectedItem && <>
                 <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2.5 text-sm">
                   <span className="text-gray-600">Total used</span>
                   <span className="font-semibold text-gray-900">
@@ -744,6 +767,7 @@ export default function AvailableQuotasTable({
                     {item.availableCount}
                   </span>
                 </div>
+                </>}
               </div>
             );
           })()}

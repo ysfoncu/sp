@@ -1059,7 +1059,7 @@ export function CoordinatorQuotasView({
                           </td>
                         )}
                         
-                        {/* Entity Name - Show for each entity */}
+                        {/* Entity Name */}
                         <td className="px-3 sm:px-6 py-4">
                           <div className="text-sm font-medium text-blue-700">
                             {entity.entityName}
@@ -1140,21 +1140,27 @@ export function CoordinatorQuotasView({
                           </td>
                         )}
                         
-                        {/* Status - Show only in first row with rowspan */}
-                        {isFirstRow && (
-                          <td className="px-3 sm:px-6 py-4 align-top" rowSpan={rowSpan}>
-                            <Badge
-                              variant="outline"
-                              className={`${getStatusBadgeClass(request.status)} flex items-center gap-1 w-fit`}
-                            >
-                              {getStatusIcon(request.status)}
-                              {request.status
-                                .charAt(0)
-                                .toUpperCase() +
-                                request.status.slice(1)}
-                            </Badge>
-                          </td>
-                        )}
+                        {/* Status - Per entity row */}
+                        {(() => {
+                          const entityStatus: 'pending' | 'approved' | 'rejected' =
+                            (entity as any).status ||
+                            (request.status === 'pending' ? 'pending' :
+                             request.status === 'rejected' ? 'rejected' :
+                             request.status === 'approved'
+                               ? (entity.approvedQuota !== undefined ? (entity.approvedQuota > 0 ? 'approved' : 'rejected') : 'approved')
+                               : 'pending');
+                          return (
+                            <td className="px-3 sm:px-6 py-4">
+                              <Badge
+                                variant="outline"
+                                className={`${getStatusBadgeClass(entityStatus)} flex items-center gap-1 w-fit ${isFirstRow ? '' : 'text-xs'}`}
+                              >
+                                {isFirstRow && getStatusIcon(entityStatus)}
+                                {entityStatus.charAt(0).toUpperCase() + entityStatus.slice(1)}
+                              </Badge>
+                            </td>
+                          );
+                        })()}
                         
                         {/* Actions - Show only in first row with rowspan */}
                         {isFirstRow && (
@@ -1281,16 +1287,17 @@ export function CoordinatorQuotasView({
           setApprovingRequest(null);
         }}
         request={approvingRequest}
-        onApprove={(id, responseNotes, selectedDepartmentId, approvedCapacity, entityApprovals) => {
+        onApprove={(id, responseNotes, selectedDepartmentId, approvedCapacity, entityApprovals, entityStatuses) => {
           // Find the request
           const request = quotaRequests.find(r => r.id === id);
-          
+
           // Handle multi-entity approval
           if (request && entityApprovals && request.entityDistributions && request.entityDistributions.length > 0) {
-            // Update entity distributions with approved quotas
+            // Update entity distributions with approved quotas and statuses
             const updatedEntityDistributions = request.entityDistributions.map(entity => ({
               ...entity,
               approvedQuota: entityApprovals[entity.id] || 0,
+              status: entityStatuses?.[entity.id] ?? 'approved',
             }));
             
             onRequestUpdate(id, {

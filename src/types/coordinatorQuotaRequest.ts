@@ -8,6 +8,7 @@ export interface EntityDistribution {
   requestedQuota: number; // e.g., 2
   approvedQuota?: number; // Capacity approved by SK person for this entity
   consumedQuota?: number; // How many actually used for this entity
+  status?: 'pending' | 'approved' | 'rejected'; // Per-entity review status
   contactPersonId?: string; // Contact person ID for this specific entity
   contactPersonName?: string; // Contact person name for this specific entity
   contactPersonEmail?: string; // Contact person email for this specific entity
