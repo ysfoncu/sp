@@ -21,6 +21,7 @@ export interface MetadataFormData {
   studyId: string;
   programId: string;
   emne?: string;
+  totalPraksisHours?: number;
 }
 
 interface PlacementMetadataFormProps {
@@ -177,6 +178,25 @@ export function PlacementMetadataForm({
                 </p>
               )}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-medium text-gray-700 text-sm block">
+              Total praksis hours <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <Input
+              type="number"
+              min={0}
+              value={formData.totalPraksisHours ?? ""}
+              onChange={(e) =>
+                onChange({
+                  ...formData,
+                  totalPraksisHours: e.target.value === "" ? undefined : Number(e.target.value),
+                })
+              }
+              placeholder="e.g., 120"
+              className="h-10 w-40"
+            />
           </div>
 
           <div className="space-y-2">

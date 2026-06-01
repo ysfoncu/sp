@@ -11,6 +11,7 @@ export interface StudentPlacement {
   status: "draft" | "upload" | "select" | "publish" | "completed";
   studyId: string;
   programId: string;
+  totalPraksisHours?: number;
 }
 
 // Placement Task State - stores the working state of a placement

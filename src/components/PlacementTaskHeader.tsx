@@ -1,4 +1,4 @@
-import { ArrowLeft, Calendar as CalendarIcon, HelpCircle, Pencil } from "lucide-react";
+import { ArrowLeft, Calendar as CalendarIcon, Clock, HelpCircle, Pencil } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   Breadcrumb,
@@ -81,6 +81,13 @@ export function PlacementTaskHeader({
                   {placement.startDate} - {placement.endDate}
                 </span>
               </div>
+              {placement.totalPraksisHours != null && (
+                <div className="flex items-center gap-1">
+                  <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>{placement.totalPraksisHours} hrs</span>
+                </div>
+              )}
             </div>
           )}
         </div>

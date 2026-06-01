@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Info, CheckCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { QuotaSelection } from "./SlideOverManageQuota";
@@ -13,6 +13,7 @@ import {
 } from "../types/placementTask";
 import { CrossPlacementData } from "./AvailableQuotasTable";
 import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
+import { PriorityPlacementPeriod, PriorityPlacementApplication } from "../types/priorityPlacement";
 import { toast } from "sonner@2.0.3";
 import AvailableQuotasTable from "./AvailableQuotasTable";
 import { findNodeById } from "../types/organizationStructure";
@@ -56,6 +57,7 @@ interface PlacementTaskViewProps {
       students: number;
       studyId: string;
       programId: string;
+      totalPraksisHours?: number;
     },
   ) => void;
   onPlacementDelete?: (placementId: string) => void;
@@ -76,6 +78,8 @@ interface PlacementTaskViewProps {
   onTaskStateUpdate?: (state: any) => void;
   nodeSlots?: Record<string, Record<string, number>>;
   allPlacementsData?: CrossPlacementData[];
+  priorityApplications?: PriorityPlacementApplication[];
+  priorityPeriods?: PriorityPlacementPeriod[];
   onboardingStep?: number;
   onboardingData?: any;
   setOnboardingStep?: (step: number) => void;
@@ -108,6 +112,8 @@ export function PlacementTaskView({
   onTaskStateUpdate,
   nodeSlots = {},
   allPlacementsData = [],
+  priorityApplications = [],
+  priorityPeriods = [],
   onboardingStep,
   onboardingData,
   setOnboardingStep,
@@ -325,6 +331,23 @@ export function PlacementTaskView({
       ];
     }),
   );
+
+  const matchedPriorityApplications = useMemo((): PriorityPlacementApplication[] => {
+    const sem = placement.semester;
+    const normalizedSemester: "HT" | "VT" =
+      sem === "Fall" || sem === "Autumn" ? "HT" : "VT";
+    const matchedPeriod = priorityPeriods.find(
+      (p) =>
+        p.year === placement.year &&
+        p.semester === normalizedSemester &&
+        p.studyIds.includes(placement.studyId) &&
+        p.programIds.includes(placement.programId)
+    );
+    if (!matchedPeriod) return [];
+    return priorityApplications.filter(
+      (a) => a.periodId === matchedPeriod.id && a.status === "approved"
+    );
+  }, [priorityPeriods, priorityApplications, placement]);
 
   const totalQuotas = totalCoordinatorApprovedQuotas;
   const currentTask = tasks.find((t) => !t.completed);
@@ -587,6 +610,7 @@ export function PlacementTaskView({
         students: metadataFormData.students,
         studyId: metadataFormData.studyId,
         programId: metadataFormData.programId,
+        totalPraksisHours: metadataFormData.totalPraksisHours,
       });
     }
 
@@ -1510,6 +1534,7 @@ export function PlacementTaskView({
                     isFirstPublishCompleted={isFirstPublishCompleted}
                     isStudentsExpanded={isStudentsExpanded}
                     quotaEntityKeys={quotaEntityKeys}
+                    priorityApplications={matchedPriorityApplications}
                     onStudentsExpandChange={setIsStudentsExpanded}
                     onImportStudents={handleImportStudents}
                     onDetachStudent={handleDetachStudent}

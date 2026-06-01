@@ -69,10 +69,19 @@ import {
   QuotaOffering,
 } from "./types/quotaOffering";
 import {
-  mockCoordinatorQuotaRequests,
   CoordinatorQuotaRequest,
 } from "./types/coordinatorQuotaRequest";
 import { CoordinatorQuotasView } from "./components/CoordinatorQuotasView";
+import { PrioritiesView } from "./components/PrioritiesView";
+import { PriorityItemDetailView } from "./components/PriorityItemDetailView";
+import {
+  mockEnrolledStudents,
+  mockPriorityPeriods,
+  mockPriorityApplications,
+  EnrolledStudent,
+  PriorityPlacementPeriod,
+  PriorityPlacementApplication,
+} from "./types/priorityPlacement";
 import { FloatingOnboardingButton } from "./components/FloatingOnboardingButton";
 import { OnboardingOverlay } from "./components/OnboardingOverlay";
 import { OnboardingCommentsView } from "./components/OnboardingCommentsView";
@@ -209,6 +218,16 @@ export default function App() {
         { id: "1-2", name: "Physiotherapy" },
       ],
     },
+    {
+      id: "2",
+      name: "Engineering",
+      universityId: "U1",
+      universityName: "University of Oslo",
+      programs: [
+        { id: "2-1", name: "Software Engineering" },
+        { id: "2-2", name: "Electrical Engineering" },
+      ],
+    },
   ]);
 
   // Quota Offerings State - SK person offering capacity to universities/programs
@@ -223,37 +242,21 @@ export default function App() {
   const [
     coordinatorQuotaRequests,
     setCoordinatorQuotaRequests,
-  ] = useState<CoordinatorQuotaRequest[]>(() => {
-    // Try to load from localStorage first
-    const stored = localStorage.getItem(
-      "coordinatorQuotaRequests",
-    );
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        console.error(
-          "Failed to parse stored coordinator quota requests:",
-          e,
-        );
-      }
-    }
-    return mockCoordinatorQuotaRequests;
-  });
+  ] = useState<CoordinatorQuotaRequest[]>([]);
 
-  // Persist coordinatorQuotaRequests to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem(
-      "coordinatorQuotaRequests",
-      JSON.stringify(coordinatorQuotaRequests),
-    );
-  }, [coordinatorQuotaRequests]);
+  // Priority placement state
+  const [priorityPeriods, setPriorityPeriods] = useState<PriorityPlacementPeriod[]>(mockPriorityPeriods);
+  const [priorityApplications, setPriorityApplications] = useState<PriorityPlacementApplication[]>(mockPriorityApplications);
+  const [enrolledStudents] = useState<EnrolledStudent[]>(mockEnrolledStudents);
+  const [selectedPriorityPeriod, setSelectedPriorityPeriod] = useState<PriorityPlacementPeriod | null>(null);
 
   const [currentView, setCurrentView] = useState<
     | "dashboard"
     | "placements"
     | "praksisplaces"
     | "quotas"
+    | "priorities"
+    | "priorityitem"
     | "settings"
     | "analytics"
     | "placementtask"
@@ -387,6 +390,7 @@ export default function App() {
       students: number;
       studyId: string;
       programId: string;
+      totalPraksisHours?: number;
     },
   ) => {
     setStudentPlacements((prev) =>
@@ -782,17 +786,273 @@ export default function App() {
     toast.info("Logged out successfully");
   };
 
+  // Priority placement handlers
+  const handlePriorityPeriodCreate = (
+    period: Omit<PriorityPlacementPeriod, "id" | "createdDate" | "createdBy" | "eligibleStudentIds">
+  ) => {
+    const eligibleStudentIds = enrolledStudents
+      .filter(
+        (s) =>
+          period.admissionTerms.includes(s.admissionTerm) &&
+          (period.studyLocations.length === 0 || period.studyLocations.includes(s.studyLocation)) &&
+          period.programIds.includes(s.programId)
+      )
+      .map((s) => s.id);
+
+    setPriorityPeriods((prev) => [
+      ...prev,
+      {
+        ...period,
+        id: `pp-${Date.now()}`,
+        createdDate: new Date().toISOString().split("T")[0],
+        createdBy: "John Coordinator",
+        eligibleStudentIds,
+        importedStudentIds: period.importedStudentIds ?? [],
+      },
+    ]);
+    toast.success("Ansökningsperiod skapad");
+  };
+
+  const handlePriorityPeriodToggleStatus = (id: string) => {
+    setPriorityPeriods((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, status: p.status === "open" ? "closed" : "open" } : p))
+    );
+  };
+
+  const handlePriorityApplicationApprove = (id: string, notes?: string) => {
+    setPriorityApplications((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status: "approved" as const,
+              decidedBy: "John Coordinator",
+              decidedDate: new Date().toISOString().split("T")[0],
+              decisionNotes: notes,
+            }
+          : a
+      )
+    );
+    toast.success("Ansökan godkänd");
+  };
+
+  const handlePriorityApplicationReject = (id: string, notes: string) => {
+    setPriorityApplications((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status: "rejected" as const,
+              decidedBy: "John Coordinator",
+              decidedDate: new Date().toISOString().split("T")[0],
+              decisionNotes: notes,
+            }
+          : a
+      )
+    );
+    toast.info("Ansökan avslagen");
+  };
+
+  const handleManualGrantPriority = (
+    application: Omit<PriorityPlacementApplication, "id" | "submittedDate">
+  ) => {
+    setPriorityApplications((prev) => [
+      ...prev,
+      {
+        ...application,
+        id: `pa-${Date.now()}`,
+        submittedDate: new Date().toISOString().split("T")[0],
+        published: false,
+      },
+    ]);
+    toast.success("Prioritet beviljad manuellt");
+  };
+
+  const handlePriorityItemImportStudents = (periodId: string) => {
+    const first5 = mockEnrolledStudents.slice(0, 5);
+    const period = priorityPeriods.find((p) => p.id === periodId);
+    if (!period) return;
+    setPriorityPeriods((prev) =>
+      prev.map((p) =>
+        p.id === periodId ? { ...p, importedStudentIds: first5.map((s) => s.id) } : p
+      )
+    );
+    const newApps: PriorityPlacementApplication[] = first5.map((s) => ({
+      id: `pa-${Date.now()}-${s.id}`,
+      periodId,
+      studentId: s.id,
+      studentName: s.name,
+      personnummer: s.personnummer,
+      programId: s.programId,
+      programName: s.programName,
+      studyId: s.studyId,
+      studyName: s.studyName,
+      studyLocation: s.studyLocation,
+      admissionTerm: s.admissionTerm,
+      targetSemester: `${period.semester}-${period.year}`,
+      selectedReasons: [],
+      totalPoints: 0,
+      hasDriversLicense: s.hasDriversLicense,
+      submittedDate: new Date().toISOString().split("T")[0],
+      status: "pending" as const,
+      isManualGrant: false,
+      published: false,
+    }));
+    setPriorityApplications((prev) => [...prev, ...newApps]);
+    toast.success("5 students imported");
+  };
+
+  const handleSendFirstNotice = (periodId: string, deadline: string, message: string) => {
+    const sentAt = new Date().toISOString().split("T")[0];
+    setPriorityPeriods((prev) =>
+      prev.map((p) =>
+        p.id === periodId
+          ? { ...p, firstNoticeSentAt: sentAt, firstNoticeDeadline: deadline, firstNoticeMessage: message }
+          : p
+      )
+    );
+    setPriorityApplications((prev) =>
+      prev.map((a) => (a.periodId === periodId ? { ...a, noticeSentAt: sentAt } : a))
+    );
+    setSelectedPriorityPeriod((prev) =>
+      prev && prev.id === periodId
+        ? { ...prev, firstNoticeSentAt: sentAt, firstNoticeDeadline: deadline }
+        : prev
+    );
+    toast.success("First notice sent to students");
+  };
+
+  const handleAddStudentsToPeriod = (periodId: string, studentIds: string[]) => {
+    const period = priorityPeriods.find((p) => p.id === periodId);
+    if (!period) return;
+    const students = mockEnrolledStudents.filter((s) => studentIds.includes(s.id));
+    setPriorityPeriods((prev) =>
+      prev.map((p) =>
+        p.id === periodId
+          ? { ...p, importedStudentIds: [...p.importedStudentIds, ...studentIds] }
+          : p
+      )
+    );
+    setSelectedPriorityPeriod((prev) =>
+      prev && prev.id === periodId
+        ? { ...prev, importedStudentIds: [...prev.importedStudentIds, ...studentIds] }
+        : prev
+    );
+    const newApps: PriorityPlacementApplication[] = students.map((s) => ({
+      id: `pa-${Date.now()}-${s.id}`,
+      periodId,
+      studentId: s.id,
+      studentName: s.name,
+      personnummer: s.personnummer,
+      programId: s.programId,
+      programName: s.programName,
+      studyId: s.studyId,
+      studyName: s.studyName,
+      studyLocation: s.studyLocation,
+      admissionTerm: s.admissionTerm,
+      targetSemester: `${period.semester}-${period.year}`,
+      selectedReasons: [],
+      totalPoints: 0,
+      hasDriversLicense: s.hasDriversLicense,
+      submittedDate: new Date().toISOString().split("T")[0],
+      status: "pending" as const,
+      isManualGrant: false,
+      published: false,
+    }));
+    setPriorityApplications((prev) => [...prev, ...newApps]);
+    toast.success(`${students.length} student${students.length > 1 ? "s" : ""} added`);
+  };
+
+  const handleSendIndividualNotice = (periodId: string, studentId: string) => {
+    const sentAt = new Date().toISOString().split("T")[0];
+    setPriorityApplications((prev) =>
+      prev.map((a) =>
+        a.periodId === periodId && a.studentId === studentId
+          ? { ...a, noticeSentAt: sentAt }
+          : a
+      )
+    );
+    toast.success("Notice sent to student");
+  };
+
+  const handlePublishResults = (periodId: string) => {
+    const publishedAt = new Date().toISOString().split("T")[0];
+    setPriorityPeriods((prev) =>
+      prev.map((p) =>
+        p.id === periodId
+          ? { ...p, resultPublishedAt: publishedAt, status: "closed" }
+          : p
+      )
+    );
+    setPriorityApplications((prev) =>
+      prev.map((a) => (a.periodId === periodId ? { ...a, published: true } : a))
+    );
+    setSelectedPriorityPeriod((prev) =>
+      prev && prev.id === periodId
+        ? { ...prev, resultPublishedAt: publishedAt, status: "closed" }
+        : prev
+    );
+    toast.success("Decisions published");
+  };
+
+  const handleDeletePeriod = (periodId: string) => {
+    setPriorityPeriods((prev) => prev.filter((p) => p.id !== periodId));
+    setPriorityApplications((prev) => prev.filter((a) => a.periodId !== periodId));
+    toast.success("Priority period deleted");
+  };
+
+  const handleReopenPriority = (periodId: string) => {
+    setPriorityPeriods((prev) =>
+      prev.map((p) =>
+        p.id === periodId
+          ? { ...p, status: "open", resultPublishedAt: undefined }
+          : p
+      )
+    );
+    setSelectedPriorityPeriod((prev) =>
+      prev && prev.id === periodId
+        ? { ...prev, status: "open", resultPublishedAt: undefined }
+        : prev
+    );
+    toast.success("Priority period reopened");
+  };
+
+  const handleSetRequestOnBehalf = (
+    application: Omit<PriorityPlacementApplication, "id" | "submittedDate">
+  ) => {
+    setPriorityApplications((prev) => {
+      const existingIdx = prev.findIndex(
+        (a) => a.studentId === application.studentId && a.periodId === application.periodId
+      );
+      const existing = existingIdx >= 0 ? prev[existingIdx] : null;
+      const newApp = {
+        ...application,
+        id: existing ? existing.id : `pa-${Date.now()}`,
+        submittedDate: new Date().toISOString().split("T")[0],
+        published: false,
+        noticeSentAt: existing?.noticeSentAt,
+      };
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = newApp;
+        return updated;
+      }
+      return [...prev, newApp];
+    });
+    toast.success("Application submitted for student");
+  };
+
   // Clear Local Data handler - clears all data except praksis places
   const handleClearData = () => {
-    // Clear localStorage except authentication
-    localStorage.removeItem("coordinatorQuotaRequests");
-
     // Reset all state to initial mock data except praksis places
     setStudentPlacements(mockStudentPlacements);
     setQuotaRequests(mockQuotaRequests);
     setPlacementTaskStates(mockPlacementTaskStates);
-    setCoordinatorQuotaRequests(mockCoordinatorQuotaRequests);
+    setCoordinatorQuotaRequests([]);
     setQuotaOfferings(mockQuotaOfferings);
+    setPriorityPeriods(mockPriorityPeriods);
+    setPriorityApplications(mockPriorityApplications);
+    setSelectedPriorityPeriod(null);
 
     // Reset view states
     setCurrentView("dashboard");
@@ -839,111 +1099,33 @@ export default function App() {
 
     // Generate unique IDs
     const placementId = `placement-${Date.now()}`;
-    const timestamp = Date.now();
 
-    // Create 5 mock students
-    const mockPlacementStudents = [
-      {
-        id: `student-${timestamp}-1`,
-        name: "Emma Johnson",
-        email: "emma.johnson@university.no",
-        year: "3rd Year",
-        customRequestSubmitted: false,
-        assignedPraksisPlace: {
-          placeId: firstPlace.id,
-          placeName: firstPlace.name,
-          departmentId: firstDepartment.id,
-          departmentName: firstDepartment.name,
-          placementTaskId: placementId,
-          startDate: new Date(2024, 8, 1).toISOString(),
-          endDate: new Date(2024, 11, 20).toISOString(),
-          placementTitle: "Fall 2024 Medical Placement",
-          assignedDate: new Date().toISOString(),
-        },
-      },
-      {
-        id: `student-${timestamp}-2`,
-        name: "Oliver Anderson",
-        email: "oliver.anderson@university.no",
-        year: "3rd Year",
-        customRequestSubmitted: false,
-        assignedPraksisPlace: {
-          placeId: firstPlace.id,
-          placeName: firstPlace.name,
-          departmentId: firstDepartment.id,
-          departmentName: firstDepartment.name,
-          placementTaskId: placementId,
-          startDate: new Date(2024, 8, 1).toISOString(),
-          endDate: new Date(2024, 11, 20).toISOString(),
-          placementTitle: "Fall 2024 Medical Placement",
-          assignedDate: new Date().toISOString(),
-        },
-      },
-      {
-        id: `student-${timestamp}-3`,
-        name: "Sophia Martinez",
-        email: "sophia.martinez@university.no",
-        year: "3rd Year",
-        customRequestSubmitted: false,
-        assignedPraksisPlace: {
-          placeId: firstPlace.id,
-          placeName: firstPlace.name,
-          departmentId: firstDepartment.id,
-          departmentName: firstDepartment.name,
-          placementTaskId: placementId,
-          startDate: new Date(2024, 8, 1).toISOString(),
-          endDate: new Date(2024, 11, 20).toISOString(),
-          placementTitle: "Fall 2024 Medical Placement",
-          assignedDate: new Date().toISOString(),
-        },
-      },
-      {
-        id: `student-${timestamp}-4`,
-        name: "Lucas Brown",
-        email: "lucas.brown@university.no",
-        year: "3rd Year",
-        customRequestSubmitted: false,
-        assignedPraksisPlace: {
-          placeId: firstPlace.id,
-          placeName: firstPlace.name,
-          departmentId: firstDepartment.id,
-          departmentName: firstDepartment.name,
-          placementTaskId: placementId,
-          startDate: new Date(2024, 8, 1).toISOString(),
-          endDate: new Date(2024, 11, 20).toISOString(),
-          placementTitle: "Fall 2024 Medical Placement",
-          assignedDate: new Date().toISOString(),
-        },
-      },
-      {
-        id: `student-${timestamp}-5`,
-        name: "Ava Wilson",
-        email: "ava.wilson@university.no",
-        year: "3rd Year",
-        customRequestSubmitted: false,
-        assignedPraksisPlace: {
-          placeId: firstPlace.id,
-          placeName: firstPlace.name,
-          departmentId: firstDepartment.id,
-          departmentName: firstDepartment.name,
-          placementTaskId: placementId,
-          startDate: new Date(2024, 8, 1).toISOString(),
-          endDate: new Date(2024, 11, 20).toISOString(),
-          placementTitle: "Fall 2024 Medical Placement",
-          assignedDate: new Date().toISOString(),
-        },
-      },
-    ];
+    // Use mockStudents so student IDs match priority application references
+    const assignedPlace = {
+      placeId: firstPlace.id,
+      placeName: firstPlace.name,
+      departmentId: firstDepartment.id,
+      departmentName: firstDepartment.name,
+      placementTaskId: placementId,
+      startDate: new Date(2026, 1, 2).toISOString(),
+      endDate: new Date(2026, 5, 12).toISOString(),
+      placementTitle: "Spring 2026 Nursing Placement",
+      assignedDate: new Date().toISOString(),
+    };
+    const mockPlacementStudents = mockStudents.map((s) => ({
+      ...s,
+      assignedPraksisPlace: assignedPlace,
+    }));
 
-    // Create placement
+    // Create placement — matches pp-1 (year 2026, VT, studyId "1", programId "1-1")
     const newPlacement: StudentPlacement = {
       id: placementId,
-      title: "Fall 2024 Medical Placement",
-      year: "2024",
-      semester: "Fall",
-      subject: "Medicine",
-      startDate: new Date(2024, 8, 1).toISOString(),
-      endDate: new Date(2024, 11, 20).toISOString(),
+      title: "Spring 2026 Nursing Placement",
+      year: "2026",
+      semester: "Spring",
+      subject: "Clinical Nursing Practice",
+      startDate: new Date(2026, 1, 2).toISOString(),
+      endDate: new Date(2026, 5, 12).toISOString(),
       students: 5,
       status: "completed",
       studyId: "1",
@@ -973,9 +1155,10 @@ export default function App() {
       completedTasks: ["1", "2", "3", "4", "5", "6", "7"],
     };
 
+    const nowTs = Date.now();
     // Create quota request
     const newQuotaRequest: QuotaRequest = {
-      id: `quota-${timestamp}`,
+      id: `quota-${nowTs}`,
       placementId,
       praksisPlaceId: firstPlace.id,
       praksisPlaceName: firstPlace.name,
@@ -983,17 +1166,17 @@ export default function App() {
       departmentName: firstDepartment.name,
       fixedQuota: 5,
       requestQuota: 0,
-      studyProgram: "Medicine",
+      studyProgram: "Clinical Nursing Practice",
       studyYear: "3",
-      placementTitle: "Fall 2024 Medical Placement",
+      placementTitle: "Spring 2026 Nursing Placement",
       requestedBy: "John Coordinator",
-      startDate: new Date(2024, 8, 1).toISOString(),
-      endDate: new Date(2024, 11, 20).toISOString(),
+      startDate: new Date(2026, 1, 2).toISOString(),
+      endDate: new Date(2026, 5, 12).toISOString(),
       status: "approved",
       placementStatus: "completed",
       history: [
         {
-          id: `history-${timestamp}`,
+          id: `history-${nowTs}`,
           timestamp: new Date().toISOString(),
           action: "created",
           performedBy: "System",
@@ -1084,6 +1267,8 @@ export default function App() {
                     praksisPlaces={praksisPlaces}
                     quotaRequests={quotaRequests}
                     nodeSlots={nodeSlots}
+                    priorityApplications={priorityApplications}
+                    priorityPeriods={priorityPeriods}
                     allPlacementsData={placementTaskStates
                       .filter((ts) => ts.placementId !== selectedStudentPlacement.id)
                       .map((ts) => ({
@@ -1323,6 +1508,47 @@ export default function App() {
                         onNavigateToPlacement={
                           handleNavigateToPlacementFromQuota
                         }
+                      />
+                    ) : currentView === "priorities" ? (
+                      <PrioritiesView
+                        periods={priorityPeriods}
+                        applications={priorityApplications}
+                        enrolledStudents={enrolledStudents}
+                        studies={studies}
+                        currentUserName="John Coordinator"
+                        onPeriodCreate={handlePriorityPeriodCreate}
+                        onPeriodToggleStatus={handlePriorityPeriodToggleStatus}
+                        onDeletePeriod={handleDeletePeriod}
+                        onSelectPeriod={(period) => {
+                          setSelectedPriorityPeriod(period);
+                          setCurrentView("priorityitem");
+                        }}
+                      />
+                    ) : currentView === "priorityitem" && selectedPriorityPeriod ? (
+                      <PriorityItemDetailView
+                        period={
+                          priorityPeriods.find((p) => p.id === selectedPriorityPeriod.id) ??
+                          selectedPriorityPeriod
+                        }
+                        applications={priorityApplications.filter(
+                          (a) => a.periodId === selectedPriorityPeriod.id
+                        )}
+                        enrolledStudents={enrolledStudents}
+                        studies={studies}
+                        currentUserName="John Coordinator"
+                        onBack={() => {
+                          setCurrentView("priorities");
+                          setSelectedPriorityPeriod(null);
+                        }}
+                        onImportStudents={handlePriorityItemImportStudents}
+                        onAddStudents={handleAddStudentsToPeriod}
+                        onSendFirstNotice={handleSendFirstNotice}
+                        onSendIndividualNotice={handleSendIndividualNotice}
+                        onPublishResults={handlePublishResults}
+                        onReopenPeriod={handleReopenPriority}
+                        onApplicationApprove={handlePriorityApplicationApprove}
+                        onApplicationReject={handlePriorityApplicationReject}
+                        onSetRequestOnBehalf={handleSetRequestOnBehalf}
                       />
                     ) : currentView === "praksisplaces" ? (
                       <>

@@ -128,6 +128,16 @@ export function SettingsView({
         { id: "1-2", name: "Physiotherapy" },
       ],
     },
+    {
+      id: "2",
+      name: "Engineering",
+      universityId: "U1",
+      universityName: "University of Oslo",
+      programs: [
+        { id: "2-1", name: "Software Engineering" },
+        { id: "2-2", name: "Electrical Engineering" },
+      ],
+    },
   ]);
   const [newStudyName, setNewStudyName] = useState("");
   const [newProgramName, setNewProgramName] = useState<{

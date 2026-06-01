@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Users,
   Search,
@@ -16,11 +16,14 @@ import {
   Paperclip,
   Upload,
   AlertTriangle,
+  Star,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
 import { Student } from "../types/placementTask";
+import { PriorityPlacementApplication } from "../types/priorityPlacement";
+import { PriorityApplicationDetailsModal } from "./PriorityApplicationDetailsModal";
 import { toast } from "sonner@2.0.3";
 
 interface FileMetadata {
@@ -35,6 +38,7 @@ interface StudentsPanelProps {
   isFirstPublishCompleted: boolean;
   isStudentsExpanded: boolean;
   quotaEntityKeys: Set<string>;
+  priorityApplications?: PriorityPlacementApplication[];
   onStudentsExpandChange: (expanded: boolean) => void;
   onImportStudents: () => void;
   onDetachStudent: (studentId: string) => void;
@@ -52,6 +56,7 @@ export function StudentsPanel({
   isFirstPublishCompleted,
   isStudentsExpanded,
   quotaEntityKeys,
+  priorityApplications,
   onStudentsExpandChange,
   onImportStudents,
   onDetachStudent,
@@ -63,6 +68,12 @@ export function StudentsPanel({
   onOpenNetworkDiagram,
 }: StudentsPanelProps) {
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
+  const [viewingPriorityApp, setViewingPriorityApp] = useState<PriorityPlacementApplication | null>(null);
+
+  const priorityMap = useMemo(
+    () => new Map((priorityApplications ?? []).map((a) => [a.studentId, a])),
+    [priorityApplications]
+  );
   const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState({
     student: true,
@@ -75,7 +86,9 @@ export function StudentsPanel({
   });
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
+  const [showStudentSearch, setShowStudentSearch] = useState(false);
   const [studentSortDir, setStudentSortDir] = useState<"asc" | "desc" | null>(null);
+  const [prioritySortDir, setPrioritySortDir] = useState<"asc" | "desc" | null>(null);
   const [showUnassignedOnly, setShowUnassignedOnly] = useState(false);
   const [expandedPlacementHistory, setExpandedPlacementHistory] = useState<Set<string>>(new Set());
 
@@ -128,13 +141,18 @@ export function StudentsPanel({
         !studentSearch.trim() ||
         s.name.toLowerCase().includes(studentSearch.toLowerCase()),
     )
-    .sort((a, b) =>
-      studentSortDir === "asc"
+    .sort((a, b) => {
+      if (prioritySortDir) {
+        const apts = priorityMap.get(a.id)?.totalPoints ?? -1;
+        const bpts = priorityMap.get(b.id)?.totalPoints ?? -1;
+        return prioritySortDir === "asc" ? apts - bpts : bpts - apts;
+      }
+      return studentSortDir === "asc"
         ? a.name.localeCompare(b.name)
         : studentSortDir === "desc"
           ? b.name.localeCompare(a.name)
-          : 0,
-    );
+          : 0;
+    });
 
   if (students.length === 0) {
     return (
@@ -159,6 +177,7 @@ export function StudentsPanel({
   }
 
   return (
+    <>
     <div className="bg-white rounded-lg border border-gray-200">
       {/* Table Header Actions */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200">
@@ -177,27 +196,8 @@ export function StudentsPanel({
               {showUnassignedOnly ? "Showing unassigned only" : "Show unassigned only"}
             </button>
 
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search students…"
-                value={studentSearch}
-                onChange={(e) => setStudentSearch(e.target.value)}
-                className="h-6 pl-7 pr-6 text-xs border border-gray-200 rounded-md bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400 w-44"
-              />
-              {studentSearch && (
-                <button
-                  onClick={() => setStudentSearch("")}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
           </div>
-
+              
           <div className="flex items-center gap-2 mt-1.5">
             <div className="w-28 h-1.5 bg-gray-200 rounded-full overflow-hidden">
               <div
@@ -372,22 +372,62 @@ export function StudentsPanel({
                 />
               </th>
               {visibleColumns.student && (
-                <th
-                  className="px-4 py-3 text-left text-sm font-semibold text-gray-700 cursor-pointer select-none hover:bg-gray-100 transition-colors"
-                  onClick={() =>
-                    setStudentSortDir((d) =>
-                      d === "asc" ? "desc" : d === "desc" ? null : "asc",
-                    )
-                  }
-                >
-                  <div className="flex items-center gap-1">
-                    Student
-                    {studentSortDir === "asc" ? (
-                      <ChevronUp className="h-3.5 w-3.5 text-blue-500" />
-                    ) : studentSortDir === "desc" ? (
-                      <ChevronDown className="h-3.5 w-3.5 text-blue-500" />
-                    ) : (
-                      <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 select-none">
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-1">
+                      <div
+                        className="flex items-center gap-1 cursor-pointer hover:text-gray-900 transition-colors"
+                        onClick={() =>
+                          setStudentSortDir((d) =>
+                            d === "asc" ? "desc" : d === "desc" ? null : "asc",
+                          )
+                        }
+                      >
+                        Student
+                        {studentSortDir === "asc" ? (
+                          <ChevronUp className="h-3.5 w-3.5 text-blue-500" />
+                        ) : studentSortDir === "desc" ? (
+                          <ChevronDown className="h-3.5 w-3.5 text-blue-500" />
+                        ) : (
+                          <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowStudentSearch((v) => {
+                            if (v) setStudentSearch("");
+                            return !v;
+                          });
+                        }}
+                        className={`ml-0.5 p-0.5 rounded transition-colors ${
+                          showStudentSearch
+                            ? "text-blue-500 bg-blue-50"
+                            : "text-gray-400 hover:text-gray-600"
+                        }`}
+                      >
+                        <Search className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {showStudentSearch && (
+                      <div className="relative">
+                        <input
+                          autoFocus
+                          type="text"
+                          placeholder="Search…"
+                          value={studentSearch}
+                          onChange={(e) => setStudentSearch(e.target.value)}
+                          className="h-6 pl-2 pr-6 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 w-full font-normal"
+                        />
+                        {studentSearch && (
+                          <button
+                            onClick={() => setStudentSearch("")}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </th>
@@ -408,8 +448,24 @@ export function StudentsPanel({
                 </th>
               )}
               {visibleColumns.priorities && (
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Priorities
+                <th
+                  className="px-4 py-3 text-left text-sm font-semibold text-gray-700 cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                  onClick={() =>
+                    setPrioritySortDir((d) =>
+                      d === "asc" ? "desc" : d === "desc" ? null : "asc",
+                    )
+                  }
+                >
+                  <div className="flex items-center gap-1">
+                    Priorities
+                    {prioritySortDir === "asc" ? (
+                      <ChevronUp className="h-3.5 w-3.5 text-blue-500" />
+                    ) : prioritySortDir === "desc" ? (
+                      <ChevronDown className="h-3.5 w-3.5 text-blue-500" />
+                    ) : (
+                      <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+                    )}
+                  </div>
                 </th>
               )}
               {visibleColumns.customRequest && (
@@ -608,9 +664,17 @@ export function StudentsPanel({
 
                 {visibleColumns.priorities && (
                   <td className="px-4 py-4">
-                    <span className="text-sm text-gray-600">
-                      {student.priorities || "Not set"}
-                    </span>
+                    {priorityMap.has(student.id) ? (
+                      <button
+                        onClick={() => setViewingPriorityApp(priorityMap.get(student.id)!)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 border border-amber-300 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors"
+                      >
+                        <Star size={11} />
+                        {priorityMap.get(student.id)!.totalPoints} pts
+                      </button>
+                    ) : (
+                      <span className="text-sm text-gray-400">—</span>
+                    )}
                   </td>
                 )}
 
@@ -718,5 +782,13 @@ export function StudentsPanel({
         </table>
       </div>
     </div>
+
+    {viewingPriorityApp && (
+      <PriorityApplicationDetailsModal
+        application={viewingPriorityApp}
+        onClose={() => setViewingPriorityApp(null)}
+      />
+    )}
+    </>
   );
 }

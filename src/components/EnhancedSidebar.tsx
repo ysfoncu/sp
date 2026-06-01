@@ -8,6 +8,7 @@ import {
   ClipboardList,
   MessageCircle,
   RotateCcw,
+  Star,
 } from "lucide-react";
 
 interface EnhancedSidebarProps {
@@ -15,13 +16,17 @@ interface EnhancedSidebarProps {
     | "dashboard"
     | "placements"
     | "praksisplaces"
-    | "quotas";
+    | "quotas"
+    | "priorities"
+    | "priorityitem"
+    | string;
   onViewChange: (
     view:
       | "dashboard"
       | "placements"
       | "praksisplaces"
-      | "quotas",
+      | "quotas"
+      | "priorities",
   ) => void;
   onSettingsClick?: () => void;
   onAnalyticsClick?: () => void;
@@ -30,7 +35,8 @@ interface EnhancedSidebarProps {
 }
 
 interface NavItem {
-  id: "dashboard" | "placements" | "praksisplaces" | "quotas";
+  id: "dashboard" | "placements" | "praksisplaces" | "quotas" | "priorities";
+  // "priorityitem" maps to "priorities" for active state
   label: string;
   icon: any;
   active?: boolean;
@@ -74,6 +80,12 @@ export function EnhancedSidebar({
       icon: Building2,
       active: currentView === "praksisplaces",
     },
+    {
+      id: "priorities",
+      label: "Priorities",
+      icon: Star,
+      active: currentView === "priorities" || currentView === "priorityitem",
+    },
   ];
 
   const handleNavClick = (
@@ -81,7 +93,8 @@ export function EnhancedSidebar({
       | "dashboard"
       | "placements"
       | "praksisplaces"
-      | "quotas",
+      | "quotas"
+      | "priorities",
   ) => {
     onViewChange(itemId);
   };
