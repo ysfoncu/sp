@@ -104,7 +104,9 @@ export function CoordinatorQuotasView({
   const [filterStudy, setFilterStudy] = useState("all");
   const [filterProgram, setFilterProgram] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterEmne, setFilterEmne] = useState("all");
   const [filterPlace, setFilterPlace] = useState("all");
+  const [filterEntity, setFilterEntity] = useState("all");
   const [isRequestModalOpen, setIsRequestModalOpen] =
     useState(false);
   const [deletingRequest, setDeletingRequest] =
@@ -477,16 +479,26 @@ export function CoordinatorQuotasView({
       const matchesStatus =
         filterStatus === "all" ||
         request.status === filterStatus;
+      const matchesEmne =
+        filterEmne === "all" ||
+        request.emne === filterEmne;
       const matchesPlace =
         filterPlace === "all" ||
         request.praksisPlaceId === filterPlace;
+      const matchesEntity =
+        filterEntity === "all" ||
+        (request.entityDistributions
+          ? request.entityDistributions.some((ed) => ed.entityId === filterEntity)
+          : request.departmentId === filterEntity);
 
       return (
         matchesSearch &&
         matchesStudy &&
         matchesProgram &&
         matchesStatus &&
-        matchesPlace
+        matchesEmne &&
+        matchesPlace &&
+        matchesEntity
       );
     });
   }, [
@@ -495,7 +507,9 @@ export function CoordinatorQuotasView({
     filterStudy,
     filterProgram,
     filterStatus,
+    filterEmne,
     filterPlace,
+    filterEntity,
   ]);
 
   // Filter quota offerings for PK person's university
@@ -523,6 +537,41 @@ export function CoordinatorQuotasView({
       return matchesUniversity && matchesSearch && matchesStudy && matchesProgram && matchesPlace;
     });
   }, [quotaOfferings, searchTerm, filterStudy, filterProgram, filterPlace]);
+
+  // Praksis places with their unique entities derived from quota requests
+  const placeEntityOptions = useMemo(() => {
+    const placesMap = new Map<string, { id: string; name: string; entities: Map<string, string> }>();
+    quotaRequests.forEach((req) => {
+      if (!placesMap.has(req.praksisPlaceId)) {
+        placesMap.set(req.praksisPlaceId, { id: req.praksisPlaceId, name: req.praksisPlaceName, entities: new Map() });
+      }
+      const place = placesMap.get(req.praksisPlaceId)!;
+      if (req.entityDistributions && req.entityDistributions.length > 0) {
+        req.entityDistributions.forEach((ed) => place.entities.set(ed.entityId, ed.entityName));
+      } else if (req.departmentId) {
+        place.entities.set(req.departmentId, req.departmentName);
+      }
+    });
+    return Array.from(placesMap.values())
+      .map((p) => ({ ...p, entities: Array.from(p.entities.entries()).map(([id, name]) => ({ id, name })) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [quotaRequests]);
+
+  // Label for the cascading praksis place / entity dropdown trigger
+  const placeEntityLabel = useMemo(() => {
+    if (filterPlace === "all") return "Praksis Place";
+    const place = placeEntityOptions.find((p) => p.id === filterPlace);
+    if (!place) return "Praksis Place";
+    if (filterEntity === "all") return place.name;
+    const entity = place.entities.find((e) => e.id === filterEntity);
+    return entity ? `${place.name} / ${entity.name}` : place.name;
+  }, [filterPlace, filterEntity, placeEntityOptions]);
+
+  // Unique emne values from all quota requests
+  const uniqueEmnes = useMemo(() => {
+    const set = new Set(quotaRequests.map((r) => r.emne).filter(Boolean) as string[]);
+    return Array.from(set).sort();
+  }, [quotaRequests]);
 
   // Label for the cascading study/program dropdown trigger
   const studyProgramLabel = useMemo(() => {
@@ -660,17 +709,17 @@ export function CoordinatorQuotasView({
             <Button
               variant="outline"
               onClick={() => setIsQuotaSearchMode(true)}
-              className="justify-start text-gray-600"
+              className="justify-start text-gray-600 bg-gray-100 hover:bg-gray-200 border-gray-200"
             >
               <Search className="h-4 w-4 mr-2" />
-              Search quotas and requests...
+             
             </Button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  className="gap-2 text-gray-600 max-w-[260px] justify-between"
+                  className="gap-2 text-gray-600 max-w-[260px] justify-between bg-gray-100 hover:bg-gray-200 border-gray-200"
                 >
                   <span className="truncate">{studyProgramLabel}</span>
                   <ChevronDown className="h-4 w-4 flex-shrink-0 opacity-50" />
@@ -714,8 +763,68 @@ export function CoordinatorQuotasView({
               </DropdownMenuContent>
             </DropdownMenu>
 
+            <Select value={filterEmne} onValueChange={setFilterEmne}>
+              <SelectTrigger className="w-[140px] bg-gray-100 border-gray-200">
+                <SelectValue placeholder="All Emne" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Emne</SelectItem>
+                {uniqueEmnes.map((emne) => (
+                  <SelectItem key={emne} value={emne}>{emne}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="gap-2 text-gray-600 max-w-[260px] justify-between bg-gray-100 hover:bg-gray-200 border-gray-200"
+                >
+                  <span className="truncate">{placeEntityLabel}</span>
+                  <ChevronDown className="h-4 w-4 flex-shrink-0 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[240px]">
+                <DropdownMenuItem
+                  onSelect={() => { setFilterPlace("all"); setFilterEntity("all"); }}
+                  className={filterPlace === "all" ? "font-medium text-purple-600" : ""}
+                >
+                  All Praksis Places
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {placeEntityOptions.map((place) => (
+                  <DropdownMenuSub key={place.id}>
+                    <DropdownMenuSubTrigger
+                      className={filterPlace === place.id && filterEntity === "all" ? "font-medium text-purple-600" : ""}
+                    >
+                      {place.name}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-[200px]">
+                      <DropdownMenuItem
+                        onSelect={() => { setFilterPlace(place.id); setFilterEntity("all"); }}
+                        className={filterPlace === place.id && filterEntity === "all" ? "font-medium text-purple-600" : ""}
+                      >
+                        All entities
+                      </DropdownMenuItem>
+                      {place.entities.length > 0 && <DropdownMenuSeparator />}
+                      {place.entities.map((entity) => (
+                        <DropdownMenuItem
+                          key={entity.id}
+                          onSelect={() => { setFilterPlace(place.id); setFilterEntity(entity.id); }}
+                          className={filterPlace === place.id && filterEntity === entity.id ? "font-medium text-purple-600" : ""}
+                        >
+                          {entity.name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-[160px]">
+              <SelectTrigger className="w-[160px] bg-gray-100 border-gray-200">
                 <SelectValue placeholder="All Statuses" />
               </SelectTrigger>
               <SelectContent>
@@ -727,10 +836,10 @@ export function CoordinatorQuotasView({
               </SelectContent>
             </Select>
 
-            {(filterStudy !== "all" || filterProgram !== "all" || filterStatus !== "all") && (
+            {(filterStudy !== "all" || filterProgram !== "all" || filterStatus !== "all" || filterEmne !== "all" || filterPlace !== "all") && (
               <button
                 type="button"
-                onClick={() => { setFilterStudy("all"); setFilterProgram("all"); setFilterStatus("all"); }}
+                onClick={() => { setFilterStudy("all"); setFilterProgram("all"); setFilterStatus("all"); setFilterEmne("all"); setFilterPlace("all"); setFilterEntity("all"); }}
                 className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
@@ -1262,7 +1371,10 @@ export function CoordinatorQuotasView({
                       {searchTerm ||
                       filterStudy !== "all" ||
                       filterProgram !== "all" ||
-                      filterPlace !== "all"
+                      filterStatus !== "all" ||
+                      filterEmne !== "all" ||
+                      filterPlace !== "all" ||
+                      filterEntity !== "all"
                         ? "Try adjusting your filters"
                         : 'Click "Request Quota" to create your first request'}
                     </p>
