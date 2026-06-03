@@ -25,6 +25,7 @@ import { RequestQuotaModal } from "./RequestQuotaModal";
 import { PlacementTaskHelpOverlay } from "./PlacementTaskHelpOverlay";
 import { Student, PlacementTask } from "../types/placementTask";
 import { PraksisPlace } from "../types/praksisPlace";
+import { PriorityPlacementApplication } from "../types/priorityPlacement";
 import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
 import { toast } from "sonner@2.0.3";
 
@@ -109,6 +110,7 @@ interface PlacementModalsProps {
   isQuickAssignModalOpen: boolean;
   selectedQuotaForAssignment: SelectedQuotaForAssignment | null;
   unassignedStudents: Student[];
+  priorityApplications?: PriorityPlacementApplication[];
   onCloseQuickAssign: () => void;
   onQuickAssignConfirm: (studentIds: string[]) => void;
 
@@ -204,6 +206,7 @@ export function PlacementModals({
   isQuickAssignModalOpen,
   selectedQuotaForAssignment,
   unassignedStudents,
+  priorityApplications,
   onCloseQuickAssign,
   onQuickAssignConfirm,
   isQuotaSelectionDialogOpen,
@@ -292,6 +295,7 @@ export function PlacementModals({
           departmentName={selectedQuotaForAssignment.departmentName}
           availableCapacity={selectedQuotaForAssignment.availableCapacity}
           unassignedStudents={unassignedStudents}
+          priorityApplications={priorityApplications}
           onAssign={onQuickAssignConfirm}
         />
       )}

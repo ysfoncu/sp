@@ -4,6 +4,16 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -26,6 +36,7 @@ import {
   X,
   MessageCircle,
   HelpCircle,
+  ChevronDown,
 } from "lucide-react";
 import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
 import { QuotaOffering } from "../types/quotaOffering";
@@ -52,15 +63,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
 
 interface CoordinatorQuotasViewProps {
   quotaOfferings: QuotaOffering[];
@@ -164,7 +166,7 @@ export function CoordinatorQuotasView({
         studyName: string;
         programId: string;
         programName: string;
-        offerings: Array<{ capacity: number; startDate: string; endDate: string; source: string }>;
+        offerings: Array<{ capacity: number; startDate: string; endDate: string; source: string; emne?: string }>;
         totalCapacity: number;
       }
     >();
@@ -242,6 +244,7 @@ export function CoordinatorQuotasView({
             startDate: request.startDate,
             endDate: request.endDate,
             source: 'approved-request',
+            emne: request.emne,
           }
         ],
         totalCapacity: group.totalCapacity + approvedCapacity,
@@ -291,6 +294,7 @@ export function CoordinatorQuotasView({
             startDate: request.startDate,
             endDate: request.endDate,
             source: 'pending-request',
+            emne: request.emne,
           }
         ],
         totalCapacity: group.totalCapacity, // Don't add pending
@@ -395,6 +399,7 @@ export function CoordinatorQuotasView({
           totalCapacity: group.totalCapacity,
           totalApproved,
           totalPending,
+          offerings: group.offerings,
           chartData,
           maxCount,
           dateRange: {
@@ -519,14 +524,15 @@ export function CoordinatorQuotasView({
     });
   }, [quotaOfferings, searchTerm, filterStudy, filterProgram, filterPlace]);
 
-  // Get available programs based on selected study
-  const availablePrograms = useMemo(() => {
-    if (filterStudy === "all") {
-      return [];
-    }
+  // Label for the cascading study/program dropdown trigger
+  const studyProgramLabel = useMemo(() => {
+    if (filterStudy === "all") return "Study / Program";
     const study = studies.find((s) => s.id === filterStudy);
-    return study?.programs || [];
-  }, [filterStudy, studies]);
+    if (!study) return "Study / Program";
+    if (filterProgram === "all") return study.name;
+    const program = study.programs.find((p) => p.id === filterProgram);
+    return program ? `${study.name} / ${program.name}` : study.name;
+  }, [filterStudy, filterProgram, studies]);
 
   // Helper function to count consumed quotas for a specific request
   const getConsumedCount = (requestId: string): number => {
@@ -640,100 +646,100 @@ export function CoordinatorQuotasView({
   return (
     <div className="flex flex-col gap-6 w-full">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">
-            Capacity planing
-            
-          </h1>
-          <p className="text-gray-600">
-            View available capacity from praksis places and
-            request quotas for your study programs
-          </p>
-        </div>
-        
-        {/* Help Button */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setIsHelpOverlayOpen(true)}
-          className="flex items-center gap-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-300"
-        >
-          <HelpCircle className="h-4 w-4" />
-          Help
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-800">
+          Capacity planing
+        </h1>
       </div>
 
       {/* Filters and Actions */}
-      <Card className="p-5">
-        <div className="flex flex-col md:flex-row gap-4">
-          {!isQuotaSearchMode ? (
-            <>
-              {/* Search Button */}
-              <Button
-                variant="outline"
-                onClick={() => setIsQuotaSearchMode(true)}
-                className="flex-1 md:flex-initial justify-start text-gray-600"
-              >
-                <Search className="h-4 w-4 mr-2" />
-                Search quotas and requests...
-              </Button>
+      <div className="flex items-center gap-3">
+        {!isQuotaSearchMode ? (
+          <>
+            {/* Left: filters */}
+            <Button
+              variant="outline"
+              onClick={() => setIsQuotaSearchMode(true)}
+              className="justify-start text-gray-600"
+            >
+              <Search className="h-4 w-4 mr-2" />
+              Search quotas and requests...
+            </Button>
 
-              {/* Study Filter */}
-              <Select
-                value={filterStudy}
-                onValueChange={setFilterStudy}
-              >
-                <SelectTrigger className="w-full md:w-[200px]">
-                  <SelectValue placeholder="All Studies" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Studies</SelectItem>
-                  {studies.map((study) => (
-                    <SelectItem key={study.id} value={study.id}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="gap-2 text-gray-600 max-w-[260px] justify-between"
+                >
+                  <span className="truncate">{studyProgramLabel}</span>
+                  <ChevronDown className="h-4 w-4 flex-shrink-0 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[220px]">
+                <DropdownMenuItem
+                  onSelect={() => { setFilterStudy("all"); setFilterProgram("all"); }}
+                  className={filterStudy === "all" ? "font-medium text-purple-600" : ""}
+                >
+                  All Studies
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {studies.map((study) => (
+                  <DropdownMenuSub key={study.id}>
+                    <DropdownMenuSubTrigger
+                      className={filterStudy === study.id && filterProgram === "all" ? "font-medium text-purple-600" : ""}
+                    >
                       {study.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-[180px]">
+                      <DropdownMenuItem
+                        onSelect={() => { setFilterStudy(study.id); setFilterProgram("all"); }}
+                        className={filterStudy === study.id && filterProgram === "all" ? "font-medium text-purple-600" : ""}
+                      >
+                        All programs
+                      </DropdownMenuItem>
+                      {study.programs.length > 0 && <DropdownMenuSeparator />}
+                      {study.programs.map((program) => (
+                        <DropdownMenuItem
+                          key={program.id}
+                          onSelect={() => { setFilterStudy(study.id); setFilterProgram(program.id); }}
+                          className={filterStudy === study.id && filterProgram === program.id ? "font-medium text-purple-600" : ""}
+                        >
+                          {program.name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-              {/* Program Filter */}
-              <Select
-                value={filterProgram}
-                onValueChange={setFilterProgram}
-                disabled={filterStudy === "all"}
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="All Statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="fulfilled">Fulfilled</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {(filterStudy !== "all" || filterProgram !== "all" || filterStatus !== "all") && (
+              <button
+                type="button"
+                onClick={() => { setFilterStudy("all"); setFilterProgram("all"); setFilterStatus("all"); }}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 transition-colors"
               >
-                <SelectTrigger className="w-full md:w-[180px]">
-                  <SelectValue placeholder="All Programs" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Programs</SelectItem>
-                  {availablePrograms.map((program) => (
-                    <SelectItem key={program.id} value={program.id}>
-                      {program.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <X className="h-3.5 w-3.5" />
+                Clear filters
+              </button>
+            )}
 
-              {/* Status Filter */}
-              <Select
-                value={filterStatus}
-                onValueChange={setFilterStatus}
-              >
-                <SelectTrigger className="w-full md:w-[160px]">
-                  <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                  <SelectItem value="fulfilled">Fulfilled</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Request Quota Button */}
+            {/* Right: actions */}
+            <div className="ml-auto flex items-center gap-2">
               <Button
                 onClick={() => setIsRequestModalOpen(true)}
                 className="bg-purple-600 hover:bg-purple-700 text-white"
@@ -741,36 +747,44 @@ export function CoordinatorQuotasView({
                 <Plus className="h-4 w-4 mr-2" />
                 Request Quota
               </Button>
-            </>
-          ) : (
-            <>
-              {/* Search Input */}
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search by study, program, or praksis place..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                  autoFocus
-                />
-              </div>
-
-              {/* Close Button */}
               <Button
                 variant="outline"
-                onClick={() => {
-                  setIsQuotaSearchMode(false);
-                  setSearchTerm("");
-                }}
+                size="sm"
+                onClick={() => setIsHelpOverlayOpen(true)}
+                className="flex items-center gap-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-300"
               >
-                <X className="h-4 w-4 mr-2" />
-                Close
+                <HelpCircle className="h-4 w-4" />
+                Help
               </Button>
-            </>
-          )}
-        </div>
-      </Card>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Search Input */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search by study, program, or praksis place..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+                autoFocus
+              />
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsQuotaSearchMode(false);
+                setSearchTerm("");
+              }}
+            >
+              <X className="h-4 w-4 mr-2" />
+              Close
+            </Button>
+          </>
+        )}
+      </div>
 
       {/* Available Quotas Table - Only show when there are quota requests and not in search mode */}
       {!isQuotaSearchMode && quotaRequests.length > 0 && (
@@ -800,7 +814,7 @@ export function CoordinatorQuotasView({
                     Requested
                   </th>
                   <th className="px-3 sm:px-6 py-3 text-left text-sm font-semibold text-gray-700">
-                    Distributed Quota
+                    Distributed Quota Timeline
                   </th>
                 </tr>
               </thead>
@@ -833,95 +847,120 @@ export function CoordinatorQuotasView({
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 sm:px-6 py-4">
-                        {item.chartData.length > 0 ? (
-                          <div
-                            className="w-full"
-                            style={{ height: "80px" }}
-                          >
-                            <ResponsiveContainer
-                              width="100%"
-                              height="100%"
-                            >
-                              <LineChart data={item.chartData}>
-                                <XAxis
-                                  dataKey="date"
-                                  tick={{ fontSize: 10 }}
-                                  interval="preserveStartEnd"
+                      <td className="px-3 sm:px-6 py-4 min-w-[420px]">
+                        {(() => {
+                          const ganttYear = new Date().getFullYear();
+                          const ganttStart = new Date(ganttYear, 0, 1).getTime();
+                          const ganttEnd = new Date(ganttYear, 11, 31, 23, 59, 59).getTime();
+                          const ganttRange = ganttEnd - ganttStart;
+
+                          const monthTicks = Array.from({ length: 12 }, (_, i) => {
+                            const d = new Date(ganttYear, i, 1);
+                            return {
+                              label: i === 0 ? 'Jan 1' : d.toLocaleDateString('en-US', { month: 'short' }),
+                              pct: (d.getTime() - ganttStart) / ganttRange * 100,
+                              isFirst: i === 0,
+                            };
+                          });
+
+                          const now = new Date();
+                          now.setHours(12, 0, 0, 0);
+                          const todayPct = Math.min(100, Math.max(0, (now.getTime() - ganttStart) / ganttRange * 100));
+                          const todayLabel = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+                          const visibleOfferings = item.offerings.filter((o) => {
+                            const s = new Date(o.startDate).getTime();
+                            const e = new Date(o.endDate).getTime();
+                            return e >= ganttStart && s <= ganttEnd;
+                          });
+
+                          return (
+                            <div className="w-full select-none">
+                              {/* Legend */}
+                              <div className="flex items-center justify-end gap-3 mb-2">
+                                <span className="flex items-center gap-1 text-xs text-purple-600">
+                                  <span className="w-2 h-2 rounded-full bg-purple-600 inline-block" />
+                                  Approved
+                                </span>
+                                <span className="flex items-center gap-1 text-xs text-orange-500">
+                                  <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" />
+                                  Requested
+                                </span>
+                              </div>
+
+                              {/* Timeline */}
+                              <div className="relative">
+                                {/* Month grid lines (behind bars) */}
+                                {monthTicks.map((m) => (
+                                  <div
+                                    key={m.label}
+                                    className="absolute top-0 bottom-5 border-l border-gray-100 pointer-events-none"
+                                    style={{ left: `${m.pct}%` }}
+                                  />
+                                ))}
+                                {/* Dec 31 right edge */}
+                                <div className="absolute top-0 bottom-5 border-l border-gray-100 pointer-events-none" style={{ left: '100%' }} />
+
+                                {/* Today line */}
+                                <div
+                                  className="absolute top-0 bottom-5 border-l-2 border-blue-400 pointer-events-none z-10"
+                                  style={{ left: `${todayPct}%` }}
                                 />
-                                <YAxis
-                                  tick={{ fontSize: 10 }}
-                                  domain={[
-                                    0,
-                                    Math.max(item.maxCount, 5),
-                                  ]}
-                                  allowDecimals={false}
-                                />
-                                <Tooltip
-                                  content={({
-                                    active,
-                                    payload,
-                                  }) => {
-                                    if (
-                                      active &&
-                                      payload &&
-                                      payload.length
-                                    ) {
-                                      const data = payload[0].payload;
-                                      return (
-                                        <div className="bg-white p-2 border border-gray-200 rounded shadow-sm">
-                                          <p className="text-xs font-medium mb-1">
-                                            {data.date}
-                                          </p>
-                                          <p className="text-xs text-purple-600">
-                                            Approved: {data.approved || 0}
-                                          </p>
-                                          <p className="text-xs text-orange-600">
-                                            In Review: {data.inReview || 0}
-                                          </p>
-                                        </div>
-                                      );
-                                    }
-                                    return null;
-                                  }}
-                                />
-                                <Line
-                                  type="monotone"
-                                  dataKey="inReview"
-                                  stroke="#fb923c"
-                                  strokeWidth={2.5}
-                                  dot={false}
-                                  isAnimationActive={false}
-                                  name="Requested"
-                                />
-                                <Line
-                                  type="monotone"
-                                  dataKey="approved"
-                                  stroke="#7c3aed"
-                                  strokeWidth={2.5}
-                                  dot={false}
-                                  isAnimationActive={false}
-                                  name="Approved"
-                                />
-                                <Legend
-                                  verticalAlign="top"
-                                  align="right"
-                                  wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
-                                  iconType="line"
-                                  formatter={(value) => {
-                                    if (value === 'approved') return 'Approved';
-                                    if (value === 'inReview') return 'In Review';
-                                    return value;
-                                  }}
-                                />
-                              </LineChart>
-                            </ResponsiveContainer>
-                          </div>
-                        ) : (
-                          <div className="text-sm text-gray-500 italic">
-                            No offerings available
-                          </div>
-                        )}
+
+                                {/* Bars */}
+                                <div className="flex flex-col gap-0.5 pb-5">
+                                  {visibleOfferings.length > 0 ? visibleOfferings.map((offering, i) => {
+                                    const s = new Date(offering.startDate).getTime();
+                                    const e = new Date(offering.endDate).getTime();
+                                    const leftPct = Math.min(100, Math.max(0, (s - ganttStart) / ganttRange * 100));
+                                    const rightPct = Math.min(100, Math.max(0, (e - ganttStart) / ganttRange * 100));
+                                    const widthPct = Math.max(0.5, rightPct - leftPct);
+                                    const isApproved = offering.source !== 'pending-request';
+                                    return (
+                                      <div key={i} className="relative h-3 flex items-center">
+                                        <div
+                                          title={`${offering.emne ?? ''} · ${new Date(offering.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${new Date(offering.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                                          className={`absolute rounded ${isApproved ? 'bg-purple-600' : 'bg-orange-500'}`}
+                                          style={{ left: `${leftPct}%`, width: `${widthPct}%`, height: '3px' }}
+                                        />
+                                      </div>
+                                    );
+                                  }) : (
+                                    <div className="h-5 flex items-center">
+                                      <span className="text-xs text-gray-400 italic">No items in current year</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Month labels row */}
+                                <div className="absolute bottom-0 left-0 right-0 h-5">
+                                  {monthTicks.map((m) => (
+                                    <span
+                                      key={m.label}
+                                      className="absolute text-[10px] text-gray-400 -translate-x-1/2"
+                                      style={{ left: `${m.pct}%` }}
+                                    >
+                                      {m.label}
+                                    </span>
+                                  ))}
+                                  <span
+                                    className="absolute text-[10px] text-gray-400 -translate-x-full"
+                                    style={{ left: '100%' }}
+                                  >
+                                    Dec 31
+                                  </span>
+                                  {/* Today label */}
+                                  <span
+                                    className="absolute text-[10px] font-semibold text-blue-500 -translate-x-1/2 z-20"
+                                    style={{ left: `${todayPct}%` }}
+                                  >
+                                    {todayLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))

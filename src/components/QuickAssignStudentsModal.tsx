@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { X, Users, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { X, Users, AlertTriangle, Star } from 'lucide-react';
 import { Button } from './ui/button';
 import { Student } from '../types/placementTask';
+import { PriorityPlacementApplication } from '../types/priorityPlacement';
 
 interface QuickAssignStudentsModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface QuickAssignStudentsModalProps {
   departmentName: string;
   availableCapacity: number;
   unassignedStudents: Student[];
+  priorityApplications?: PriorityPlacementApplication[];
   onAssign: (studentIds: string[]) => void;
 }
 
@@ -20,9 +22,25 @@ export function QuickAssignStudentsModal({
   departmentName,
   availableCapacity,
   unassignedStudents,
+  priorityApplications,
   onAssign,
 }: QuickAssignStudentsModalProps) {
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+
+  const priorityMap = useMemo(
+    () => new Map((priorityApplications ?? []).map((a) => [a.studentId, a])),
+    [priorityApplications],
+  );
+
+  const sortedStudents = useMemo(
+    () =>
+      [...unassignedStudents].sort((a, b) => {
+        const apts = priorityMap.get(a.id)?.totalPoints ?? -1;
+        const bpts = priorityMap.get(b.id)?.totalPoints ?? -1;
+        return bpts - apts;
+      }),
+    [unassignedStudents, priorityMap],
+  );
 
   // Reset selection when modal opens/closes
   useEffect(() => {
@@ -108,7 +126,7 @@ export function QuickAssignStudentsModal({
 
           {/* Students List */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
-            {unassignedStudents.length === 0 ? (
+            {sortedStudents.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <Users className="h-12 w-12 mx-auto text-gray-300 mb-3" />
                 <p className="font-medium mb-1">No unassigned students</p>
@@ -116,7 +134,7 @@ export function QuickAssignStudentsModal({
               </div>
             ) : (
               <div className="space-y-2">
-                {unassignedStudents.map((student) => {
+                {sortedStudents.map((student) => {
                   const isSelected = selectedStudentIds.has(student.id);
                   const isDisabled = !isSelected && !canSelectMore;
 
@@ -153,6 +171,12 @@ export function QuickAssignStudentsModal({
                       {/* Student Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
+                          {priorityMap.has(student.id) && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-50 border border-amber-300 text-amber-700 text-xs font-semibold flex-shrink-0">
+                              <Star className="h-3 w-3" />
+                              {priorityMap.get(student.id)!.totalPoints} pts
+                            </span>
+                          )}
                           {hasConflict && (
                             <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
                           )}

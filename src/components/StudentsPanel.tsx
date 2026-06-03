@@ -90,6 +90,7 @@ export function StudentsPanel({
   const [studentSortDir, setStudentSortDir] = useState<"asc" | "desc" | null>(null);
   const [prioritySortDir, setPrioritySortDir] = useState<"asc" | "desc" | null>(null);
   const [showUnassignedOnly, setShowUnassignedOnly] = useState(false);
+  const [showPriorityOnly, setShowPriorityOnly] = useState(false);
   const [expandedPlacementHistory, setExpandedPlacementHistory] = useState<Set<string>>(new Set());
 
   const studentsImported = students.length > 0 || isFirstPublishCompleted;
@@ -136,6 +137,7 @@ export function StudentsPanel({
 
   const filteredStudents = students
     .filter((s) => !showUnassignedOnly || !s.assignedPraksisPlace)
+    .filter((s) => !showPriorityOnly || priorityMap.has(s.id))
     .filter(
       (s) =>
         !studentSearch.trim() ||
@@ -184,33 +186,32 @@ export function StudentsPanel({
         <div>
           <div className="flex items-center gap-3">
             <h3 className="font-semibold text-gray-800">Students</h3>
+
+          </div>
+              
+          <div className="flex items-center gap-2 mt-1.5">
             <button
               type="button"
-              onClick={() => setShowUnassignedOnly(!showUnassignedOnly)}
+              onClick={() => { setShowPriorityOnly(!showPriorityOnly); setShowUnassignedOnly(false); }}
+              className={`text-xs px-2.5 py-0.5 rounded-full border transition-colors ${
+                showPriorityOnly
+                  ? "bg-amber-100 border-amber-300 text-amber-700 font-medium"
+                  : "bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200"
+              }`}
+            >
+              Priority: {(priorityApplications ?? []).filter((a) => students.some((s) => s.id === a.studentId)).length}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowUnassignedOnly(!showUnassignedOnly); setShowPriorityOnly(false); }}
               className={`text-xs px-2.5 py-0.5 rounded-full border transition-colors ${
                 showUnassignedOnly
                   ? "bg-amber-100 border-amber-300 text-amber-700 font-medium"
                   : "bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200"
               }`}
             >
-              {showUnassignedOnly ? "Showing unassigned only" : "Show unassigned only"}
+              Unassigned: {students.filter((s) => !s.assignedPraksisPlace).length}
             </button>
-
-          </div>
-              
-          <div className="flex items-center gap-2 mt-1.5">
-            <div className="w-28 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-green-500 rounded-full transition-all duration-300"
-                style={{
-                  width: `${(students.filter((s) => s.assignedPraksisPlace).length / students.length) * 100}%`,
-                }}
-              />
-            </div>
-            <span className="text-xs text-gray-500">
-              {students.filter((s) => s.assignedPraksisPlace).length} /{" "}
-              {students.length} assigned
-            </span>
           </div>
         </div>
 
@@ -362,7 +363,7 @@ export function StudentsPanel({
                   checked={
                     selectedStudents.size === students.length && students.length > 0
                   }
-                  onCheckedChange={(checked) => {
+                  onCheckedChange={(checked: boolean) => {
                     if (checked) {
                       setSelectedStudents(new Set(students.map((s) => s.id)));
                     } else {

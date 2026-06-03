@@ -1566,6 +1566,7 @@ export function PlacementTaskView({
           isQuickAssignModalOpen={isQuickAssignModalOpen}
           selectedQuotaForAssignment={selectedQuotaForAssignment}
           unassignedStudents={students.filter((s) => !s.assignedPraksisPlace)}
+          priorityApplications={matchedPriorityApplications}
           onCloseQuickAssign={() => {
             setIsQuickAssignModalOpen(false);
             setSelectedQuotaForAssignment(null);
