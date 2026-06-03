@@ -70,6 +70,7 @@ import {
 } from "./types/quotaOffering";
 import {
   CoordinatorQuotaRequest,
+  mockCoordinatorQuotaRequests,
 } from "./types/coordinatorQuotaRequest";
 import { CoordinatorQuotasView } from "./components/CoordinatorQuotasView";
 import { PrioritiesView } from "./components/PrioritiesView";
@@ -242,7 +243,7 @@ export default function App() {
   const [
     coordinatorQuotaRequests,
     setCoordinatorQuotaRequests,
-  ] = useState<CoordinatorQuotaRequest[]>([]);
+  ] = useState<CoordinatorQuotaRequest[]>(mockCoordinatorQuotaRequests);
 
   // Priority placement state
   const [priorityPeriods, setPriorityPeriods] = useState<PriorityPlacementPeriod[]>(mockPriorityPeriods);

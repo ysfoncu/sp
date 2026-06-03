@@ -444,13 +444,18 @@ export function CoordinatorQuotasView({
         filterProgram === "all" ||
         item.programId === filterProgram;
 
-      return matchesSearch && matchesStudy && matchesProgram;
+      const matchesEmne =
+        filterEmne === "all" ||
+        item.offerings.some((o) => o.emne === filterEmne);
+
+      return matchesSearch && matchesStudy && matchesProgram && matchesEmne;
     });
   }, [
     studyProgramDistribution,
     searchTerm,
     filterStudy,
     filterProgram,
+    filterEmne,
   ]);
 
   // Filter quota requests
@@ -941,18 +946,43 @@ export function CoordinatorQuotasView({
                         <div className="text-xs text-gray-600">
                           {item.programName}
                         </div>
+                        {(() => {
+                          const rowEmnes = [...new Set(item.offerings.map((o) => o.emne).filter(Boolean))] as string[];
+                          return rowEmnes.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {rowEmnes.map((emne) => (
+                                <button
+                                  key={emne}
+                                  type="button"
+                                  onClick={() => setFilterEmne(filterEmne === emne ? "all" : emne)}
+                                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                                    filterEmne === emne
+                                      ? "bg-purple-100 border-purple-300 text-purple-700 font-medium"
+                                      : "bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200"
+                                  }`}
+                                >
+                                  {emne}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
                       </td>
                       <td className="px-3 sm:px-6 py-4">
                         <div className="flex items-center justify-center">
                           <span className="text-lg font-bold text-purple-600">
-                            {item.totalApproved || 0}
+                            {filterEmne === "all"
+                              ? item.totalApproved || 0
+                              : item.offerings.filter((o) => o.source !== "pending-request" && o.emne === filterEmne).reduce((s, o) => s + o.capacity, 0)}
                           </span>
                         </div>
                       </td>
                       <td className="px-3 sm:px-6 py-4">
                         <div className="flex items-center justify-center">
                           <span className="text-lg font-bold text-orange-600">
-                            {item.totalPending || 0}
+                            {filterEmne === "all"
+                              ? item.totalPending || 0
+                              : item.offerings.filter((o) => o.source === "pending-request" && o.emne === filterEmne).reduce((s, o) => s + o.capacity, 0)}
                           </span>
                         </div>
                       </td>
@@ -980,7 +1010,7 @@ export function CoordinatorQuotasView({
                           const visibleOfferings = item.offerings.filter((o) => {
                             const s = new Date(o.startDate).getTime();
                             const e = new Date(o.endDate).getTime();
-                            return e >= ganttStart && s <= ganttEnd;
+                            return e >= ganttStart && s <= ganttEnd && (filterEmne === "all" || o.emne === filterEmne);
                           });
 
                           return (
