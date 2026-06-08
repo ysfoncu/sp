@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -37,6 +37,7 @@ import {
   MessageCircle,
   HelpCircle,
   ChevronDown,
+  CalendarRange,
 } from "lucide-react";
 import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
 import { QuotaOffering } from "../types/quotaOffering";
@@ -63,6 +64,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+
+type PeriodOption = "previous" | "current" | "next" | "expired" | "custom";
+
+function getSemesterRanges(today: Date) {
+  const year = today.getFullYear();
+  const aug1 = new Date(year, 7, 1); // Aug 1
+  if (today < aug1) {
+    return {
+      previous: { start: new Date(year - 1, 7, 1), end: new Date(year - 1, 11, 1) },
+      current:  { start: new Date(year, 0, 1),      end: new Date(year, 7, 1) },
+      next:     { start: new Date(year, 7, 1),       end: new Date(year, 11, 1) },
+    };
+  }
+  return {
+    previous: { start: new Date(year, 0, 1),      end: new Date(year, 7, 1) },
+    current:  { start: new Date(year, 7, 1),       end: new Date(year, 11, 1) },
+    next:     { start: new Date(year + 1, 0, 1),   end: new Date(year + 1, 7, 1) },
+  };
+}
+
+function fmtDate(d: Date) {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
 interface CoordinatorQuotasViewProps {
   quotaOfferings: QuotaOffering[];
@@ -124,8 +148,128 @@ export function CoordinatorQuotasView({
   // Help overlay state
   const [isHelpOverlayOpen, setIsHelpOverlayOpen] = useState(false);
 
+  // Period filter
+  const [selectedPeriods, setSelectedPeriods] = useState<Set<PeriodOption>>(
+    new Set(["current", "next"] as PeriodOption[])
+  );
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+  const [isPeriodFilterOpen, setIsPeriodFilterOpen] = useState(false);
+  const periodFilterRef = useRef<HTMLDivElement>(null);
+
   // Oslo University ID (must match the universityId in studies data)
   const OSLO_UNIVERSITY_ID = "U1";
+
+  // Close period filter panel when clicking outside
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (periodFilterRef.current && !periodFilterRef.current.contains(e.target as Node)) {
+        setIsPeriodFilterOpen(false);
+      }
+    };
+    if (isPeriodFilterOpen) document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [isPeriodFilterOpen]);
+
+  const semesterRanges = useMemo(() => getSemesterRanges(new Date()), []);
+
+  const togglePeriod = (period: PeriodOption) => {
+    setSelectedPeriods((prev) => {
+      const next = new Set(prev);
+      if (period === "custom") {
+        return next.has("custom") ? (() => { next.delete("custom"); return next; })() : new Set(["custom"] as PeriodOption[]);
+      }
+      // Switching away from custom
+      if (next.has("custom")) next.delete("custom");
+      if (next.has(period)) next.delete(period); else next.add(period);
+      return next;
+    });
+  };
+
+  // Returns true if a record's [start, end] overlaps the active period filter
+  const matchesPeriod = (startDateStr: string, endDateStr: string): boolean => {
+    if (selectedPeriods.size === 0) return true;
+    const rStart = new Date(startDateStr);
+    const rEnd = new Date(endDateStr);
+    if (selectedPeriods.has("custom")) {
+      if (!customStartDate || !customEndDate) return false;
+      const cStart = new Date(customStartDate);
+      const cEnd = new Date(customEndDate);
+      return rStart <= cEnd && rEnd >= cStart;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (selectedPeriods.has("expired") && rEnd < today) return true;
+    const ranges: Array<{ start: Date; end: Date }> = [];
+    if (selectedPeriods.has("previous")) ranges.push(semesterRanges.previous);
+    if (selectedPeriods.has("current"))  ranges.push(semesterRanges.current);
+    if (selectedPeriods.has("next"))     ranges.push(semesterRanges.next);
+    return ranges.some((r) => rStart <= r.end && rEnd >= r.start);
+  };
+
+  // Build chips data for the active period selections
+  const periodChips = useMemo(() => {
+    const chips: Array<{ key: PeriodOption; label: string; range: string }> = [];
+    if (selectedPeriods.has("custom")) {
+      chips.push({
+        key: "custom",
+        label: "Custom Range",
+        range: customStartDate && customEndDate
+          ? `${fmtDate(new Date(customStartDate))} – ${fmtDate(new Date(customEndDate))}`
+          : "Select dates",
+      });
+    } else {
+      if (selectedPeriods.has("previous"))
+        chips.push({ key: "previous", label: "Previous Semester", range: `${fmtDate(semesterRanges.previous.start)} – ${fmtDate(semesterRanges.previous.end)}` });
+      if (selectedPeriods.has("current"))
+        chips.push({ key: "current", label: "This Semester", range: `${fmtDate(semesterRanges.current.start)} – ${fmtDate(semesterRanges.current.end)}` });
+      if (selectedPeriods.has("next"))
+        chips.push({ key: "next", label: "Next Semester", range: `${fmtDate(semesterRanges.next.start)} – ${fmtDate(semesterRanges.next.end)}` });
+      if (selectedPeriods.has("expired"))
+        chips.push({ key: "expired", label: "Expired Requests", range: "End date passed" });
+    }
+    return chips;
+  }, [selectedPeriods, customStartDate, customEndDate, semesterRanges]);
+
+  // Derive the gantt timeline range from the active period selection
+  const ganttDateRange = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (selectedPeriods.size === 0) {
+      const y = today.getFullYear();
+      return { start: new Date(y, 0, 1), end: new Date(y, 11, 31) };
+    }
+
+    if (selectedPeriods.has("custom")) {
+      if (customStartDate && customEndDate) {
+        return { start: new Date(customStartDate), end: new Date(customEndDate) };
+      }
+      const y = today.getFullYear();
+      return { start: new Date(y, 0, 1), end: new Date(y, 11, 31) };
+    }
+
+    let minStart: Date | null = null;
+    let maxEnd: Date | null = null;
+    const extend = (s: Date, e: Date) => {
+      if (!minStart || s < minStart) minStart = new Date(s);
+      if (!maxEnd || e > maxEnd) maxEnd = new Date(e);
+    };
+
+    if (selectedPeriods.has("previous")) extend(semesterRanges.previous.start, semesterRanges.previous.end);
+    if (selectedPeriods.has("current"))  extend(semesterRanges.current.start,  semesterRanges.current.end);
+    if (selectedPeriods.has("next"))     extend(semesterRanges.next.start,     semesterRanges.next.end);
+    if (selectedPeriods.has("expired")) {
+      const twoYearsAgo = new Date(today);
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      extend(twoYearsAgo, today);
+    }
+
+    return {
+      start: minStart ?? new Date(today.getFullYear(), 0, 1),
+      end:   maxEnd   ?? new Date(today.getFullYear(), 11, 31),
+    };
+  }, [selectedPeriods, customStartDate, customEndDate, semesterRanges]);
 
   // Calculate distributed quotas for study programs based on academic periods
   const studyProgramDistribution = useMemo(() => {
@@ -431,24 +575,19 @@ export function CoordinatorQuotasView({
   const filteredDistribution = useMemo(() => {
     return studyProgramDistribution.filter((item) => {
       const matchesSearch =
-        item.studyName
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        item.programName
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase());
+        item.studyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.programName.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesStudy =
-        filterStudy === "all" || item.studyId === filterStudy;
-      const matchesProgram =
-        filterProgram === "all" ||
-        item.programId === filterProgram;
+      const matchesStudy = filterStudy === "all" || item.studyId === filterStudy;
+      const matchesProgram = filterProgram === "all" || item.programId === filterProgram;
+      const matchesEmne = filterEmne === "all" || item.offerings.some((o) => o.emne === filterEmne);
 
-      const matchesEmne =
-        filterEmne === "all" ||
-        item.offerings.some((o) => o.emne === filterEmne);
+      // Period filter: at least one offering must overlap the selected period
+      const matchesPeriodSelection =
+        selectedPeriods.size === 0 ||
+        item.offerings.some((o) => matchesPeriod(o.startDate, o.endDate));
 
-      return matchesSearch && matchesStudy && matchesProgram && matchesEmne;
+      return matchesSearch && matchesStudy && matchesProgram && matchesEmne && matchesPeriodSelection;
     });
   }, [
     studyProgramDistribution,
@@ -456,6 +595,9 @@ export function CoordinatorQuotasView({
     filterStudy,
     filterProgram,
     filterEmne,
+    selectedPeriods,
+    customStartDate,
+    customEndDate,
   ]);
 
   // Filter quota requests
@@ -496,6 +638,8 @@ export function CoordinatorQuotasView({
           ? request.entityDistributions.some((ed) => ed.entityId === filterEntity)
           : request.departmentId === filterEntity);
 
+      const matchesPeriodSelection = matchesPeriod(request.startDate, request.endDate);
+
       return (
         matchesSearch &&
         matchesStudy &&
@@ -503,7 +647,8 @@ export function CoordinatorQuotasView({
         matchesStatus &&
         matchesEmne &&
         matchesPlace &&
-        matchesEntity
+        matchesEntity &&
+        matchesPeriodSelection
       );
     });
   }, [
@@ -515,6 +660,9 @@ export function CoordinatorQuotasView({
     filterEmne,
     filterPlace,
     filterEntity,
+    selectedPeriods,
+    customStartDate,
+    customEndDate,
   ]);
 
   // Filter quota offerings for PK person's university
@@ -841,6 +989,146 @@ export function CoordinatorQuotasView({
               </SelectContent>
             </Select>
 
+            {/* Period filter */}
+            <div ref={periodFilterRef} className="relative">
+              <Button
+                variant="outline"
+                onClick={() => setIsPeriodFilterOpen((v) => !v)}
+                className={`gap-2 justify-between ${
+                  selectedPeriods.size > 0
+                    ? "text-purple-700 border-purple-300 bg-purple-50 hover:bg-purple-100"
+                    : "text-gray-600 bg-gray-100 border-gray-200 hover:bg-gray-200"
+                }`}
+              >
+                <CalendarRange className="h-4 w-4 flex-shrink-0" />
+                <span>Period</span>
+                {selectedPeriods.size > 0 && (
+                  <span className="ml-0.5 h-5 w-5 flex items-center justify-center rounded-full bg-purple-600 text-white text-[11px] font-semibold leading-none">
+                    {selectedPeriods.size}
+                  </span>
+                )}
+                <ChevronDown className={`h-4 w-4 flex-shrink-0 opacity-50 transition-transform ${isPeriodFilterOpen ? "rotate-180" : ""}`} />
+              </Button>
+
+              {isPeriodFilterOpen && (
+                <div className="absolute top-full mt-2 left-0 z-50 w-[300px] bg-white rounded-xl shadow-xl border border-gray-200 p-1 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Show records for</p>
+                  </div>
+                  <div className="p-2 space-y-0.5">
+                    {(
+                      [
+                        { key: "previous" as PeriodOption, label: "Previous Semester", range: `${fmtDate(semesterRanges.previous.start)} – ${fmtDate(semesterRanges.previous.end)}` },
+                        { key: "current"  as PeriodOption, label: "This Semester",     range: `${fmtDate(semesterRanges.current.start)} – ${fmtDate(semesterRanges.current.end)}` },
+                        { key: "next"     as PeriodOption, label: "Next Semester",     range: `${fmtDate(semesterRanges.next.start)} – ${fmtDate(semesterRanges.next.end)}` },
+                        { key: "expired"  as PeriodOption, label: "Expired Requests",  range: "End date in the past" },
+                      ] as const
+                    ).map(({ key, label, range }) => {
+                      const isCustomMode = selectedPeriods.has("custom");
+                      const checked = selectedPeriods.has(key);
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => !isCustomMode && togglePeriod(key)}
+                          disabled={isCustomMode}
+                          className={`w-full flex items-start gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                            isCustomMode
+                              ? "opacity-40 cursor-not-allowed"
+                              : checked
+                              ? "bg-purple-50 hover:bg-purple-100"
+                              : "hover:bg-gray-50"
+                          }`}
+                        >
+                          <div className={`mt-0.5 h-4 w-4 flex-shrink-0 rounded border-2 flex items-center justify-center transition-colors ${
+                            checked ? "bg-purple-600 border-purple-600" : "border-gray-300"
+                          }`}>
+                            {checked && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
+                          </div>
+                          <div className="min-w-0">
+                            <div className={`text-sm font-medium ${checked ? "text-purple-700" : "text-gray-800"}`}>{label}</div>
+                            <div className="text-xs text-gray-400 mt-0.5">{range}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="px-2 pb-2">
+                    <div className="border-t border-gray-100 pt-2">
+                      {/* Custom date range toggle */}
+                      <button
+                        type="button"
+                        onClick={() => togglePeriod("custom")}
+                        className={`w-full flex items-start gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                          selectedPeriods.has("custom") ? "bg-purple-50 hover:bg-purple-100" : "hover:bg-gray-50"
+                        }`}
+                      >
+                        <div className={`mt-0.5 h-4 w-4 flex-shrink-0 rounded border-2 flex items-center justify-center transition-colors ${
+                          selectedPeriods.has("custom") ? "bg-purple-600 border-purple-600" : "border-gray-300"
+                        }`}>
+                          {selectedPeriods.has("custom") && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
+                        </div>
+                        <div>
+                          <div className={`text-sm font-medium ${selectedPeriods.has("custom") ? "text-purple-700" : "text-gray-800"}`}>Custom Date Range</div>
+                          <div className="text-xs text-gray-400 mt-0.5">Pick a specific start and end date</div>
+                        </div>
+                      </button>
+
+                      {/* Custom date inputs — shown when custom is selected */}
+                      {selectedPeriods.has("custom") && (
+                        <div className="mt-2 mx-3 space-y-2">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+                            <input
+                              type="date"
+                              value={customStartDate}
+                              onChange={(e) => setCustomStartDate(e.target.value)}
+                              className="w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+                            <input
+                              type="date"
+                              value={customEndDate}
+                              min={customStartDate}
+                              onChange={(e) => setCustomEndDate(e.target.value)}
+                              className="w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                            />
+                          </div>
+                          {(!customStartDate || !customEndDate) && (
+                            <p className="text-xs text-amber-600 flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3" />
+                              Select both dates to apply filter
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Footer */}
+                  <div className="px-3 py-2 border-t border-gray-100 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPeriods(new Set())}
+                      className="text-xs text-gray-500 hover:text-gray-800 transition-colors"
+                    >
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPeriodFilterOpen(false)}
+                      className="text-xs font-medium text-purple-600 hover:text-purple-700 transition-colors"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {(filterStudy !== "all" || filterProgram !== "all" || filterStatus !== "all" || filterEmne !== "all" || filterPlace !== "all") && (
               <button
                 type="button"
@@ -899,6 +1187,32 @@ export function CoordinatorQuotasView({
           </>
         )}
       </div>
+
+      {/* Period filter chips */}
+      {periodChips.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap -mt-2">
+          <span className="text-xs text-gray-400 font-medium">Showing:</span>
+          {periodChips.map((chip) => (
+            <span
+              key={chip.key}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 border border-purple-200 text-xs font-medium text-purple-700"
+            >
+              <CalendarRange className="h-3 w-3 opacity-70" />
+              <span>{chip.label}</span>
+              <span className="text-purple-400">·</span>
+              <span className="font-normal text-purple-500">{chip.range}</span>
+              <button
+                type="button"
+                onClick={() => togglePeriod(chip.key)}
+                className="ml-0.5 text-purple-400 hover:text-purple-700 transition-colors"
+                aria-label={`Remove ${chip.label}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Available Quotas Table - Only show when there are quota requests and not in search mode */}
       {!isQuotaSearchMode && quotaRequests.length > 0 && (
@@ -988,29 +1302,40 @@ export function CoordinatorQuotasView({
                       </td>
                       <td className="px-3 sm:px-6 py-4 min-w-[420px]">
                         {(() => {
-                          const ganttYear = new Date().getFullYear();
-                          const ganttStart = new Date(ganttYear, 0, 1).getTime();
-                          const ganttEnd = new Date(ganttYear, 11, 31, 23, 59, 59).getTime();
-                          const ganttRange = ganttEnd - ganttStart;
+                          const ganttStart = ganttDateRange.start.getTime();
+                          const ganttEnd   = ganttDateRange.end.getTime();
+                          const ganttRange = Math.max(1, ganttEnd - ganttStart);
+                          const spanYears  = ganttDateRange.end.getFullYear() - ganttDateRange.start.getFullYear();
 
-                          const monthTicks = Array.from({ length: 12 }, (_, i) => {
-                            const d = new Date(ganttYear, i, 1);
-                            return {
-                              label: i === 0 ? 'Jan 1' : d.toLocaleDateString('en-US', { month: 'short' }),
-                              pct: (d.getTime() - ganttStart) / ganttRange * 100,
-                              isFirst: i === 0,
-                            };
-                          });
+                          // Generate month-boundary ticks across the dynamic range
+                          const monthTicks: Array<{ label: string; pct: number }> = [];
+                          {
+                            let d = new Date(ganttDateRange.start.getFullYear(), ganttDateRange.start.getMonth(), 1);
+                            while (d.getTime() <= ganttEnd) {
+                              const pct = (d.getTime() - ganttStart) / ganttRange * 100;
+                              const isJan = d.getMonth() === 0;
+                              const label = spanYears >= 1 && isJan
+                                ? d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
+                                : d.toLocaleDateString("en-US", { month: "short" });
+                              if (pct >= 0) monthTicks.push({ label, pct });
+                              d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+                            }
+                          }
+                          const endLabel = ganttDateRange.end.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
                           const now = new Date();
                           now.setHours(12, 0, 0, 0);
                           const todayPct = Math.min(100, Math.max(0, (now.getTime() - ganttStart) / ganttRange * 100));
-                          const todayLabel = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                          const todayLabel = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                          const todayInRange = now.getTime() >= ganttStart && now.getTime() <= ganttEnd;
 
                           const visibleOfferings = item.offerings.filter((o) => {
                             const s = new Date(o.startDate).getTime();
                             const e = new Date(o.endDate).getTime();
-                            return e >= ganttStart && s <= ganttEnd && (filterEmne === "all" || o.emne === filterEmne);
+                            const inRange = e >= ganttStart && s <= ganttEnd;
+                            const matchesEmneFilter = filterEmne === "all" || o.emne === filterEmne;
+                            const matchesPeriodFilter = matchesPeriod(o.startDate, o.endDate);
+                            return inRange && matchesEmneFilter && matchesPeriodFilter;
                           });
 
                           return (
@@ -1029,7 +1354,7 @@ export function CoordinatorQuotasView({
 
                               {/* Timeline */}
                               <div className="relative">
-                                {/* Month grid lines (behind bars) */}
+                                {/* Month grid lines */}
                                 {monthTicks.map((m) => (
                                   <div
                                     key={m.label}
@@ -1037,36 +1362,37 @@ export function CoordinatorQuotasView({
                                     style={{ left: `${m.pct}%` }}
                                   />
                                 ))}
-                                {/* Dec 31 right edge */}
-                                <div className="absolute top-0 bottom-5 border-l border-gray-100 pointer-events-none" style={{ left: '100%' }} />
+                                <div className="absolute top-0 bottom-5 border-l border-gray-100 pointer-events-none" style={{ left: "100%" }} />
 
-                                {/* Today line */}
-                                <div
-                                  className="absolute top-0 bottom-5 border-l-2 border-blue-400 pointer-events-none z-10"
-                                  style={{ left: `${todayPct}%` }}
-                                />
+                                {/* Today line — only if today is within the visible range */}
+                                {todayInRange && (
+                                  <div
+                                    className="absolute top-0 bottom-5 border-l-2 border-blue-400 pointer-events-none z-10"
+                                    style={{ left: `${todayPct}%` }}
+                                  />
+                                )}
 
                                 {/* Bars */}
                                 <div className="flex flex-col gap-0.5 pb-5">
                                   {visibleOfferings.length > 0 ? visibleOfferings.map((offering, i) => {
                                     const s = new Date(offering.startDate).getTime();
                                     const e = new Date(offering.endDate).getTime();
-                                    const leftPct = Math.min(100, Math.max(0, (s - ganttStart) / ganttRange * 100));
+                                    const leftPct  = Math.min(100, Math.max(0, (s - ganttStart) / ganttRange * 100));
                                     const rightPct = Math.min(100, Math.max(0, (e - ganttStart) / ganttRange * 100));
                                     const widthPct = Math.max(0.5, rightPct - leftPct);
-                                    const isApproved = offering.source !== 'pending-request';
+                                    const isApproved = offering.source !== "pending-request";
                                     return (
                                       <div key={i} className="relative h-3 flex items-center">
                                         <div
-                                          title={`${offering.emne ?? ''} · ${new Date(offering.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${new Date(offering.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
-                                          className={`absolute rounded ${isApproved ? 'bg-purple-600' : 'bg-orange-500'}`}
-                                          style={{ left: `${leftPct}%`, width: `${widthPct}%`, height: '3px' }}
+                                          title={`${offering.emne ?? ""} · ${new Date(offering.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${new Date(offering.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                                          className={`absolute rounded ${isApproved ? "bg-purple-600" : "bg-orange-500"}`}
+                                          style={{ left: `${leftPct}%`, width: `${widthPct}%`, height: "3px" }}
                                         />
                                       </div>
                                     );
                                   }) : (
                                     <div className="h-5 flex items-center">
-                                      <span className="text-xs text-gray-400 italic">No items in current year</span>
+                                      <span className="text-xs text-gray-400 italic">No items in selected period</span>
                                     </div>
                                   )}
                                 </div>
@@ -1084,17 +1410,19 @@ export function CoordinatorQuotasView({
                                   ))}
                                   <span
                                     className="absolute text-[10px] text-gray-400 -translate-x-full"
-                                    style={{ left: '100%' }}
+                                    style={{ left: "100%" }}
                                   >
-                                    Dec 31
+                                    {endLabel}
                                   </span>
-                                  {/* Today label */}
-                                  <span
-                                    className="absolute text-[10px] font-semibold text-blue-500 -translate-x-1/2 z-20"
-                                    style={{ left: `${todayPct}%` }}
-                                  >
-                                    {todayLabel}
-                                  </span>
+                                  {/* Today label — only if today is within range */}
+                                  {todayInRange && (
+                                    <span
+                                      className="absolute text-[10px] font-semibold text-blue-500 -translate-x-1/2 z-20"
+                                      style={{ left: `${todayPct}%` }}
+                                    >
+                                      {todayLabel}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1189,7 +1517,7 @@ export function CoordinatorQuotasView({
                   
                   // Determine if this is a multi-entity request
                   const hasMultipleEntities = request.entityDistributions && request.entityDistributions.length > 0;
-                  const entities = hasMultipleEntities ? request.entityDistributions.map(entity => ({
+                  const entities = hasMultipleEntities ? request.entityDistributions!.map(entity => ({
                     ...entity,
                     consumedQuota: entity.consumedQuota || getConsumedCountForEntity(request.id, entity.entityId),
                   })) : [
