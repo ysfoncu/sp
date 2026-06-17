@@ -7,12 +7,14 @@ import {
   Trash2,
   GraduationCap,
   BookOpen,
+  Layers,
   UserCog,
   Mail,
   Eye,
   EyeOff,
   GitBranch,
   Check,
+  X,
 } from "lucide-react";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Input } from "./ui/input";
@@ -25,9 +27,16 @@ import {
   SelectValue,
 } from "./ui/select";
 
+export interface StudyEmne {
+  id: string;
+  name: string;
+}
+
 export interface StudyProgram {
   id: string;
   name: string;
+  // Optional cohorts ("emne") attached to a program. A program may have none.
+  emner?: StudyEmne[];
 }
 
 export interface Study {
@@ -124,7 +133,14 @@ export function SettingsView({
       universityId: "U1",
       universityName: "University of Oslo",
       programs: [
-        { id: "1-1", name: "Nursing" },
+        {
+          id: "1-1",
+          name: "Nursing",
+          emner: [
+            { id: "1-1-e1", name: "Kull 2024 Høst" },
+            { id: "1-1-e2", name: "Kull 2025 Vår" },
+          ],
+        },
         { id: "1-2", name: "Physiotherapy" },
       ],
     },
@@ -145,6 +161,11 @@ export function SettingsView({
   }>({});
   const [isAddingStudy, setIsAddingStudy] = useState(false);
   const [addingProgramForStudy, setAddingProgramForStudy] =
+    useState<string | null>(null);
+  const [newEmneName, setNewEmneName] = useState<{
+    [programId: string]: string;
+  }>({});
+  const [addingEmneForProgram, setAddingEmneForProgram] =
     useState<string | null>(null);
 
   // Study Admins state management
@@ -327,6 +348,63 @@ export function SettingsView({
           };
         }
         return study;
+      }),
+    );
+  };
+
+  // Emne (cohort) management functions — optional per program
+  const handleAddEmne = (
+    studyId: string,
+    programId: string,
+  ) => {
+    const emneName = newEmneName[programId]?.trim();
+    if (emneName) {
+      setStudies(
+        studies.map((study) => {
+          if (study.id !== studyId) return study;
+          return {
+            ...study,
+            programs: study.programs.map((program) => {
+              if (program.id !== programId) return program;
+              return {
+                ...program,
+                emner: [
+                  ...(program.emner ?? []),
+                  {
+                    id: `${programId}-emne-${Date.now()}`,
+                    name: emneName,
+                  },
+                ],
+              };
+            }),
+          };
+        }),
+      );
+      setNewEmneName({ ...newEmneName, [programId]: "" });
+      setAddingEmneForProgram(null);
+    }
+  };
+
+  const handleRemoveEmne = (
+    studyId: string,
+    programId: string,
+    emneId: string,
+  ) => {
+    setStudies(
+      studies.map((study) => {
+        if (study.id !== studyId) return study;
+        return {
+          ...study,
+          programs: study.programs.map((program) => {
+            if (program.id !== programId) return program;
+            return {
+              ...program,
+              emner: (program.emner ?? []).filter(
+                (emne) => emne.id !== emneId,
+              ),
+            };
+          }),
+        };
       }),
     );
   };
@@ -535,7 +613,7 @@ export function SettingsView({
                         {/* Study Header */}
                         <div className="flex items-start justify-between mb-3">
                           <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <h3 className="font-medium text-gray-800">
                                 {study.name}
                               </h3>
@@ -547,7 +625,25 @@ export function SettingsView({
                               </Badge>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() =>
+                              handleRemoveStudy(study.id)
+                            }
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+
+                        {/* Programs Section */}
+                        <div className="mb-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
+                              <BookOpen className="h-3.5 w-3.5 text-gray-400" />
+                              Programs
+                            </h4>
                             {addingProgramForStudy !==
                               study.id && (
                               <Button
@@ -564,40 +660,57 @@ export function SettingsView({
                                 Add Program
                               </Button>
                             )}
-                            <Button
-                              onClick={() =>
-                                handleRemoveStudy(study.id)
-                              }
-                              size="sm"
-                              variant="ghost"
-                              className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
                           </div>
-                        </div>
 
-                        {/* Add Program Form */}
-                        {addingProgramForStudy === study.id && (
-                          <div className="mb-3 p-3 bg-white border border-blue-200 rounded-lg">
-                            <div className="flex gap-2">
-                              <Input
-                                placeholder="Enter program name (e.g., Nursing)"
-                                value={
-                                  newProgramName[study.id] || ""
-                                }
-                                onChange={(e) =>
-                                  setNewProgramName({
-                                    ...newProgramName,
-                                    [study.id]: e.target.value,
-                                  })
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    handleAddProgram(study.id);
-                                  } else if (
-                                    e.key === "Escape"
-                                  ) {
+                          {/* Add Program Form */}
+                          {addingProgramForStudy === study.id && (
+                            <div className="mb-3 p-3 bg-white border border-blue-200 rounded-lg">
+                              <div className="flex gap-2">
+                                <Input
+                                  placeholder="Enter program name (e.g., Nursing)"
+                                  value={
+                                    newProgramName[study.id] || ""
+                                  }
+                                  onChange={(e) =>
+                                    setNewProgramName({
+                                      ...newProgramName,
+                                      [study.id]: e.target.value,
+                                    })
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      handleAddProgram(study.id);
+                                    } else if (
+                                      e.key === "Escape"
+                                    ) {
+                                      setAddingProgramForStudy(
+                                        null,
+                                      );
+                                      setNewProgramName({
+                                        ...newProgramName,
+                                        [study.id]: "",
+                                      });
+                                    }
+                                  }}
+                                  className="flex-1"
+                                  autoFocus
+                                />
+                                <Button
+                                  onClick={() =>
+                                    handleAddProgram(study.id)
+                                  }
+                                  size="sm"
+                                  className="bg-blue-600 hover:bg-blue-700"
+                                  disabled={
+                                    !newProgramName[
+                                      study.id
+                                    ]?.trim()
+                                  }
+                                >
+                                  Add
+                                </Button>
+                                <Button
+                                  onClick={() => {
                                     setAddingProgramForStudy(
                                       null,
                                     );
@@ -605,84 +718,179 @@ export function SettingsView({
                                       ...newProgramName,
                                       [study.id]: "",
                                     });
-                                  }
-                                }}
-                                className="flex-1"
-                                autoFocus
-                              />
-                              <Button
-                                onClick={() =>
-                                  handleAddProgram(study.id)
-                                }
-                                size="sm"
-                                className="bg-blue-600 hover:bg-blue-700"
-                                disabled={
-                                  !newProgramName[
-                                    study.id
-                                  ]?.trim()
-                                }
-                              >
-                                Add
-                              </Button>
-                              <Button
-                                onClick={() => {
-                                  setAddingProgramForStudy(
-                                    null,
-                                  );
-                                  setNewProgramName({
-                                    ...newProgramName,
-                                    [study.id]: "",
-                                  });
-                                }}
-                                size="sm"
-                                variant="outline"
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Programs List */}
-                        {study.programs.length > 0 && (
-                          <div className="space-y-2">
-                            {study.programs.map((program) => (
-                              <div
-                                key={program.id}
-                                className="flex items-center justify-between p-2 bg-white rounded border border-gray-200 hover:border-gray-300 transition-colors"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <BookOpen className="h-4 w-4 text-gray-400" />
-                                  <span className="text-sm text-gray-700">
-                                    {program.name}
-                                  </span>
-                                </div>
-                                <Button
-                                  onClick={() =>
-                                    handleRemoveProgram(
-                                      study.id,
-                                      program.id,
-                                    )
-                                  }
+                                  }}
                                   size="sm"
-                                  variant="ghost"
-                                  className="text-red-600 hover:bg-red-50 hover:text-red-700 h-7 w-7 p-0"
+                                  variant="outline"
                                 >
-                                  <Trash2 className="h-3 w-3" />
+                                  Cancel
                                 </Button>
                               </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {study.programs.length === 0 &&
-                          addingProgramForStudy !==
-                            study.id && (
-                            <div className="text-sm text-gray-500 italic">
-                              No programs added yet. Click "Add
-                              Program" to add one.
                             </div>
                           )}
+
+                          {/* Programs List */}
+                          {study.programs.length > 0 && (
+                            <div className="space-y-2">
+                              {study.programs.map((program) => (
+                                <div
+                                  key={program.id}
+                                  className="bg-white rounded border border-gray-200 hover:border-gray-300 transition-colors p-2"
+                                >
+                                  {/* Program header row */}
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <BookOpen className="h-4 w-4 text-gray-400" />
+                                      <span className="text-sm text-gray-700">
+                                        {program.name}
+                                      </span>
+                                    </div>
+                                    <Button
+                                      onClick={() =>
+                                        handleRemoveProgram(
+                                          study.id,
+                                          program.id,
+                                        )
+                                      }
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-red-600 hover:bg-red-50 hover:text-red-700 h-7 w-7 p-0"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+
+                                  {/* Emne (cohort) chips + Add Emne action — below the program, optional */}
+                                  <div className="mt-2 ml-6 flex flex-wrap items-center gap-2">
+                                    {(program.emner ?? []).map(
+                                      (emne) => (
+                                        <span
+                                          key={emne.id}
+                                          className="inline-flex items-center gap-1 rounded-full bg-violet-100 text-violet-700 border border-violet-200 pl-2 pr-1 py-0.5 text-xs"
+                                        >
+                                          <Layers className="h-3 w-3" />
+                                          {emne.name}
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleRemoveEmne(
+                                                study.id,
+                                                program.id,
+                                                emne.id,
+                                              )
+                                            }
+                                            className="ml-0.5 rounded-full p-0.5 hover:bg-violet-200 transition-colors"
+                                            aria-label={`Remove ${emne.name}`}
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </button>
+                                        </span>
+                                      ),
+                                    )}
+
+                                    {addingEmneForProgram ===
+                                    program.id ? (
+                                      <div className="flex items-center gap-2">
+                                        <Input
+                                          placeholder="Emne / cohort name (e.g., Kull 2024 Høst)"
+                                          value={
+                                            newEmneName[
+                                              program.id
+                                            ] || ""
+                                          }
+                                          onChange={(e) =>
+                                            setNewEmneName({
+                                              ...newEmneName,
+                                              [program.id]:
+                                                e.target.value,
+                                            })
+                                          }
+                                          onKeyDown={(e) => {
+                                            if (
+                                              e.key === "Enter"
+                                            ) {
+                                              handleAddEmne(
+                                                study.id,
+                                                program.id,
+                                              );
+                                            } else if (
+                                              e.key === "Escape"
+                                            ) {
+                                              setAddingEmneForProgram(
+                                                null,
+                                              );
+                                              setNewEmneName({
+                                                ...newEmneName,
+                                                [program.id]: "",
+                                              });
+                                            }
+                                          }}
+                                          className="h-8 w-64"
+                                          autoFocus
+                                        />
+                                        <Button
+                                          onClick={() =>
+                                            handleAddEmne(
+                                              study.id,
+                                              program.id,
+                                            )
+                                          }
+                                          size="sm"
+                                          className="bg-violet-600 hover:bg-violet-700 h-8"
+                                          disabled={
+                                            !newEmneName[
+                                              program.id
+                                            ]?.trim()
+                                          }
+                                        >
+                                          Add
+                                        </Button>
+                                        <Button
+                                          onClick={() => {
+                                            setAddingEmneForProgram(
+                                              null,
+                                            );
+                                            setNewEmneName({
+                                              ...newEmneName,
+                                              [program.id]: "",
+                                            });
+                                          }}
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-8"
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <Button
+                                        onClick={() =>
+                                          setAddingEmneForProgram(
+                                            program.id,
+                                          )
+                                        }
+                                        size="sm"
+                                        variant="outline"
+                                        className="text-violet-600 border-violet-300 hover:bg-violet-50 gap-1 h-7"
+                                      >
+                                        <Plus className="h-3 w-3" />
+                                        Add Emne
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {study.programs.length === 0 &&
+                            addingProgramForStudy !==
+                              study.id && (
+                              <div className="text-sm text-gray-500 italic">
+                                No programs added yet. Click "Add
+                                Program" to add one.
+                              </div>
+                            )}
+                        </div>
                       </div>
                     ))
                   ) : (

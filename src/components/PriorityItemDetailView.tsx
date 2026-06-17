@@ -1,7 +1,15 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Card } from "./ui/card";
+import { Input } from "./ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,11 +22,12 @@ import {
 } from "./ui/alert-dialog";
 import {
   ChevronLeft,
+  ChevronRight,
+  Maximize2,
+  Minimize2,
   Users,
-  Bell,
   CheckCircle,
   Clock,
-  CheckCircle2,
   Upload,
   Send,
   ClipboardEdit,
@@ -28,6 +37,7 @@ import {
   ArrowDown,
   Search,
   FileText,
+  X,
 } from "lucide-react";
 import {
   EnrolledStudent,
@@ -35,9 +45,9 @@ import {
   PriorityPlacementPeriod,
 } from "../types/priorityPlacement";
 import { ReviewPriorityApplicationModal } from "./ReviewPriorityApplicationModal";
-import { SendFirstNoticeModal } from "./SendFirstNoticeModal";
 import { SubmitOnBehalfModal } from "./SubmitOnBehalfModal";
 import { AddStudentModal } from "./AddStudentModal";
+import { SelectDatePopover } from "./SelectDatePopover";
 
 interface Study {
   id: string;
@@ -58,36 +68,16 @@ interface PriorityItemDetailViewProps {
   onSendIndividualNotice: (periodId: string, studentId: string) => void;
   onPublishResults: (periodId: string) => void;
   onReopenPeriod: (periodId: string) => void;
+  onUpdatePeriodDate: (
+    periodId: string,
+    field: "firstNoticeDate" | "firstNoticeDeadline",
+    date: string
+  ) => void;
   onApplicationApprove: (id: string, notes?: string) => void;
   onApplicationReject: (id: string, notes: string) => void;
   onSetRequestOnBehalf: (
     application: Omit<PriorityPlacementApplication, "id" | "submittedDate">
   ) => void;
-}
-
-function StepIndicator({
-  step,
-  label,
-  done,
-}: {
-  step: number;
-  label: string;
-  done: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <div
-        className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-          done ? "bg-green-500 text-white" : "bg-gray-200 text-gray-500"
-        }`}
-      >
-        {done ? <CheckCircle2 size={14} /> : step}
-      </div>
-      <span className={`text-sm ${done ? "text-green-700 font-medium" : "text-gray-500"}`}>
-        {label}
-      </span>
-    </div>
-  );
 }
 
 function getDisplayStatus(
@@ -112,24 +102,27 @@ export function PriorityItemDetailView({
   onBack,
   onImportStudents,
   onAddStudents,
-  onSendFirstNotice,
-  onSendIndividualNotice,
   onPublishResults,
   onReopenPeriod,
+  onUpdatePeriodDate,
   onApplicationApprove,
   onApplicationReject,
   onSetRequestOnBehalf,
 }: PriorityItemDetailViewProps) {
   const [reviewingApp, setReviewingApp] = useState<PriorityPlacementApplication | null>(null);
-  const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
   const [isPublishConfirmOpen, setIsPublishConfirmOpen] = useState(false);
   const [onBehalfStudent, setOnBehalfStudent] = useState<EnrolledStudent | null>(null);
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
   const [sortCol, setSortCol] = useState<"student" | "notified" | "submitted" | "points" | "status" | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [activeFilter, setActiveFilter] = useState<"notified" | "review" | "approved" | "rejected" | null>(null);
+  const [filterNotified, setFilterNotified] = useState<"all" | "notified" | "not_notified">("all");
+  const [filterApplication, setFilterApplication] = useState<"all" | "submitted" | "not_submitted">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
 
   function handleSort(col: typeof sortCol) {
     if (sortCol === col) {
@@ -144,6 +137,7 @@ export function PriorityItemDetailView({
   const isPublished = !!period.resultPublishedAt;
   const hasStudents = period.importedStudentIds.length > 0;
   const noticeSent = !!period.firstNoticeSentAt;
+  const today = new Date().toISOString().split("T")[0];
 
 
 
@@ -188,28 +182,27 @@ export function PriorityItemDetailView({
     });
   }, [period.importedStudentIds, sortCol, sortDir, enrolledStudents, applications]);
 
-  const notNotifiedCount = period.importedStudentIds.filter(
-    (id) => !applications.find((a) => a.studentId === id)?.noticeSentAt
-  ).length;
-  const reviewCount = applications.filter(
-    (a) => a.selectedReasons.length > 0 && a.status === "pending"
-  ).length;
-  const approvedCount = applications.filter((a) => a.status === "approved").length;
-  const rejectedCount = applications.filter((a) => a.status === "rejected").length;
+  const activeFilterCount =
+    (filterNotified !== "all" ? 1 : 0) +
+    (filterApplication !== "all" ? 1 : 0) +
+    (filterStatus !== "all" ? 1 : 0);
 
   const filteredStudentIds = useMemo(() => {
-    let ids = sortedStudentIds;
-    if (activeFilter) {
-      ids = ids.filter((id) => {
-        const app = applications.find((a) => a.studentId === id);
-        if (activeFilter === "notified") return !app?.noticeSentAt;
-        if (activeFilter === "review")
-          return app && app.selectedReasons.length > 0 && app.status === "pending";
-        if (activeFilter === "approved") return app?.status === "approved";
-        if (activeFilter === "rejected") return app?.status === "rejected";
-        return true;
-      });
-    }
+    let ids = sortedStudentIds.filter((id) => {
+      const app = applications.find((a) => a.studentId === id);
+      const notified = !!app?.noticeSentAt;
+      const submitted = !!app && app.selectedReasons.length > 0;
+
+      if (filterNotified === "notified" && !notified) return false;
+      if (filterNotified === "not_notified" && notified) return false;
+
+      if (filterApplication === "submitted" && !submitted) return false;
+      if (filterApplication === "not_submitted" && submitted) return false;
+
+      if (filterStatus !== "all" && app?.status !== filterStatus) return false;
+
+      return true;
+    });
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       ids = ids.filter((id) => {
@@ -218,7 +211,30 @@ export function PriorityItemDetailView({
       });
     }
     return ids;
-  }, [sortedStudentIds, activeFilter, searchQuery, applications, enrolledStudents]);
+  }, [
+    sortedStudentIds,
+    filterNotified,
+    filterApplication,
+    filterStatus,
+    searchQuery,
+    applications,
+    enrolledStudents,
+  ]);
+
+  // Reset to first page whenever the result set or page size changes
+  useEffect(() => {
+    setPage(1);
+  }, [filterNotified, filterApplication, filterStatus, searchQuery, pageSize]);
+
+  const totalStudents = filteredStudentIds.length;
+  const totalPages = Math.max(1, Math.ceil(totalStudents / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedStudentIds = filteredStudentIds.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+  const rangeStart = totalStudents === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(currentPage * pageSize, totalStudents);
 
   function resolveProgramName(pid: string): string {
     for (const study of studies) {
@@ -241,6 +257,8 @@ export function PriorityItemDetailView({
 
   return (
     <div className="w-full space-y-6">
+      {!isExpanded && (
+        <>
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
@@ -276,16 +294,7 @@ export function PriorityItemDetailView({
               Add student
             </Button>
           )}
-          {hasStudents && !noticeSent && (
-            <Button
-              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
-              onClick={() => setIsNoticeModalOpen(true)}
-            >
-              <Bell size={14} />
-              Send first notice
-            </Button>
-          )}
-          {hasStudents && noticeSent && !isPublished && (
+          {hasStudents && !isPublished && (
             <Button
               className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2"
               onClick={() => setIsPublishConfirmOpen(true)}
@@ -322,8 +331,66 @@ export function PriorityItemDetailView({
             </p>
             <p className="text-sm text-gray-500 mt-1">
               {period.studyLocations.join(", ")}
-              {period.firstNoticeDeadline && ` · Deadline: ${period.firstNoticeDeadline}`}
             </p>
+
+            {/* First notice / deadline dates (set at creation, or pick here if empty) */}
+            <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">First notice:</span>
+                <SelectDatePopover
+                  value={period.firstNoticeDate}
+                  onPick={(iso) =>
+                    onUpdatePeriodDate(period.id, "firstNoticeDate", iso)
+                  }
+                >
+                  {period.firstNoticeDate ? (
+                    <button type="button" className="cursor-pointer">
+                      <Badge
+                        className={
+                          period.firstNoticeDate < today
+                            ? "bg-yellow-100 text-yellow-700 border border-yellow-300 text-xs cursor-pointer"
+                            : "bg-green-100 text-green-700 border border-green-200 text-xs cursor-pointer"
+                        }
+                      >
+                        {period.firstNoticeDate}
+                      </Badge>
+                    </button>
+                  ) : undefined}
+                </SelectDatePopover>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">Deadline:</span>
+                <SelectDatePopover
+                  value={period.firstNoticeDeadline}
+                  onPick={(iso) =>
+                    onUpdatePeriodDate(period.id, "firstNoticeDeadline", iso)
+                  }
+                >
+                  {period.firstNoticeDeadline ? (
+                    <button
+                      type="button"
+                      className={
+                        period.firstNoticeDeadline < today
+                          ? "text-red-500 font-medium cursor-pointer hover:underline"
+                          : "text-gray-700 font-medium cursor-pointer hover:underline"
+                      }
+                    >
+                      {period.firstNoticeDeadline}
+                    </button>
+                  ) : undefined}
+                </SelectDatePopover>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">Published:</span>
+                {isPublished ? (
+                  <Badge className="bg-green-100 text-green-700 border border-green-200 text-xs">
+                    Published at {period.resultPublishedAt}
+                  </Badge>
+                ) : (
+                  <span className="text-gray-500">Not published to students</span>
+                )}
+              </div>
+            </div>
           </div>
           <Badge
             className={
@@ -335,26 +402,105 @@ export function PriorityItemDetailView({
             {period.status === "open" ? "Open" : "Closed"}
           </Badge>
         </div>
-
-        {/* Progress steps */}
-        <div className="mt-5 flex items-center gap-6 flex-wrap">
-          <StepIndicator step={1} label="Import students" done={hasStudents} />
-          <div className="w-8 h-px bg-gray-300 hidden sm:block" />
-          <StepIndicator step={2} label="Send first notice" done={noticeSent} />
-          <div className="w-8 h-px bg-gray-300 hidden sm:block" />
-          <StepIndicator step={3} label="Publish decisions" done={isPublished} />
-        </div>
       </Card>
+        </>
+      )}
 
-      {/* Notice sent info */}
-      {noticeSent && (
-        <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-700">
-          <Bell size={15} className="shrink-0" />
-          <span>
-            Notice sent{" "}
-            <span className="font-medium">{period.firstNoticeSentAt}</span> · Deadline:{" "}
-            <span className="font-medium">{period.firstNoticeDeadline}</span>
-          </span>
+      {/* Search & filter toolbar */}
+      {hasStudents && (
+        <div className="flex items-center gap-3">
+          {!isSearchMode ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setIsSearchMode(true)}
+                className="justify-start text-gray-600 bg-gray-100 hover:bg-gray-200 border-gray-200"
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+
+              <Select
+                value={filterNotified}
+                onValueChange={(v: string) => setFilterNotified(v as typeof filterNotified)}
+              >
+                <SelectTrigger className="w-[160px] bg-gray-100 border-gray-200">
+                  <SelectValue placeholder="Notified" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All notified</SelectItem>
+                  <SelectItem value="notified">Notified</SelectItem>
+                  <SelectItem value="not_notified">Not notified</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={filterApplication}
+                onValueChange={(v: string) => setFilterApplication(v as typeof filterApplication)}
+              >
+                <SelectTrigger className="w-[180px] bg-gray-100 border-gray-200">
+                  <SelectValue placeholder="Application" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All applications</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
+                  <SelectItem value="not_submitted">Not submitted</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={filterStatus}
+                onValueChange={(v: string) => setFilterStatus(v as typeof filterStatus)}
+              >
+                <SelectTrigger className="w-[150px] bg-gray-100 border-gray-200">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterNotified("all");
+                    setFilterApplication("all");
+                    setFilterStatus("all");
+                  }}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear filters
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search by student name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                  autoFocus
+                />
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsSearchMode(false);
+                  setSearchQuery("");
+                }}
+              >
+                <X className="h-4 w-4 mr-2" />
+                Close
+              </Button>
+            </>
+          )}
         </div>
       )}
 
@@ -378,110 +524,40 @@ export function PriorityItemDetailView({
         ) : (
           <>
             <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50/50 flex-wrap gap-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-semibold text-gray-700">
-                  Students ({period.importedStudentIds.length})
-                </p>
-                {(
-                  [
-                    {
-                      key: "notified" as const,
-                      label: "Not notified",
-                      value: notNotifiedCount,
-                      active: "bg-gray-200 text-gray-700 border-gray-400",
-                      inactive: "hover:border-gray-300 hover:text-gray-700",
-                    },
-                    {
-                      key: "review" as const,
-                      label: "Review",
-                      value: reviewCount,
-                      active: "bg-yellow-100 text-yellow-700 border-yellow-300",
-                      inactive: "hover:border-yellow-200 hover:text-yellow-600",
-                    },
-                    {
-                      key: "approved" as const,
-                      label: "Approved",
-                      value: approvedCount,
-                      active: "bg-green-100 text-green-700 border-green-300",
-                      inactive: "hover:border-green-200 hover:text-green-600",
-                    },
-                    {
-                      key: "rejected" as const,
-                      label: "Rejected",
-                      value: rejectedCount,
-                      active: "bg-red-100 text-red-700 border-red-300",
-                      inactive: "hover:border-red-200 hover:text-red-600",
-                    },
-                  ] as const
-                ).map(({ key, label, value, active, inactive }) => (
-                  <button
-                    key={key}
-                    onClick={() => setActiveFilter((f) => (f === key ? null : key))}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors ${
-                      activeFilter === key
-                        ? active
-                        : `bg-white text-gray-500 border-gray-200 ${inactive}`
-                    }`}
-                  >
-                    {label}
-                    <span className={`font-semibold ${activeFilter === key ? "" : "text-gray-700"}`}>
-                      {value}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-gray-500">
-                {activeFilter
-                  ? `${filteredStudentIds.length} of ${period.importedStudentIds.length} students`
-                  : `${period.importedStudentIds.length} students`}
+              <p className="text-sm font-semibold text-gray-700">
+                Students ({period.importedStudentIds.length})
               </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsExpanded((v) => !v)}
+                className="h-8 gap-1.5 text-gray-600"
+                title={isExpanded ? "Collapse" : "Expand"}
+              >
+                {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                {isExpanded ? "Collapse" : "Expand"}
+              </Button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-gray-50/50">
                     <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleSort("student")}
-                            className="flex items-center gap-1 hover:text-gray-900 group"
-                          >
-                            Student
-                            {sortCol === "student" ? (
-                              sortDir === "asc" ? (
-                                <ArrowUp size={12} className="text-blue-500" />
-                              ) : (
-                                <ArrowDown size={12} className="text-blue-500" />
-                              )
-                            ) : (
-                              <ArrowUpDown size={12} className="text-gray-300 group-hover:text-gray-400" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => {
-                              setIsSearchOpen((v) => !v);
-                              if (isSearchOpen) setSearchQuery("");
-                            }}
-                            className="ml-0.5"
-                            title="Search by name"
-                          >
-                            <Search
-                              size={12}
-                              className={isSearchOpen ? "text-blue-500" : "text-gray-300 hover:text-gray-500"}
-                            />
-                          </button>
-                        </div>
-                        {isSearchOpen && (
-                          <input
-                            autoFocus
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search by name..."
-                            className="px-2 py-1 text-xs font-normal border border-blue-300 rounded bg-white focus:outline-none focus:border-blue-500 w-40"
-                          />
+                      <button
+                        onClick={() => handleSort("student")}
+                        className="flex items-center gap-1 hover:text-gray-900 group"
+                      >
+                        Student
+                        {sortCol === "student" ? (
+                          sortDir === "asc" ? (
+                            <ArrowUp size={12} className="text-blue-500" />
+                          ) : (
+                            <ArrowDown size={12} className="text-blue-500" />
+                          )
+                        ) : (
+                          <ArrowUpDown size={12} className="text-gray-300 group-hover:text-gray-400" />
                         )}
-                      </div>
+                      </button>
                     </th>
                     {(
                       [
@@ -521,7 +597,7 @@ export function PriorityItemDetailView({
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {filteredStudentIds.map((studentId) => {
+                  {pagedStudentIds.map((studentId) => {
                     const student = enrolledStudents.find((s) => s.id === studentId);
                     const app = applications.find((a) => a.studentId === studentId);
                     const displayStatus = app ? getDisplayStatus(app) : null;
@@ -596,17 +672,6 @@ export function PriorityItemDetailView({
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
-                            {noticeSent && !app?.noticeSentAt && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                title="Send first notice to this student"
-                                className="h-8 w-8 p-0 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
-                                onClick={() => onSendIndividualNotice(period.id, studentId)}
-                              >
-                                <Bell size={15} />
-                              </Button>
-                            )}
                             {app && app.selectedReasons.length > 0 ? (
                               <Button
                                 size="sm"
@@ -624,8 +689,13 @@ export function PriorityItemDetailView({
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                title="Submit on behalf of student"
-                                className="h-8 w-8 p-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                                disabled={!noticeSent}
+                                title={
+                                  noticeSent
+                                    ? "Submit on behalf of student"
+                                    : "Send the first notice before submitting on behalf of a student"
+                                }
+                                className="h-8 w-8 p-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none"
                                 onClick={() => {
                                   const s = enrolledStudents.find((e) => e.id === studentId);
                                   if (s) setOnBehalfStudent(s);
@@ -641,6 +711,53 @@ export function PriorityItemDetailView({
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Pagination */}
+            <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50/50 flex-wrap gap-3">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <span>Rows per page</span>
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(v: string) => setPageSize(Number(v))}
+                >
+                  <SelectTrigger className="h-8 w-[72px] bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[10, 25, 50, 100].map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                <span>
+                  {rangeStart}–{rangeEnd} of {totalStudents}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft size={14} />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    <ChevronRight size={14} />
+                  </Button>
+                </div>
+              </div>
             </div>
           </>
         )}
@@ -671,14 +788,6 @@ export function PriorityItemDetailView({
         student={onBehalfStudent}
         period={period}
         onSubmit={onSetRequestOnBehalf}
-      />
-
-      {/* Send first notice modal */}
-      <SendFirstNoticeModal
-        isOpen={isNoticeModalOpen}
-        onClose={() => setIsNoticeModalOpen(false)}
-        studentCount={period.importedStudentIds.length}
-        onSend={(deadline, message) => onSendFirstNotice(period.id, deadline, message)}
       />
 
       {/* Publish confirm dialog */}

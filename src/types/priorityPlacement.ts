@@ -47,6 +47,7 @@ export interface PriorityPlacementPeriod {
   semester: "HT" | "VT";
   programIds: string[];
   studyIds: string[];
+  emneIds?: string[];
   admissionTerms: string[];
   studyLocations: string[];
   deadline?: string;
@@ -55,6 +56,7 @@ export interface PriorityPlacementPeriod {
   createdDate: string;
   eligibleStudentIds: string[];
   importedStudentIds: string[];
+  firstNoticeDate?: string; // Planned "noticing students" date, set at creation
   firstNoticeSentAt?: string;
   firstNoticeDeadline?: string;
   firstNoticeMessage?: string;
@@ -297,43 +299,44 @@ export const mockEnrolledStudents: EnrolledStudent[] = [
 ];
 
 export const mockPriorityPeriods: PriorityPlacementPeriod[] = [
-  {
-    id: "pp-1",
-    year: "2026",
-    semester: "VT",
-    programIds: ["1-1"],
-    studyIds: ["1"],
-    admissionTerms: ["HT-2025"],
-    studyLocations: ["Umeå"],
-    deadline: "2026-05-15",
-    status: "open",
-    createdBy: "John Coordinator",
-    createdDate: "2026-03-01",
-    eligibleStudentIds: ["1", "2", "3", "4", "12"],
-    importedStudentIds: ["1", "2", "3", "4"],
-    firstNoticeSentAt: "2026-04-01",
-    firstNoticeDeadline: "2026-05-15",
-    firstNoticeMessage: "You can now apply for priority placement for your upcoming clinical placement. Application deadline: 2026-05-15. Log in to the system and complete your application.",
-  },
-  {
-    id: "pp-2",
-    year: "2027",
-    semester: "VT",
-    programIds: ["1-1"],
-    studyIds: ["1"],
-    admissionTerms: ["VT-2026"],
-    studyLocations: ["Umeå"],
-    deadline: "2026-10-31",
-    status: "closed",
-    createdBy: "John Coordinator",
-    createdDate: "2026-09-15",
-    eligibleStudentIds: ["5", "6"],
-    importedStudentIds: ["5", "6"],
-    firstNoticeSentAt: "2026-09-20",
-    firstNoticeDeadline: "2026-10-31",
-    firstNoticeMessage: "You can now apply for priority placement for your upcoming clinical placement. Application deadline: 2026-10-31. Log in to the system and complete your application.",
-    resultPublishedAt: "2026-11-01",
-  },
+  // Temporarily hidden — uncomment to restore mock priority periods.
+  // {
+  //   id: "pp-1",
+  //   year: "2026",
+  //   semester: "VT",
+  //   programIds: ["1-1"],
+  //   studyIds: ["1"],
+  //   admissionTerms: ["HT-2025"],
+  //   studyLocations: ["Umeå"],
+  //   deadline: "2026-05-15",
+  //   status: "open",
+  //   createdBy: "John Coordinator",
+  //   createdDate: "2026-03-01",
+  //   eligibleStudentIds: ["1", "2", "3", "4", "12"],
+  //   importedStudentIds: ["1", "2", "3", "4"],
+  //   firstNoticeSentAt: "2026-04-01",
+  //   firstNoticeDeadline: "2026-05-15",
+  //   firstNoticeMessage: "You can now apply for priority placement for your upcoming clinical placement. Application deadline: 2026-05-15. Log in to the system and complete your application.",
+  // },
+  // {
+  //   id: "pp-2",
+  //   year: "2027",
+  //   semester: "VT",
+  //   programIds: ["1-1"],
+  //   studyIds: ["1"],
+  //   admissionTerms: ["VT-2026"],
+  //   studyLocations: ["Umeå"],
+  //   deadline: "2026-10-31",
+  //   status: "closed",
+  //   createdBy: "John Coordinator",
+  //   createdDate: "2026-09-15",
+  //   eligibleStudentIds: ["5", "6"],
+  //   importedStudentIds: ["5", "6"],
+  //   firstNoticeSentAt: "2026-09-20",
+  //   firstNoticeDeadline: "2026-10-31",
+  //   firstNoticeMessage: "You can now apply for priority placement for your upcoming clinical placement. Application deadline: 2026-10-31. Log in to the system and complete your application.",
+  //   resultPublishedAt: "2026-11-01",
+  // },
 ];
 
 export const mockPriorityApplications: PriorityPlacementApplication[] = [

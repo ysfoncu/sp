@@ -2,14 +2,24 @@ import { useState, useMemo } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { Checkbox } from "./ui/checkbox";
-import { Label } from "./ui/label";
+import { Input } from "./ui/input";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,18 +30,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { Plus, Star, SlidersHorizontal, Trash2, AlertCircle } from "lucide-react";
+import { Plus, Star, Trash2, Search, ChevronDown, X } from "lucide-react";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
 import {
   EnrolledStudent,
   PriorityPlacementApplication,
   PriorityPlacementPeriod,
 } from "../types/priorityPlacement";
 import { CreatePriorityPeriodModal } from "./CreatePriorityPeriodModal";
+import { SelectDatePopover } from "./SelectDatePopover";
 
 interface Study {
   id: string;
   name: string;
-  programs: { id: string; name: string }[];
+  programs: { id: string; name: string; emner?: { id: string; name: string }[] }[];
 }
 
 interface PrioritiesViewProps {
@@ -49,28 +61,30 @@ interface PrioritiesViewProps {
   onPeriodToggleStatus: (id: string) => void;
   onSelectPeriod: (period: PriorityPlacementPeriod) => void;
   onDeletePeriod: (id: string) => void;
+  onUpdatePeriodDate: (
+    periodId: string,
+    field: "firstNoticeDate" | "firstNoticeDeadline",
+    date: string
+  ) => void;
 }
-
-interface FilterState {
-  terms: string[];
-  programIds: string[];
-  studyLocations: string[];
-  noticeSent: "all" | "sent" | "not_sent";
-  deadlineBeforeToday: boolean;
-}
-
-const defaultFilter: FilterState = {
-  terms: [],
-  programIds: [],
-  studyLocations: [],
-  noticeSent: "all",
-  deadlineBeforeToday: false,
-};
 
 interface Study {
   id: string;
   name: string;
-  programs: { id: string; name: string }[];
+  programs: { id: string; name: string; emner?: { id: string; name: string }[] }[];
+}
+
+function getEmneName(
+  emneId: string,
+  studies: Study[]
+): string {
+  for (const study of studies) {
+    for (const prog of study.programs) {
+      const emne = prog.emner?.find((e) => e.id === emneId);
+      if (emne) return emne.name;
+    }
+  }
+  return emneId;
 }
 
 function getProgramName(
@@ -101,10 +115,6 @@ function termLabel(period: PriorityPlacementPeriod): string {
   return `${period.semester === "HT" ? "Autumn" : "Spring"} ${period.year}`;
 }
 
-function toggleArrayItem(arr: string[], value: string): string[] {
-  return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
-}
-
 export function PrioritiesView({
   periods,
   applications,
@@ -114,26 +124,33 @@ export function PrioritiesView({
   onPeriodCreate,
   onSelectPeriod,
   onDeletePeriod,
+  onUpdatePeriodDate,
 }: PrioritiesViewProps) {
   const [isCreatePeriodOpen, setIsCreatePeriodOpen] = useState(false);
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filter, setFilter] = useState<FilterState>(defaultFilter);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [filterYear, setFilterYear] = useState("all");
+  const [filterSemester, setFilterSemester] = useState<"all" | "HT" | "VT">("all");
+  const [filterProgram, setFilterProgram] = useState("all");
+  const [filterEmne, setFilterEmne] = useState("all");
+  const [filterLocation, setFilterLocation] = useState("all");
   const [deletingPeriod, setDeletingPeriod] = useState<PriorityPlacementPeriod | null>(null);
   const [activeChipFilter, setActiveChipFilter] = useState<
-    "no_students" | "no_notice" | "needs_review" | "not_published" | null
+    "no_students" | "needs_review" | "not_published" | null
   >(null);
 
   const today = new Date().toISOString().split("T")[0];
 
-  const availableTerms = useMemo(() => {
-    const seen = new Set<string>();
-    return periods
-      .map((p) => ({ key: `${p.semester}-${p.year}`, label: termLabel(p) }))
-      .filter(({ key }) => {
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+  // Term tree: each year with the semesters present for it
+  const termTree = useMemo(() => {
+    const m = new Map<string, Set<"HT" | "VT">>();
+    periods.forEach((p) => {
+      if (!m.has(p.year)) m.set(p.year, new Set());
+      m.get(p.year)!.add(p.semester);
+    });
+    return Array.from(m.entries())
+      .map(([year, sems]) => ({ year, semesters: Array.from(sems).sort() }))
+      .sort((a, b) => a.year.localeCompare(b.year));
   }, [periods]);
 
   const availablePrograms = useMemo(() => {
@@ -150,45 +167,68 @@ export function PrioritiesView({
     return progs;
   }, [periods, enrolledStudents]);
 
+  const availableEmnes = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { id: string; name: string }[] = [];
+    periods.forEach((p) =>
+      (p.emneIds ?? []).forEach((eid) => {
+        if (!seen.has(eid)) {
+          seen.add(eid);
+          list.push({ id: eid, name: getEmneName(eid, studies) });
+        }
+      })
+    );
+    return list;
+  }, [periods, studies]);
+
   const availableLocations = useMemo(
     () => [...new Set(periods.flatMap((p) => p.studyLocations))].sort(),
     [periods]
   );
 
+  const termTriggerLabel =
+    filterYear === "all"
+      ? "Term"
+      : filterSemester === "all"
+      ? filterYear
+      : `${filterSemester === "HT" ? "Autumn" : "Spring"} ${filterYear}`;
+
   const filteredPeriods = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
     return periods.filter((p) => {
-      const key = `${p.semester}-${p.year}`;
-      if (filter.terms.length > 0 && !filter.terms.includes(key)) return false;
-      if (
-        filter.programIds.length > 0 &&
-        !p.programIds.some((pid) => filter.programIds.includes(pid))
-      )
-        return false;
-      if (
-        filter.studyLocations.length > 0 &&
-        !p.studyLocations.some((loc) => filter.studyLocations.includes(loc))
-      )
-        return false;
-      if (filter.noticeSent === "sent" && !p.firstNoticeSentAt) return false;
-      if (filter.noticeSent === "not_sent" && p.firstNoticeSentAt) return false;
-      if (
-        filter.deadlineBeforeToday &&
-        (!p.firstNoticeDeadline || p.firstNoticeDeadline >= today)
-      )
-        return false;
+      if (filterYear !== "all" && p.year !== filterYear) return false;
+      if (filterSemester !== "all" && p.semester !== filterSemester) return false;
+      if (filterProgram !== "all" && !p.programIds.includes(filterProgram)) return false;
+      if (filterEmne !== "all" && !(p.emneIds ?? []).includes(filterEmne)) return false;
+      if (filterLocation !== "all" && !p.studyLocations.includes(filterLocation)) return false;
+      if (q) {
+        const haystack = [
+          termLabel(p),
+          ...p.studyIds.map((sid) => getStudyName(sid, studies, enrolledStudents)),
+          ...p.programIds.map((pid) => getProgramName(pid, studies, enrolledStudents)),
+          ...(p.emneIds ?? []).map((eid) => getEmneName(eid, studies)),
+          ...p.studyLocations,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
-  }, [periods, filter, today]);
+  }, [
+    periods,
+    searchTerm,
+    filterYear,
+    filterSemester,
+    filterProgram,
+    filterEmne,
+    filterLocation,
+    studies,
+    enrolledStudents,
+  ]);
 
   const noStudentsCount = useMemo(
     () => filteredPeriods.filter((p) => p.importedStudentIds.length === 0).length,
-    [filteredPeriods]
-  );
-  const noNoticeCount = useMemo(
-    () =>
-      filteredPeriods.filter(
-        (p) => p.importedStudentIds.length > 0 && !p.firstNoticeSentAt
-      ).length,
     [filteredPeriods]
   );
   const needsReviewCount = useMemo(
@@ -212,8 +252,6 @@ export function PrioritiesView({
     if (!activeChipFilter) return filteredPeriods;
     return filteredPeriods.filter((p) => {
       if (activeChipFilter === "no_students") return p.importedStudentIds.length === 0;
-      if (activeChipFilter === "no_notice")
-        return p.importedStudentIds.length > 0 && !p.firstNoticeSentAt;
       if (activeChipFilter === "needs_review")
         return applications.some(
           (a) => a.periodId === p.id && a.selectedReasons.length > 0 && a.status === "pending"
@@ -225,14 +263,17 @@ export function PrioritiesView({
   }, [filteredPeriods, activeChipFilter, applications, today]);
 
   const activeFilterCount =
-    filter.terms.length +
-    filter.programIds.length +
-    filter.studyLocations.length +
-    (filter.noticeSent !== "all" ? 1 : 0) +
-    (filter.deadlineBeforeToday ? 1 : 0);
+    (filterYear !== "all" ? 1 : 0) +
+    (filterProgram !== "all" ? 1 : 0) +
+    (filterEmne !== "all" ? 1 : 0) +
+    (filterLocation !== "all" ? 1 : 0);
 
   function clearFilters() {
-    setFilter(defaultFilter);
+    setFilterYear("all");
+    setFilterSemester("all");
+    setFilterProgram("all");
+    setFilterEmne("all");
+    setFilterLocation("all");
   }
 
   return (
@@ -247,26 +288,177 @@ export function PrioritiesView({
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
-            className="flex items-center gap-2 relative"
-            onClick={() => setIsFilterOpen(true)}
-          >
-            <SlidersHorizontal size={14} />
-            Filter
-            {activeFilterCount > 0 && (
-              <span className="ml-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-bold">
-                {activeFilterCount}
-              </span>
-            )}
-          </Button>
-          <Button
             className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
             onClick={() => setIsCreatePeriodOpen(true)}
           >
             <Plus size={15} />
-            Create period
+            Create new priority list
           </Button>
         </div>
+      </div>
+
+      {/* Search & filter toolbar */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {!isSearchMode ? (
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setIsSearchMode(true)}
+              className="justify-start text-gray-600 bg-gray-100 hover:bg-gray-200 border-gray-200"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+
+            {/* Term: year then semester */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="gap-2 text-gray-600 max-w-[240px] justify-between bg-gray-100 hover:bg-gray-200 border-gray-200"
+                >
+                  <span className="truncate">{termTriggerLabel}</span>
+                  <ChevronDown className="h-4 w-4 flex-shrink-0 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[200px]">
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setFilterYear("all");
+                    setFilterSemester("all");
+                  }}
+                  className={filterYear === "all" ? "font-medium text-blue-600" : ""}
+                >
+                  All terms
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {termTree.map(({ year, semesters }) => (
+                  <DropdownMenuSub key={year}>
+                    <DropdownMenuSubTrigger
+                      className={
+                        filterYear === year && filterSemester === "all"
+                          ? "font-medium text-blue-600"
+                          : ""
+                      }
+                    >
+                      {year}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-[160px]">
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setFilterYear(year);
+                          setFilterSemester("all");
+                        }}
+                        className={
+                          filterYear === year && filterSemester === "all"
+                            ? "font-medium text-blue-600"
+                            : ""
+                        }
+                      >
+                        All semesters
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      {semesters.map((sem) => (
+                        <DropdownMenuItem
+                          key={sem}
+                          onSelect={() => {
+                            setFilterYear(year);
+                            setFilterSemester(sem);
+                          }}
+                          className={
+                            filterYear === year && filterSemester === sem
+                              ? "font-medium text-blue-600"
+                              : ""
+                          }
+                        >
+                          {sem === "HT" ? "Autumn" : "Spring"}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Programme */}
+            <Select value={filterProgram} onValueChange={setFilterProgram}>
+              <SelectTrigger className="w-[180px] bg-gray-100 border-gray-200">
+                <SelectValue placeholder="Programme" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All programmes</SelectItem>
+                {availablePrograms.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Emne */}
+            <Select value={filterEmne} onValueChange={setFilterEmne}>
+              <SelectTrigger className="w-[150px] bg-gray-100 border-gray-200">
+                <SelectValue placeholder="Emne" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All emne</SelectItem>
+                {availableEmnes.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Location */}
+            <Select value={filterLocation} onValueChange={setFilterLocation}>
+              <SelectTrigger className="w-[160px] bg-gray-100 border-gray-200">
+                <SelectValue placeholder="Location" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All locations</SelectItem>
+                {availableLocations.map((loc) => (
+                  <SelectItem key={loc} value={loc}>
+                    {loc}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {activeFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear filters
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search by term, programme, emne, or location..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+                autoFocus
+              />
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsSearchMode(false);
+                setSearchTerm("");
+              }}
+            >
+              <X className="h-4 w-4 mr-2" />
+              Close
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Items table */}
@@ -282,13 +474,6 @@ export function PrioritiesView({
                 value: noStudentsCount,
                 active: "bg-gray-200 text-gray-700 border-gray-400",
                 inactive: "hover:border-gray-300 hover:text-gray-700",
-              },
-              {
-                key: "no_notice" as const,
-                label: "First notice",
-                value: noNoticeCount,
-                active: "bg-yellow-100 text-yellow-700 border-yellow-300",
-                inactive: "hover:border-yellow-200 hover:text-yellow-600",
               },
               {
                 key: "needs_review" as const,
@@ -333,7 +518,7 @@ export function PrioritiesView({
             </p>
             <p className="text-xs text-gray-400 mt-1">
               {periods.length === 0
-                ? 'Click "Create period" to get started'
+                ? 'Click "Create new priority list" to get started'
                 : "Try adjusting or clearing the filters"}
             </p>
             {(activeFilterCount > 0 || activeChipFilter) && (
@@ -354,9 +539,18 @@ export function PrioritiesView({
                 <tr className="border-b bg-gray-50/50">
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Term</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Study / Programme</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Emne</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Study location</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Students</th>
-                  <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Requests</th>
+                  <th
+                    className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap"
+                    title="Sent / Not sent yet / Approved / Rejected / Pending"
+                  >
+                    Requests
+                    <span className="block text-[10px] font-normal text-gray-400">
+                      sent / not&nbsp;sent / appr / rej / pend
+                    </span>
+                  </th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">First notice</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Deadline</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Published</th>
@@ -369,8 +563,16 @@ export function PrioritiesView({
                   const periodApps = applications.filter(
                     (a) => a.periodId === period.id && a.selectedReasons.length > 0
                   );
-                  const appCount = periodApps.length;
+                  const sentCount = periodApps.length;
+                  const approvedCount = periodApps.filter((a) => a.status === "approved").length;
+                  const rejectedCount = periodApps.filter((a) => a.status === "rejected").length;
                   const pendingCount = periodApps.filter((a) => a.status === "pending").length;
+                  const notSentCount = period.importedStudentIds.filter((id) => {
+                    const app = applications.find(
+                      (a) => a.periodId === period.id && a.studentId === id
+                    );
+                    return !app || app.selectedReasons.length === 0;
+                  }).length;
                   return (
                     <tr
                       key={period.id}
@@ -400,6 +602,23 @@ export function PrioritiesView({
                           </div>
                         </div>
                       </td>
+                      <td className="px-4 py-3">
+                        {period.emneIds && period.emneIds.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {period.emneIds.map((eid) => (
+                              <Badge
+                                key={eid}
+                                variant="outline"
+                                className="text-xs border-violet-200 text-violet-700 bg-violet-50"
+                              >
+                                {getEmneName(eid, studies)}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-xs">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                         {period.studyLocations.join(", ")}
                       </td>
@@ -414,49 +633,117 @@ export function PrioritiesView({
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-gray-600">{appCount}</span>
-                          {pendingCount > 0 && (
-                            <span
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold border border-amber-200"
-                              title={`${pendingCount} unreviewed request${pendingCount > 1 ? "s" : ""}`}
-                            >
-                              <AlertCircle size={10} />
-                              {pendingCount}
-                            </span>
-                          )}
-                        </div>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <HoverCard openDelay={100} closeDelay={50}>
+                          <HoverCardTrigger asChild>
+                            <div className="inline-flex items-center gap-1 text-xs cursor-default">
+                              <span className="font-semibold text-gray-700">{sentCount}</span>
+                              <span className="text-gray-300">/</span>
+                              <span className="text-gray-500">{notSentCount}</span>
+                              <span className="text-gray-300">/</span>
+                              <span className="text-green-600 font-medium">{approvedCount}</span>
+                              <span className="text-gray-300">/</span>
+                              <span className="text-red-600 font-medium">{rejectedCount}</span>
+                              <span className="text-gray-300">/</span>
+                              <span className="text-amber-600 font-medium">{pendingCount}</span>
+                            </div>
+                          </HoverCardTrigger>
+                          <HoverCardContent align="start" className="w-60 p-3">
+                            <p className="text-xs font-semibold text-gray-700 mb-2">
+                              Requests breakdown
+                            </p>
+                            <div className="space-y-1.5 text-sm">
+                              {(
+                                [
+                                  {
+                                    label: "Total requests sent",
+                                    value: sentCount,
+                                    dot: "bg-gray-400",
+                                  },
+                                  {
+                                    label: "Not sent yet",
+                                    value: notSentCount,
+                                    dot: "bg-gray-300",
+                                  },
+                                  {
+                                    label: "Approved",
+                                    value: approvedCount,
+                                    dot: "bg-green-500",
+                                  },
+                                  {
+                                    label: "Rejected",
+                                    value: rejectedCount,
+                                    dot: "bg-red-500",
+                                  },
+                                  {
+                                    label: "Pending",
+                                    value: pendingCount,
+                                    dot: "bg-amber-500",
+                                  },
+                                ] as const
+                              ).map((row) => (
+                                <div
+                                  key={row.label}
+                                  className="flex items-center justify-between gap-4"
+                                >
+                                  <span className="flex items-center gap-2 text-gray-600">
+                                    <span className={`w-2 h-2 rounded-full ${row.dot}`} />
+                                    {row.label}
+                                  </span>
+                                  <span className="font-semibold text-gray-800">{row.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </HoverCardContent>
+                        </HoverCard>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {period.importedStudentIds.length > 0 && !period.firstNoticeSentAt ? (
-                          <Badge className="bg-yellow-100 text-yellow-700 border border-yellow-300 text-xs">
-                            First notice not sent
-                          </Badge>
-                        ) : period.firstNoticeSentAt ? (
-                          <span className="text-gray-600 text-xs">{period.firstNoticeSentAt}</span>
-                        ) : (
-                          <span className="text-gray-400 text-xs">—</span>
-                        )}
+                        <SelectDatePopover
+                          value={period.firstNoticeDate}
+                          onPick={(iso) =>
+                            onUpdatePeriodDate(period.id, "firstNoticeDate", iso)
+                          }
+                        >
+                          {period.firstNoticeDate ? (
+                            <button
+                              type="button"
+                              onClick={(e) => e.stopPropagation()}
+                              className="cursor-pointer"
+                            >
+                              <Badge
+                                className={
+                                  period.firstNoticeDate < today
+                                    ? "bg-yellow-100 text-yellow-700 border border-yellow-300 text-xs cursor-pointer"
+                                    : "bg-green-100 text-green-700 border border-green-200 text-xs cursor-pointer"
+                                }
+                              >
+                                {period.firstNoticeDate}
+                              </Badge>
+                            </button>
+                          ) : undefined}
+                        </SelectDatePopover>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-xs">
-                        {period.importedStudentIds.length > 0 && !period.firstNoticeSentAt ? (
-                          <Badge className="bg-yellow-100 text-yellow-700 border border-yellow-300 text-xs">
-                            First notice not sent
-                          </Badge>
-                        ) : period.firstNoticeDeadline ? (
-                          <span
-                            className={
-                              period.firstNoticeDeadline < today
-                                ? "text-red-500 font-medium"
-                                : "text-gray-500"
-                            }
-                          >
-                            {period.firstNoticeDeadline}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
+                        <SelectDatePopover
+                          value={period.firstNoticeDeadline}
+                          onPick={(iso) =>
+                            onUpdatePeriodDate(period.id, "firstNoticeDeadline", iso)
+                          }
+                        >
+                          {period.firstNoticeDeadline ? (
+                            <button
+                              type="button"
+                              onClick={(e) => e.stopPropagation()}
+                              className={
+                                period.firstNoticeDeadline < today
+                                  ? "text-red-500 font-medium cursor-pointer hover:underline"
+                                  : "text-gray-500 cursor-pointer hover:underline"
+                              }
+                            >
+                              {period.firstNoticeDeadline}
+                            </button>
+                          ) : undefined}
+                        </SelectDatePopover>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-xs">
                         {period.resultPublishedAt ? (
@@ -535,166 +822,6 @@ export function PrioritiesView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Filter dialog */}
-      <Dialog open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle>Filter periods</DialogTitle>
-              {activeFilterCount > 0 && (
-                <button
-                  onClick={clearFilters}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium mr-6"
-                >
-                  Clear all ({activeFilterCount})
-                </button>
-              )}
-            </div>
-          </DialogHeader>
-
-          <div className="space-y-6 py-1">
-            {/* Term */}
-            {availableTerms.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Term
-                </p>
-                <div className="space-y-2">
-                  {availableTerms.map(({ key, label }) => (
-                    <div key={key} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`filter-term-${key}`}
-                        checked={filter.terms.includes(key)}
-                        onCheckedChange={() =>
-                          setFilter((f) => ({ ...f, terms: toggleArrayItem(f.terms, key) }))
-                        }
-                      />
-                      <Label
-                        htmlFor={`filter-term-${key}`}
-                        className="font-normal cursor-pointer text-sm"
-                      >
-                        {label}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Programme */}
-            {availablePrograms.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Programme
-                </p>
-                <div className="space-y-2">
-                  {availablePrograms.map((prog) => (
-                    <div key={prog.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`filter-prog-${prog.id}`}
-                        checked={filter.programIds.includes(prog.id)}
-                        onCheckedChange={() =>
-                          setFilter((f) => ({
-                            ...f,
-                            programIds: toggleArrayItem(f.programIds, prog.id),
-                          }))
-                        }
-                      />
-                      <Label
-                        htmlFor={`filter-prog-${prog.id}`}
-                        className="font-normal cursor-pointer text-sm"
-                      >
-                        {prog.name}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Study location */}
-            {availableLocations.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Study location
-                </p>
-                <div className="space-y-2">
-                  {availableLocations.map((loc) => (
-                    <div key={loc} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`filter-loc-${loc}`}
-                        checked={filter.studyLocations.includes(loc)}
-                        onCheckedChange={() =>
-                          setFilter((f) => ({
-                            ...f,
-                            studyLocations: toggleArrayItem(f.studyLocations, loc),
-                          }))
-                        }
-                      />
-                      <Label
-                        htmlFor={`filter-loc-${loc}`}
-                        className="font-normal cursor-pointer text-sm"
-                      >
-                        {loc}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* First notice */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                First notice
-              </p>
-              <div className="space-y-2">
-                {(
-                  [
-                    { value: "all", label: "All" },
-                    { value: "sent", label: "Sent" },
-                    { value: "not_sent", label: "Not sent" },
-                  ] as const
-                ).map(({ value, label }) => (
-                  <label
-                    key={value}
-                    className="flex items-center gap-2 cursor-pointer text-sm text-gray-700"
-                  >
-                    <input
-                      type="radio"
-                      name="filter-notice"
-                      checked={filter.noticeSent === value}
-                      onChange={() => setFilter((f) => ({ ...f, noticeSent: value }))}
-                      className="accent-blue-600"
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Deadline */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Deadline
-              </p>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="filter-deadline"
-                  checked={filter.deadlineBeforeToday}
-                  onCheckedChange={(v: boolean) =>
-                    setFilter((f) => ({ ...f, deadlineBeforeToday: !!v }))
-                  }
-                />
-                <Label htmlFor="filter-deadline" className="font-normal cursor-pointer text-sm">
-                  Deadline passed (before today)
-                </Label>
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Create period modal */}
       <CreatePriorityPeriodModal

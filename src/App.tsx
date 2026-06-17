@@ -215,8 +215,19 @@ export default function App() {
       universityId: "U1",
       universityName: "University of Oslo",
       programs: [
-        { id: "1-1", name: "Nursing" },
-        { id: "1-2", name: "Physiotherapy" },
+        {
+          id: "1-1",
+          name: "Nursing",
+          emner: [
+            { id: "1-1-e1", name: "Kull 2024 Høst" },
+            { id: "1-1-e2", name: "Kull 2025 Vår" },
+          ],
+        },
+        {
+          id: "1-2",
+          name: "Physiotherapy",
+          emner: [{ id: "1-2-e1", name: "Kull 2024 Høst" }],
+        },
       ],
     },
     {
@@ -809,6 +820,8 @@ export default function App() {
         createdBy: "John Coordinator",
         eligibleStudentIds,
         importedStudentIds: period.importedStudentIds ?? [],
+        // First notice is now configured at creation; treat the noticing date as when it is sent.
+        firstNoticeSentAt: period.firstNoticeDate,
       },
     ]);
     toast.success("Ansökningsperiod skapad");
@@ -817,6 +830,24 @@ export default function App() {
   const handlePriorityPeriodToggleStatus = (id: string) => {
     setPriorityPeriods((prev) =>
       prev.map((p) => (p.id === id ? { ...p, status: p.status === "open" ? "closed" : "open" } : p))
+    );
+  };
+
+  const handlePriorityPeriodUpdateDate = (
+    periodId: string,
+    field: "firstNoticeDate" | "firstNoticeDeadline",
+    date: string
+  ) => {
+    const apply = (p: PriorityPlacementPeriod): PriorityPlacementPeriod => {
+      const updated: PriorityPlacementPeriod = { ...p, [field]: date };
+      // Setting the noticing date also marks the first notice as sent on that date,
+      // mirroring how periods created with a noticing date behave.
+      if (field === "firstNoticeDate") updated.firstNoticeSentAt = date;
+      return updated;
+    };
+    setPriorityPeriods((prev) => prev.map((p) => (p.id === periodId ? apply(p) : p)));
+    setSelectedPriorityPeriod((prev) =>
+      prev && prev.id === periodId ? apply(prev) : prev
     );
   };
 
@@ -898,6 +929,7 @@ export default function App() {
       status: "pending" as const,
       isManualGrant: false,
       published: false,
+      noticeSentAt: period.firstNoticeSentAt ?? period.firstNoticeDate,
     }));
     setPriorityApplications((prev) => [...prev, ...newApps]);
     toast.success("5 students imported");
@@ -959,6 +991,7 @@ export default function App() {
       status: "pending" as const,
       isManualGrant: false,
       published: false,
+      noticeSentAt: period.firstNoticeSentAt ?? period.firstNoticeDate,
     }));
     setPriorityApplications((prev) => [...prev, ...newApps]);
     toast.success(`${students.length} student${students.length > 1 ? "s" : ""} added`);
@@ -1520,6 +1553,7 @@ export default function App() {
                         onPeriodCreate={handlePriorityPeriodCreate}
                         onPeriodToggleStatus={handlePriorityPeriodToggleStatus}
                         onDeletePeriod={handleDeletePeriod}
+                        onUpdatePeriodDate={handlePriorityPeriodUpdateDate}
                         onSelectPeriod={(period) => {
                           setSelectedPriorityPeriod(period);
                           setCurrentView("priorityitem");
@@ -1547,6 +1581,7 @@ export default function App() {
                         onSendIndividualNotice={handleSendIndividualNotice}
                         onPublishResults={handlePublishResults}
                         onReopenPeriod={handleReopenPriority}
+                        onUpdatePeriodDate={handlePriorityPeriodUpdateDate}
                         onApplicationApprove={handlePriorityApplicationApprove}
                         onApplicationReject={handlePriorityApplicationReject}
                         onSetRequestOnBehalf={handleSetRequestOnBehalf}
