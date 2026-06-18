@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   mockStudentPlacements,
   StudentPlacement,
@@ -27,16 +27,18 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  Grid3X3,
-  List,
   CheckCircle,
   Building2,
   Trash2,
   HelpCircle,
 } from "lucide-react";
 import { EnhancedSidebar } from "./components/EnhancedSidebar";
-import { FilterModal } from "./components/FilterModal";
-import { FilterChips } from "./components/FilterChips";
+import { PlacementFilterBar } from "./components/PlacementFilterBar";
+import {
+  PeriodOption,
+  getSemesterRanges,
+  matchesPeriod,
+} from "./components/periodFilter";
 import { GanttView } from "./components/GanttView";
 import { TableView } from "./components/TableView";
 import { Dashboard } from "./components/Dashboard";
@@ -280,12 +282,16 @@ export default function App() {
     useState<"list" | "detail" | "create">("list");
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedYear, setSelectedYear] = useState("all");
-  const [selectedSemester, setSelectedSemester] =
-    useState("all");
+  const [selectedStudy, setSelectedStudy] = useState("all");
+  const [selectedProgram, setSelectedProgram] = useState("all");
   const [selectedSubject, setSelectedSubject] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
-  const [showCompleted, setShowCompleted] = useState(true); // By default, show all placements including completed ones
+  // Period filter — always applied; defaults to this + next semester
+  const [selectedPeriods, setSelectedPeriods] = useState<Set<PeriodOption>>(
+    new Set<PeriodOption>(["current", "next"]),
+  );
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "gantt">(
     "list",
   );
@@ -731,55 +737,43 @@ export default function App() {
     setCurrentPage(1);
   }, [
     searchTerm,
-    selectedYear,
-    selectedSemester,
+    selectedStudy,
+    selectedProgram,
     selectedSubject,
     selectedStatus,
-    showCompleted,
+    selectedPeriods,
+    customStartDate,
+    customEndDate,
     itemsPerPage,
   ]);
 
-  const filteredStudentPlacements = studentPlacements.filter(
-    (placement) => {
-      // Get today's date for comparison
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Reset time to start of day for accurate comparison
+  const semesterRanges = useMemo(() => getSemesterRanges(new Date()), []);
 
-      // Parse placement end date
-      const endDate = new Date(placement.endDate);
-      endDate.setHours(0, 0, 0, 0);
-
-      // Check if any filters are actively applied
-      const hasActiveFilters =
-        selectedYear !== "all" ||
-        selectedSemester !== "all" ||
-        selectedSubject !== "all" ||
-        selectedStatus !== "all" ||
-        searchTerm !== "";
-
-      // Date filter logic:
-      // - If showCompleted is true: show all placements (default)
-      // - If any filter is actively applied: show all placements (user is searching for specific data)
-      // - If no filters applied and showCompleted is false: only show ongoing placements
-      const dateFilter =
-        showCompleted || hasActiveFilters || endDate >= today;
-
-      return (
-        placement.title
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) &&
-        (selectedYear === "all" ||
-          placement.year === selectedYear) &&
-        (selectedSemester === "all" ||
-          placement.semester === selectedSemester) &&
-        (selectedSubject === "all" ||
-          placement.subject === selectedSubject) &&
-        (selectedStatus === "all" ||
-          placement.status === selectedStatus) &&
-        dateFilter
-      );
-    },
+  // Distinct emne values derived from the placements
+  const placementSubjects = useMemo(
+    () => [...new Set(studentPlacements.map((p) => p.subject).filter(Boolean))].sort(),
+    [studentPlacements],
   );
+
+  const filteredStudentPlacements = studentPlacements.filter((placement) => {
+    return (
+      placement.title.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      (selectedStudy === "all" || placement.studyId === selectedStudy) &&
+      (selectedProgram === "all" || placement.programId === selectedProgram) &&
+      (selectedSubject === "all" || placement.subject === selectedSubject) &&
+      (selectedStatus === "all" || placement.status === selectedStatus) &&
+      // Period filter is always applied — only placements that fall into the
+      // selected period(s) are shown.
+      matchesPeriod(
+        placement.startDate,
+        placement.endDate,
+        selectedPeriods,
+        customStartDate,
+        customEndDate,
+        semesterRanges,
+      )
+    );
+  });
 
   const totalPages = Math.ceil(
     filteredStudentPlacements.length / itemsPerPage,
@@ -1092,11 +1086,13 @@ export default function App() {
     setCurrentView("dashboard");
     setPraksisPlacesSubView("list");
     setSearchTerm("");
-    setSelectedYear("all");
-    setSelectedSemester("all");
+    setSelectedStudy("all");
+    setSelectedProgram("all");
     setSelectedSubject("all");
     setSelectedStatus("all");
-    setShowCompleted(true);
+    setSelectedPeriods(new Set<PeriodOption>(["current", "next"]));
+    setCustomStartDate("");
+    setCustomEndDate("");
     setViewMode("list");
     setCurrentPage(1);
     setSelectedStudentPlacement(null);
@@ -1638,127 +1634,49 @@ export default function App() {
                           </h1>
                         </div>
 
-                        {/* Filters and View Controls */}
-                        <div className="flex items-center justify-between w-full gap-4">
-                          <div className="flex gap-2 items-center">
-                            <FilterModal
-                              searchTerm={searchTerm}
-                              selectedYear={selectedYear}
-                              selectedSemester={
-                                selectedSemester
-                              }
-                              selectedSubject={selectedSubject}
-                              selectedStatus={selectedStatus}
-                              showCompleted={showCompleted}
-                              onSearchChange={setSearchTerm}
-                              onYearChange={setSelectedYear}
-                              onSemesterChange={
-                                setSelectedSemester
-                              }
-                              onSubjectChange={
-                                setSelectedSubject
-                              }
-                              onStatusChange={setSelectedStatus}
-                              onShowCompletedChange={
-                                setShowCompleted
-                              }
-                              onClearAll={() => {
-                                setSearchTerm("");
-                                setSelectedYear("all");
-                                setSelectedSemester("all");
-                                setSelectedSubject("all");
-                                setSelectedStatus("all");
-                                setShowCompleted(true);
-                              }}
-                            />
-
-                            <div className="flex gap-1 items-center ml-4">
-                              <span className="text-gray-600 text-xs mr-2">
-                                View by
-                              </span>
+                        {/* Filters, period filter & view controls */}
+                        <PlacementFilterBar
+                          searchTerm={searchTerm}
+                          onSearchChange={setSearchTerm}
+                          studies={studies}
+                          selectedStudy={selectedStudy}
+                          onStudyChange={setSelectedStudy}
+                          selectedProgram={selectedProgram}
+                          onProgramChange={setSelectedProgram}
+                          selectedSubject={selectedSubject}
+                          onSubjectChange={setSelectedSubject}
+                          subjects={placementSubjects}
+                          selectedStatus={selectedStatus}
+                          onStatusChange={setSelectedStatus}
+                          selectedPeriods={selectedPeriods}
+                          setSelectedPeriods={setSelectedPeriods}
+                          customStartDate={customStartDate}
+                          setCustomStartDate={setCustomStartDate}
+                          customEndDate={customEndDate}
+                          setCustomEndDate={setCustomEndDate}
+                          semesterRanges={semesterRanges}
+                          viewMode={viewMode}
+                          onViewModeChange={setViewMode}
+                          actions={
+                            <>
+                              <CreatePlacementButton
+                                onCreatePlacement={handleCreatePlacement}
+                                onboardingStep={onboardingStep}
+                                onboardingData={onboardingData}
+                                setOnboardingStep={setOnboardingStep}
+                              />
                               <Button
-                                variant={
-                                  viewMode === "gantt"
-                                    ? "default"
-                                    : "ghost"
-                                }
+                                variant="outline"
                                 size="sm"
-                                onClick={() =>
-                                  setViewMode("gantt")
-                                }
-                                className="p-2 h-8 w-8"
+                                onClick={() => setIsPlacementHelpOpen(true)}
+                                className="flex items-center gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-300"
                               >
-                                <Grid3X3 className="h-5 w-5" />
+                                <HelpCircle className="h-4 w-4" />
+                                <span className="font-medium">Help</span>
                               </Button>
-                              <Button
-                                variant={
-                                  viewMode === "list"
-                                    ? "default"
-                                    : "ghost"
-                                }
-                                size="sm"
-                                onClick={() =>
-                                  setViewMode("list")
-                                }
-                                className="p-2 h-8 w-8"
-                              >
-                                <List className="h-5 w-5" />
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-2 items-center">
-                            <CreatePlacementButton
-                              onCreatePlacement={
-                                handleCreatePlacement
-                              }
-                              onboardingStep={onboardingStep}
-                              onboardingData={onboardingData}
-                              setOnboardingStep={
-                                setOnboardingStep
-                              }
-                            />
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setIsPlacementHelpOpen(true)}
-                              className="flex items-center gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-300"
-                            >
-                              <HelpCircle className="h-4 w-4" />
-                              <span className="font-medium">
-                                Help
-                              </span>
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* Active Filter Chips */}
-                        {(searchTerm !== "" ||
-                          selectedYear !== "all" ||
-                          selectedSemester !== "all" ||
-                          selectedSubject !== "all" ||
-                          selectedStatus !== "all") && (
-                          <div className="flex flex-wrap gap-2 items-center w-full">
-                            <FilterChips
-                              searchTerm={searchTerm}
-                              selectedYear={selectedYear}
-                              selectedSemester={
-                                selectedSemester
-                              }
-                              selectedSubject={selectedSubject}
-                              selectedStatus={selectedStatus}
-                              onSearchChange={setSearchTerm}
-                              onYearChange={setSelectedYear}
-                              onSemesterChange={
-                                setSelectedSemester
-                              }
-                              onSubjectChange={
-                                setSelectedSubject
-                              }
-                              onStatusChange={setSelectedStatus}
-                            />
-                          </div>
-                        )}
+                            </>
+                          }
+                        />
 
                         {/* Content View */}
                         <div className="w-full">
@@ -1801,7 +1719,7 @@ export default function App() {
                                 </span>
                                 <Select
                                   value={itemsPerPage.toString()}
-                                  onValueChange={(value) =>
+                                  onValueChange={(value: string) =>
                                     setItemsPerPage(
                                       Number(value),
                                     )

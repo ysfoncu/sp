@@ -30,7 +30,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { Plus, Star, Trash2, Search, ChevronDown, X } from "lucide-react";
+import {
+  Plus,
+  Star,
+  Trash2,
+  Search,
+  ChevronDown,
+  X,
+  CalendarRange,
+} from "lucide-react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
 import {
   EnrolledStudent,
@@ -39,6 +47,14 @@ import {
 } from "../types/priorityPlacement";
 import { CreatePriorityPeriodModal } from "./CreatePriorityPeriodModal";
 import { SelectDatePopover } from "./SelectDatePopover";
+import { PeriodFilterButton } from "./PeriodFilterButton";
+import {
+  PeriodOption,
+  getSemesterRanges,
+  matchesPeriod,
+  getPeriodChips,
+  togglePeriod,
+} from "./periodFilter";
 
 interface Study {
   id: string;
@@ -115,6 +131,19 @@ function termLabel(period: PriorityPlacementPeriod): string {
   return `${period.semester === "HT" ? "Autumn" : "Spring"} ${period.year}`;
 }
 
+// Approximate calendar range for a period's target term, so the semester-based
+// period filter can match it. HT (Autumn) ≈ Aug–Dec, VT (Spring) ≈ Jan–Jul.
+function periodTermRange(period: PriorityPlacementPeriod): {
+  start: string;
+  end: string;
+} {
+  const year = period.year;
+  if (period.semester === "HT") {
+    return { start: `${year}-08-01`, end: `${year}-12-31` };
+  }
+  return { start: `${year}-01-01`, end: `${year}-07-31` };
+}
+
 export function PrioritiesView({
   periods,
   applications,
@@ -134,6 +163,12 @@ export function PrioritiesView({
   const [filterProgram, setFilterProgram] = useState("all");
   const [filterEmne, setFilterEmne] = useState("all");
   const [filterLocation, setFilterLocation] = useState("all");
+  // Period filter — always applied; defaults to this + next semester
+  const [selectedPeriods, setSelectedPeriods] = useState<Set<PeriodOption>>(
+    new Set<PeriodOption>(["current", "next"])
+  );
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
   const [deletingPeriod, setDeletingPeriod] = useState<PriorityPlacementPeriod | null>(null);
   const [activeChipFilter, setActiveChipFilter] = useState<
     "no_students" | "needs_review" | "not_published" | null
@@ -193,6 +228,8 @@ export function PrioritiesView({
       ? filterYear
       : `${filterSemester === "HT" ? "Autumn" : "Spring"} ${filterYear}`;
 
+  const semesterRanges = useMemo(() => getSemesterRanges(new Date()), []);
+
   const filteredPeriods = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return periods.filter((p) => {
@@ -201,6 +238,20 @@ export function PrioritiesView({
       if (filterProgram !== "all" && !p.programIds.includes(filterProgram)) return false;
       if (filterEmne !== "all" && !(p.emneIds ?? []).includes(filterEmne)) return false;
       if (filterLocation !== "all" && !p.studyLocations.includes(filterLocation)) return false;
+      // Period filter — always applied; only periods whose target term falls
+      // into the selected period(s) are shown.
+      const range = periodTermRange(p);
+      if (
+        !matchesPeriod(
+          range.start,
+          range.end,
+          selectedPeriods,
+          customStartDate,
+          customEndDate,
+          semesterRanges
+        )
+      )
+        return false;
       if (q) {
         const haystack = [
           termLabel(p),
@@ -223,6 +274,10 @@ export function PrioritiesView({
     filterProgram,
     filterEmne,
     filterLocation,
+    selectedPeriods,
+    customStartDate,
+    customEndDate,
+    semesterRanges,
     studies,
     enrolledStudents,
   ]);
@@ -424,6 +479,17 @@ export function PrioritiesView({
               </SelectContent>
             </Select>
 
+            {/* Period filter — always applied */}
+            <PeriodFilterButton
+              selectedPeriods={selectedPeriods}
+              setSelectedPeriods={setSelectedPeriods}
+              customStartDate={customStartDate}
+              setCustomStartDate={setCustomStartDate}
+              customEndDate={customEndDate}
+              setCustomEndDate={setCustomEndDate}
+              semesterRanges={semesterRanges}
+            />
+
             {activeFilterCount > 0 && (
               <button
                 type="button"
@@ -460,6 +526,40 @@ export function PrioritiesView({
           </>
         )}
       </div>
+
+      {/* Active period chips */}
+      {getPeriodChips(selectedPeriods, customStartDate, customEndDate, semesterRanges).length >
+        0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-400 font-medium">Showing:</span>
+          {getPeriodChips(
+            selectedPeriods,
+            customStartDate,
+            customEndDate,
+            semesterRanges
+          ).map((chip) => (
+            <span
+              key={chip.key}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs font-medium text-blue-700"
+            >
+              <CalendarRange className="h-3 w-3 opacity-70" />
+              <span>{chip.label}</span>
+              <span className="text-blue-400">·</span>
+              <span className="font-normal text-blue-500">{chip.range}</span>
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedPeriods(togglePeriod(selectedPeriods, chip.key))
+                }
+                className="ml-0.5 text-blue-400 hover:text-blue-700 transition-colors"
+                aria-label={`Remove ${chip.label}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Items table */}
       <Card className="overflow-hidden">

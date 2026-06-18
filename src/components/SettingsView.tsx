@@ -13,12 +13,13 @@ import {
   Eye,
   EyeOff,
   GitBranch,
-  Check,
   X,
+  Lock,
 } from "lucide-react";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
+import { Switch } from "./ui/switch";
 import {
   Select,
   SelectContent,
@@ -111,6 +112,56 @@ const dashboardItems = [
     id: "yearlyPlacements" as keyof DashboardSettings,
     label: "Yearly Placements Overview",
     description: "View historical data and trends across years",
+  },
+];
+
+type WorkflowStepKey = "step2Enabled" | "step4Enabled" | "step5Enabled";
+
+const workflowSteps: {
+  n: number;
+  name: string;
+  desc: string;
+  optional: boolean;
+  key?: WorkflowStepKey;
+}[] = [
+  {
+    n: 1,
+    name: "Quota management",
+    desc: "Manage / request quota for your placement.",
+    optional: false,
+  },
+  {
+    n: 2,
+    name: "Custom requests",
+    desc: "Collect custom requests from students.",
+    optional: true,
+    key: "step2Enabled",
+  },
+  {
+    n: 3,
+    name: "Assign students",
+    desc: "Coordinator assigns students to the approved quota slots.",
+    optional: false,
+  },
+  {
+    n: 4,
+    name: "Attach required documents",
+    desc: "Attach required documents to the students.",
+    optional: true,
+    key: "step4Enabled",
+  },
+  {
+    n: 5,
+    name: "Assign supervisors",
+    desc: "Select the supervisor of each student.",
+    optional: true,
+    key: "step5Enabled",
+  },
+  {
+    n: 6,
+    name: "Publishing the placement",
+    desc: "Student placement is finalized and confirmed in the system.",
+    optional: false,
   },
 ];
 
@@ -1227,164 +1278,90 @@ export function SettingsView({
                 </div>
 
                 {/* Placement workflow subtitle */}
-                <h3 className="text-base font-medium text-gray-700 mb-3">Placement workflow</h3>
+                <h3 className="text-base font-medium text-gray-700 mb-1">Placement workflow</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Default steps are always part of the process. Toggle the optional steps to
+                  include or skip them.
+                </p>
 
-                <div className="space-y-3">
-                  {/* Step 1 - Default */}
-                  <div className="flex items-start gap-4 p-4 rounded-lg border border-gray-200 bg-green-50">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-600 text-white flex-shrink-0">
-                      <Check className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-gray-800">Quota management</h3>
-                        <Badge className="bg-green-600 text-white text-xs">Default</Badge>
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        Magane/Request quota for your placement.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Step 2 - Optional */}
-                  <div className={`flex items-start gap-4 p-4 rounded-lg border transition-all ${
-                    workflowSettings.step2Enabled 
-                      ? "border-blue-200 bg-blue-50" 
-                      : "border-gray-200 bg-gray-50 opacity-60"
-                  }`}>
-                    <div className={`flex items-center justify-center w-8 h-8 rounded-full text-white flex-shrink-0 ${
-                      workflowSettings.step2Enabled ? "bg-blue-600" : "bg-gray-400"
-                    }`}>
-                      <Check className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-gray-800">Custom requests</h3>
-                        <Badge className="bg-gray-600 text-white text-xs">Optional</Badge>
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        Collect custom requests from students.
-                      </p>
-                    </div>
-                    <Button
-                      onClick={() => setWorkflowSettings({
-                        ...workflowSettings,
-                        step2Enabled: !workflowSettings.step2Enabled
+                <div className="rounded-lg border border-gray-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-gray-50/50">
+                        <th className="text-left px-4 py-3 font-semibold text-gray-600 w-12">#</th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-600">
+                          Workflow step
+                        </th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">
+                          Type
+                        </th>
+                        <th className="text-right px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">
+                          Status
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {workflowSteps.map((step) => {
+                        const enabled = step.optional
+                          ? workflowSettings[step.key!]
+                          : true;
+                        return (
+                          <tr key={step.n} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-4 py-3 align-top">
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">
+                                {step.n}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="font-medium text-gray-800">{step.name}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{step.desc}</p>
+                            </td>
+                            <td className="px-4 py-3 align-top whitespace-nowrap">
+                              {step.optional ? (
+                                <Badge className="bg-blue-50 text-blue-700 border border-blue-200 text-xs">
+                                  Optional
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-green-50 text-green-700 border border-green-200 text-xs">
+                                  Default
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              {step.optional ? (
+                                <div className="flex items-center justify-end gap-2">
+                                  <span
+                                    className={`text-xs w-7 text-right ${
+                                      enabled
+                                        ? "text-blue-600 font-medium"
+                                        : "text-gray-400"
+                                    }`}
+                                  >
+                                    {enabled ? "On" : "Off"}
+                                  </span>
+                                  <Switch
+                                    checked={enabled}
+                                    onCheckedChange={(v: boolean) =>
+                                      setWorkflowSettings((s) => ({
+                                        ...s,
+                                        [step.key!]: v,
+                                      }))
+                                    }
+                                    className="data-[state=checked]:bg-blue-600"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-end gap-1.5 text-xs text-gray-400">
+                                  <Lock className="h-3.5 w-3.5" />
+                                  Always on
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
                       })}
-                      size="sm"
-                      variant={workflowSettings.step2Enabled ? "outline" : "default"}
-                      className={workflowSettings.step2Enabled 
-                        ? "text-red-600 border-red-300 hover:bg-red-50" 
-                        : "bg-blue-600 hover:bg-blue-700 text-white"
-                      }
-                    >
-                      {workflowSettings.step2Enabled ? "Disable" : "Enable"}
-                    </Button>
-                  </div>
-
-                  {/* Step 3 - Default */}
-                  <div className="flex items-start gap-4 p-4 rounded-lg border border-gray-200 bg-green-50">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-600 text-white flex-shrink-0">
-                      <Check className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-gray-800">Assigns Students</h3>
-                        <Badge className="bg-green-600 text-white text-xs">Default</Badge>
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        Coordinator assigns students to the approved quota slots
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Step 4 - Optional */}
-                  <div className={`flex items-start gap-4 p-4 rounded-lg border transition-all ${
-                    workflowSettings.step4Enabled 
-                      ? "border-blue-200 bg-blue-50" 
-                      : "border-gray-200 bg-gray-50 opacity-60"
-                  }`}>
-                    <div className={`flex items-center justify-center w-8 h-8 rounded-full text-white flex-shrink-0 ${
-                      workflowSettings.step4Enabled ? "bg-blue-600" : "bg-gray-400"
-                    }`}>
-                      <Check className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-gray-800">Attach required documents</h3>
-                        <Badge className="bg-gray-600 text-white text-xs">Optional</Badge>
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        Attach documents to the students.
-                      </p>
-                    </div>
-                    <Button
-                      onClick={() => setWorkflowSettings({
-                        ...workflowSettings,
-                        step4Enabled: !workflowSettings.step4Enabled
-                      })}
-                      size="sm"
-                      variant={workflowSettings.step4Enabled ? "outline" : "default"}
-                      className={workflowSettings.step4Enabled 
-                        ? "text-red-600 border-red-300 hover:bg-red-50" 
-                        : "bg-blue-600 hover:bg-blue-700 text-white"
-                      }
-                    >
-                      {workflowSettings.step4Enabled ? "Disable" : "Enable"}
-                    </Button>
-                  </div>
-
-                  {/* Step 5 - Optional */}
-                  <div className={`flex items-start gap-4 p-4 rounded-lg border transition-all ${
-                    workflowSettings.step5Enabled 
-                      ? "border-blue-200 bg-blue-50" 
-                      : "border-gray-200 bg-gray-50 opacity-60"
-                  }`}>
-                    <div className={`flex items-center justify-center w-8 h-8 rounded-full text-white flex-shrink-0 ${
-                      workflowSettings.step5Enabled ? "bg-blue-600" : "bg-gray-400"
-                    }`}>
-                      <Check className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-gray-800">Assign supervisors to the students</h3>
-                        <Badge className="bg-gray-600 text-white text-xs">Optional</Badge>
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        Select supervisor of the student
-                      </p>
-                    </div>
-                    <Button
-                      onClick={() => setWorkflowSettings({
-                        ...workflowSettings,
-                        step5Enabled: !workflowSettings.step5Enabled
-                      })}
-                      size="sm"
-                      variant={workflowSettings.step5Enabled ? "outline" : "default"}
-                      className={workflowSettings.step5Enabled 
-                        ? "text-red-600 border-red-300 hover:bg-red-50" 
-                        : "bg-blue-600 hover:bg-blue-700 text-white"
-                      }
-                    >
-                      {workflowSettings.step5Enabled ? "Disable" : "Enable"}
-                    </Button>
-                  </div>
-
-                  {/* Step 6 - Default */}
-                  <div className="flex items-start gap-4 p-4 rounded-lg border border-gray-200 bg-green-50">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-600 text-white flex-shrink-0">
-                      <Check className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-gray-800">Publishing the placement</h3>
-                        <Badge className="bg-green-600 text-white text-xs">Default</Badge>
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        Student placement is finalized and confirmed in the system
-                      </p>
-                    </div>
-                  </div>
+                    </tbody>
+                  </table>
                 </div>
               </Card>
             )}
