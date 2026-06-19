@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   BarChart3,
   BookOpen,
@@ -9,6 +10,11 @@ import {
   MessageCircle,
   RotateCcw,
   Star,
+  GraduationCap,
+  FileText,
+  ChevronDown,
+  ChevronRight,
+  Receipt,
 } from "lucide-react";
 
 interface EnhancedSidebarProps {
@@ -19,6 +25,9 @@ interface EnhancedSidebarProps {
     | "quotas"
     | "priorities"
     | "priorityitem"
+    | "students"
+    | "placementreport"
+    | "invoicereport"
     | string;
   onViewChange: (
     view:
@@ -26,7 +35,10 @@ interface EnhancedSidebarProps {
       | "placements"
       | "praksisplaces"
       | "quotas"
-      | "priorities",
+      | "priorities"
+      | "students"
+      | "placementreport"
+      | "invoicereport",
   ) => void;
   onSettingsClick?: () => void;
   onAnalyticsClick?: () => void;
@@ -35,7 +47,13 @@ interface EnhancedSidebarProps {
 }
 
 interface NavItem {
-  id: "dashboard" | "placements" | "praksisplaces" | "quotas" | "priorities";
+  id:
+    | "dashboard"
+    | "placements"
+    | "praksisplaces"
+    | "quotas"
+    | "priorities"
+    | "students";
   // "priorityitem" maps to "priorities" for active state
   label: string;
   icon: any;
@@ -50,6 +68,8 @@ export function EnhancedSidebar({
   onCommentsClick,
   onClearData,
 }: EnhancedSidebarProps) {
+  const [reportsExpanded, setReportsExpanded] = useState(true);
+
   // Check if user has special access code for Onboarding Feedback
   const hasOnboardingFeedbackAccess =
     typeof window !== "undefined" &&
@@ -94,7 +114,8 @@ export function EnhancedSidebar({
       | "placements"
       | "praksisplaces"
       | "quotas"
-      | "priorities",
+      | "priorities"
+      | "students",
   ) => {
     onViewChange(itemId);
   };
@@ -137,6 +158,111 @@ export function EnhancedSidebar({
               </div>
             </div>
           ))}
+
+          {/* Reports (expandable group) */}
+          <div className="flex flex-col gap-0.5 items-start justify-start w-52">
+            <div
+              className="flex gap-2 h-8 items-center justify-between p-2 rounded shrink-0 w-52 cursor-pointer hover:bg-gray-300 transition-colors"
+              onClick={() => setReportsExpanded((v) => !v)}
+            >
+              <div className="flex gap-2 items-center">
+                <FileText size={16} className="text-gray-500" />
+                <span className="font-semibold text-sm text-gray-500">
+                  Reports
+                </span>
+              </div>
+              {reportsExpanded ? (
+                <ChevronDown size={14} className="text-gray-400" />
+              ) : (
+                <ChevronRight size={14} className="text-gray-400" />
+              )}
+            </div>
+
+            {reportsExpanded && (
+              <>
+                <div
+                  className={`flex gap-2 h-8 items-center justify-start py-2 pl-9 pr-2 rounded shrink-0 w-52 cursor-pointer transition-colors ${
+                    currentView === "students"
+                      ? "bg-blue-100 border border-blue-200"
+                      : "hover:bg-gray-300"
+                  }`}
+                  onClick={() => onViewChange("students")}
+                >
+                  <GraduationCap
+                    size={16}
+                    className={
+                      currentView === "students"
+                        ? "text-blue-600"
+                        : "text-gray-500"
+                    }
+                  />
+                  <span
+                    className={`font-semibold text-sm ${
+                      currentView === "students"
+                        ? "text-blue-600"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    Student raport
+                  </span>
+                </div>
+
+                <div
+                  className={`flex gap-2 h-8 items-center justify-start py-2 pl-9 pr-2 rounded shrink-0 w-52 cursor-pointer transition-colors ${
+                    currentView === "placementreport"
+                      ? "bg-blue-100 border border-blue-200"
+                      : "hover:bg-gray-300"
+                  }`}
+                  onClick={() => onViewChange("placementreport")}
+                >
+                  <BookOpen
+                    size={16}
+                    className={
+                      currentView === "placementreport"
+                        ? "text-blue-600"
+                        : "text-gray-500"
+                    }
+                  />
+                  <span
+                    className={`font-semibold text-sm ${
+                      currentView === "placementreport"
+                        ? "text-blue-600"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    Placement raport
+                  </span>
+                </div>
+
+                <div
+                  className={`flex gap-2 h-8 items-center justify-start py-2 pl-9 pr-2 rounded shrink-0 w-52 cursor-pointer transition-colors ${
+                    currentView === "invoicereport"
+                      ? "bg-blue-100 border border-blue-200"
+                      : "hover:bg-gray-300"
+                  }`}
+                  onClick={() => onViewChange("invoicereport")}
+                >
+                  <Receipt
+                    size={16}
+                    className={
+                      currentView === "invoicereport"
+                        ? "text-blue-600"
+                        : "text-gray-500"
+                    }
+                  />
+                  <span
+                    className={`font-semibold text-sm ${
+                      currentView === "invoicereport"
+                        ? "text-blue-600"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    Invoicing
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Secondary Navigation */}
           <div className="mt-6 w-52">

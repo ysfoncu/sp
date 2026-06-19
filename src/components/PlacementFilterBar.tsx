@@ -18,7 +18,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { Search, X, CalendarRange, Grid3X3, List } from "lucide-react";
+import { Search, X, ChevronDown, CalendarRange, Grid3X3, List } from "lucide-react";
 import {
   PeriodOption,
   SemesterRanges,

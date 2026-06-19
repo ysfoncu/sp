@@ -41,6 +41,9 @@ import {
 } from "./components/periodFilter";
 import { GanttView } from "./components/GanttView";
 import { TableView } from "./components/TableView";
+import { StudentsView } from "./components/StudentsView";
+import { PlacementReportView } from "./components/PlacementReportView";
+import { InvoiceReportView } from "./components/InvoiceReportView";
 import { Dashboard } from "./components/Dashboard";
 import { PraksisPlacesView } from "./components/PraksisPlacesView";
 import { PraksisPlaceDetailModal } from "./components/PraksisPlaceDetailModal";
@@ -271,6 +274,9 @@ export default function App() {
     | "quotas"
     | "priorities"
     | "priorityitem"
+    | "students"
+    | "placementreport"
+    | "invoicereport"
     | "settings"
     | "analytics"
     | "placementtask"
@@ -1490,6 +1496,30 @@ export default function App() {
                       />
                     ) : currentView === "analytics" ? (
                       <AnalyticsAI />
+                    ) : currentView === "students" ? (
+                      <StudentsView
+                        students={enrolledStudents}
+                        placementTaskStates={placementTaskStates}
+                        studentPlacements={studentPlacements}
+                        priorityApplications={priorityApplications}
+                        studies={studies}
+                      />
+                    ) : currentView === "placementreport" ? (
+                      <PlacementReportView
+                        placements={studentPlacements}
+                        placementTaskStates={placementTaskStates}
+                        enrolledStudents={enrolledStudents}
+                        priorityApplications={priorityApplications}
+                        studies={studies}
+                      />
+                    ) : currentView === "invoicereport" ? (
+                      <InvoiceReportView
+                        placements={studentPlacements}
+                        placementTaskStates={placementTaskStates}
+                        enrolledStudents={enrolledStudents}
+                        praksisPlaces={praksisPlaces}
+                        studies={studies}
+                      />
                     ) : currentView ===
                       "onboarding-comments" ? (
                       (() => {

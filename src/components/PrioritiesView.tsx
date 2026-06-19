@@ -11,16 +11,6 @@ import {
   SelectValue,
 } from "./ui/select";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -30,15 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import {
-  Plus,
-  Star,
-  Trash2,
-  Search,
-  ChevronDown,
-  X,
-  CalendarRange,
-} from "lucide-react";
+import { Plus, Star, Trash2, Search, X, CalendarRange } from "lucide-react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
 import {
   EnrolledStudent,
@@ -158,8 +140,6 @@ export function PrioritiesView({
   const [isCreatePeriodOpen, setIsCreatePeriodOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [isSearchMode, setIsSearchMode] = useState(false);
-  const [filterYear, setFilterYear] = useState("all");
-  const [filterSemester, setFilterSemester] = useState<"all" | "HT" | "VT">("all");
   const [filterProgram, setFilterProgram] = useState("all");
   const [filterEmne, setFilterEmne] = useState("all");
   const [filterLocation, setFilterLocation] = useState("all");
@@ -175,18 +155,6 @@ export function PrioritiesView({
   >(null);
 
   const today = new Date().toISOString().split("T")[0];
-
-  // Term tree: each year with the semesters present for it
-  const termTree = useMemo(() => {
-    const m = new Map<string, Set<"HT" | "VT">>();
-    periods.forEach((p) => {
-      if (!m.has(p.year)) m.set(p.year, new Set());
-      m.get(p.year)!.add(p.semester);
-    });
-    return Array.from(m.entries())
-      .map(([year, sems]) => ({ year, semesters: Array.from(sems).sort() }))
-      .sort((a, b) => a.year.localeCompare(b.year));
-  }, [periods]);
 
   const availablePrograms = useMemo(() => {
     const seen = new Set<string>();
@@ -221,20 +189,11 @@ export function PrioritiesView({
     [periods]
   );
 
-  const termTriggerLabel =
-    filterYear === "all"
-      ? "Term"
-      : filterSemester === "all"
-      ? filterYear
-      : `${filterSemester === "HT" ? "Autumn" : "Spring"} ${filterYear}`;
-
   const semesterRanges = useMemo(() => getSemesterRanges(new Date()), []);
 
   const filteredPeriods = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return periods.filter((p) => {
-      if (filterYear !== "all" && p.year !== filterYear) return false;
-      if (filterSemester !== "all" && p.semester !== filterSemester) return false;
       if (filterProgram !== "all" && !p.programIds.includes(filterProgram)) return false;
       if (filterEmne !== "all" && !(p.emneIds ?? []).includes(filterEmne)) return false;
       if (filterLocation !== "all" && !p.studyLocations.includes(filterLocation)) return false;
@@ -269,8 +228,6 @@ export function PrioritiesView({
   }, [
     periods,
     searchTerm,
-    filterYear,
-    filterSemester,
     filterProgram,
     filterEmne,
     filterLocation,
@@ -318,14 +275,11 @@ export function PrioritiesView({
   }, [filteredPeriods, activeChipFilter, applications, today]);
 
   const activeFilterCount =
-    (filterYear !== "all" ? 1 : 0) +
     (filterProgram !== "all" ? 1 : 0) +
     (filterEmne !== "all" ? 1 : 0) +
     (filterLocation !== "all" ? 1 : 0);
 
   function clearFilters() {
-    setFilterYear("all");
-    setFilterSemester("all");
     setFilterProgram("all");
     setFilterEmne("all");
     setFilterLocation("all");
@@ -363,76 +317,6 @@ export function PrioritiesView({
             >
               <Search className="h-4 w-4" />
             </Button>
-
-            {/* Term: year then semester */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="gap-2 text-gray-600 max-w-[240px] justify-between bg-gray-100 hover:bg-gray-200 border-gray-200"
-                >
-                  <span className="truncate">{termTriggerLabel}</span>
-                  <ChevronDown className="h-4 w-4 flex-shrink-0 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[200px]">
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setFilterYear("all");
-                    setFilterSemester("all");
-                  }}
-                  className={filterYear === "all" ? "font-medium text-blue-600" : ""}
-                >
-                  All terms
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {termTree.map(({ year, semesters }) => (
-                  <DropdownMenuSub key={year}>
-                    <DropdownMenuSubTrigger
-                      className={
-                        filterYear === year && filterSemester === "all"
-                          ? "font-medium text-blue-600"
-                          : ""
-                      }
-                    >
-                      {year}
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-[160px]">
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          setFilterYear(year);
-                          setFilterSemester("all");
-                        }}
-                        className={
-                          filterYear === year && filterSemester === "all"
-                            ? "font-medium text-blue-600"
-                            : ""
-                        }
-                      >
-                        All semesters
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      {semesters.map((sem) => (
-                        <DropdownMenuItem
-                          key={sem}
-                          onSelect={() => {
-                            setFilterYear(year);
-                            setFilterSemester(sem);
-                          }}
-                          className={
-                            filterYear === year && filterSemester === sem
-                              ? "font-medium text-blue-600"
-                              : ""
-                          }
-                        >
-                          {sem === "HT" ? "Autumn" : "Spring"}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
 
             {/* Programme */}
             <Select value={filterProgram} onValueChange={setFilterProgram}>
