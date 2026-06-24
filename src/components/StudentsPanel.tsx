@@ -1,15 +1,16 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Users,
   Search,
   X,
-  Filter,
   Columns3,
   Network,
   Maximize2,
   Minimize2,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   ArrowUpDown,
   Trash2,
   File,
@@ -21,6 +22,14 @@ import {
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
+import { Input } from "./ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import { Student } from "../types/placementTask";
 import { PriorityPlacementApplication } from "../types/priorityPlacement";
 import { PriorityApplicationDetailsModal } from "./PriorityApplicationDetailsModal";
@@ -38,6 +47,7 @@ interface StudentsPanelProps {
   isFirstPublishCompleted: boolean;
   isStudentsExpanded: boolean;
   quotaEntityKeys: Set<string>;
+  connectedPraksisPlaces?: { id: string; name: string }[];
   priorityApplications?: PriorityPlacementApplication[];
   onStudentsExpandChange: (expanded: boolean) => void;
   onImportStudents: () => void;
@@ -56,6 +66,7 @@ export function StudentsPanel({
   isFirstPublishCompleted,
   isStudentsExpanded,
   quotaEntityKeys,
+  connectedPraksisPlaces = [],
   priorityApplications,
   onStudentsExpandChange,
   onImportStudents,
@@ -86,11 +97,13 @@ export function StudentsPanel({
   });
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
-  const [showStudentSearch, setShowStudentSearch] = useState(false);
+  const [isSearchMode, setIsSearchMode] = useState(false);
   const [studentSortDir, setStudentSortDir] = useState<"asc" | "desc" | null>(null);
   const [prioritySortDir, setPrioritySortDir] = useState<"asc" | "desc" | null>(null);
-  const [showUnassignedOnly, setShowUnassignedOnly] = useState(false);
-  const [showPriorityOnly, setShowPriorityOnly] = useState(false);
+  // Assignment filter: "all" | "unassigned" | <praksisPlaceId>
+  const [filterAssignment, setFilterAssignment] = useState("all");
+  // Priority filter: "all" | "with" | "without"
+  const [filterPriority, setFilterPriority] = useState("all");
   const [expandedPlacementHistory, setExpandedPlacementHistory] = useState<Set<string>>(new Set());
 
   const studentsImported = students.length > 0 || isFirstPublishCompleted;
@@ -136,13 +149,24 @@ export function StudentsPanel({
   };
 
   const filteredStudents = students
-    .filter((s) => !showUnassignedOnly || !s.assignedPraksisPlace)
-    .filter((s) => !showPriorityOnly || priorityMap.has(s.id))
-    .filter(
-      (s) =>
-        !studentSearch.trim() ||
-        s.name.toLowerCase().includes(studentSearch.toLowerCase()),
-    )
+    .filter((s) => {
+      if (filterAssignment === "all") return true;
+      if (filterAssignment === "unassigned") return !s.assignedPraksisPlace;
+      return s.assignedPraksisPlace?.placeId === filterAssignment;
+    })
+    .filter((s) => {
+      if (filterPriority === "all") return true;
+      if (filterPriority === "with") return priorityMap.has(s.id);
+      return !priorityMap.has(s.id); // "without"
+    })
+    .filter((s) => {
+      const q = studentSearch.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        (s.personnummer ?? "").toLowerCase().includes(q)
+      );
+    })
     .sort((a, b) => {
       if (prioritySortDir) {
         const apts = priorityMap.get(a.id)?.totalPoints ?? -1;
@@ -155,6 +179,24 @@ export function StudentsPanel({
           ? b.name.localeCompare(a.name)
           : 0;
     });
+
+  // Pagination
+  const [pageSize, setPageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalStudents = filteredStudents.length;
+  const totalPages = Math.max(1, Math.ceil(totalStudents / pageSize));
+  // Snap back to a valid page when the result set shrinks (e.g. after filtering).
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+  // Reset to first page whenever the search/filter inputs change.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [studentSearch, filterAssignment, filterPriority, pageSize]);
+  const pageStartIndex = (currentPage - 1) * pageSize;
+  const pagedStudents = filteredStudents.slice(pageStartIndex, pageStartIndex + pageSize);
+  const rangeStart = totalStudents === 0 ? 0 : pageStartIndex + 1;
+  const rangeEnd = Math.min(pageStartIndex + pageSize, totalStudents);
 
   if (students.length === 0) {
     return (
@@ -182,36 +224,96 @@ export function StudentsPanel({
     <>
     <div className="bg-white rounded-lg border border-gray-200">
       {/* Table Header Actions */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-end justify-between gap-3 p-4 border-b border-gray-200">
         <div>
           <div className="flex items-center gap-3">
             <h3 className="font-semibold text-gray-800">Students</h3>
-
           </div>
-              
-          <div className="flex items-center gap-2 mt-1.5">
-            <button
-              type="button"
-              onClick={() => { setShowPriorityOnly(!showPriorityOnly); setShowUnassignedOnly(false); }}
-              className={`text-xs px-2.5 py-0.5 rounded-full border transition-colors ${
-                showPriorityOnly
-                  ? "bg-amber-100 border-amber-300 text-amber-700 font-medium"
-                  : "bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200"
-              }`}
-            >
-              Priority: {(priorityApplications ?? []).filter((a) => students.some((s) => s.id === a.studentId)).length}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setShowUnassignedOnly(!showUnassignedOnly); setShowPriorityOnly(false); }}
-              className={`text-xs px-2.5 py-0.5 rounded-full border transition-colors ${
-                showUnassignedOnly
-                  ? "bg-amber-100 border-amber-300 text-amber-700 font-medium"
-                  : "bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200"
-              }`}
-            >
-              Unassigned: {students.filter((s) => !s.assignedPraksisPlace).length}
-            </button>
+
+          {/* Search & filters */}
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {!isSearchMode ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsSearchMode(true)}
+                  className="justify-start text-gray-600 bg-gray-100 hover:bg-gray-200 border-gray-200"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+
+                {/* Assignment */}
+                <Select value={filterAssignment} onValueChange={setFilterAssignment}>
+                  <SelectTrigger className="h-8 w-[200px] bg-gray-100 border-gray-200">
+                    <SelectValue placeholder="Assignment" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All assignments</SelectItem>
+                    <SelectItem value="unassigned">Not assigned</SelectItem>
+                    {connectedPraksisPlaces.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Priority */}
+                <Select value={filterPriority} onValueChange={setFilterPriority}>
+                  <SelectTrigger className="h-8 w-[170px] bg-gray-100 border-gray-200">
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All priorities</SelectItem>
+                    <SelectItem value="with">With priority</SelectItem>
+                    <SelectItem value="without">Without priority</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {(filterAssignment !== "all" || filterPriority !== "all") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterAssignment("all");
+                      setFilterPriority("all");
+                    }}
+                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Clear filters
+                  </button>
+                )}
+
+                {filteredStudents.length !== students.length && (
+                  <span className="text-xs text-gray-400">· {filteredStudents.length} shown</span>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="relative w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="Search by name or personnummer..."
+                    value={studentSearch}
+                    onChange={(e) => setStudentSearch(e.target.value)}
+                    className="h-8 pl-10"
+                    autoFocus
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setIsSearchMode(false);
+                    setStudentSearch("");
+                  }}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Close
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -227,11 +329,6 @@ export function StudentsPanel({
               Diagram
             </Button>
           )}
-
-          <Button variant="outline" size="sm" className="flex items-center gap-2">
-            <Filter className="h-4 w-4" />
-            Filter
-          </Button>
 
           {/* Column Visibility */}
           <div className="relative">
@@ -374,61 +471,21 @@ export function StudentsPanel({
               </th>
               {visibleColumns.student && (
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 select-none">
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center gap-1">
-                      <div
-                        className="flex items-center gap-1 cursor-pointer hover:text-gray-900 transition-colors"
-                        onClick={() =>
-                          setStudentSortDir((d) =>
-                            d === "asc" ? "desc" : d === "desc" ? null : "asc",
-                          )
-                        }
-                      >
-                        Student
-                        {studentSortDir === "asc" ? (
-                          <ChevronUp className="h-3.5 w-3.5 text-blue-500" />
-                        ) : studentSortDir === "desc" ? (
-                          <ChevronDown className="h-3.5 w-3.5 text-blue-500" />
-                        ) : (
-                          <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
-                        )}
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowStudentSearch((v) => {
-                            if (v) setStudentSearch("");
-                            return !v;
-                          });
-                        }}
-                        className={`ml-0.5 p-0.5 rounded transition-colors ${
-                          showStudentSearch
-                            ? "text-blue-500 bg-blue-50"
-                            : "text-gray-400 hover:text-gray-600"
-                        }`}
-                      >
-                        <Search className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    {showStudentSearch && (
-                      <div className="relative">
-                        <input
-                          autoFocus
-                          type="text"
-                          placeholder="Search…"
-                          value={studentSearch}
-                          onChange={(e) => setStudentSearch(e.target.value)}
-                          className="h-6 pl-2 pr-6 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 w-full font-normal"
-                        />
-                        {studentSearch && (
-                          <button
-                            onClick={() => setStudentSearch("")}
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
+                  <div
+                    className="flex items-center gap-1 cursor-pointer hover:text-gray-900 transition-colors w-fit"
+                    onClick={() =>
+                      setStudentSortDir((d) =>
+                        d === "asc" ? "desc" : d === "desc" ? null : "asc",
+                      )
+                    }
+                  >
+                    Student
+                    {studentSortDir === "asc" ? (
+                      <ChevronUp className="h-3.5 w-3.5 text-blue-500" />
+                    ) : studentSortDir === "desc" ? (
+                      <ChevronDown className="h-3.5 w-3.5 text-blue-500" />
+                    ) : (
+                      <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
                     )}
                   </div>
                 </th>
@@ -482,7 +539,7 @@ export function StudentsPanel({
             </tr>
           </thead>
           <tbody>
-            {filteredStudents.map((student) => (
+            {pagedStudents.map((student) => (
               <tr
                 key={student.id}
                 className={`border-b border-gray-100 transition-colors ${
@@ -501,6 +558,9 @@ export function StudentsPanel({
                 {visibleColumns.student && (
                   <td className="px-4 py-4">
                     <div className="font-medium text-gray-800">{student.name}</div>
+                    {student.personnummer && (
+                      <div className="text-xs text-gray-400 font-mono">{student.personnummer}</div>
+                    )}
                     <div className="text-sm text-gray-500">{student.email}</div>
                   </td>
                 )}
@@ -781,6 +841,50 @@ export function StudentsPanel({
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50/50 flex-wrap gap-3">
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span>Rows per page</span>
+          <Select value={String(pageSize)} onValueChange={(v: string) => setPageSize(Number(v))}>
+            <SelectTrigger className="h-8 w-[72px] bg-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[10, 25, 50, 100].map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-gray-500">
+          <span>
+            {rangeStart}–{rangeEnd} of {totalStudents}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            >
+              <ChevronLeft size={14} />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            >
+              <ChevronRight size={14} />
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
 

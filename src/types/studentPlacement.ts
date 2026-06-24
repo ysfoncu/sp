@@ -71,6 +71,7 @@ export const mockPlacementTaskStates: PlacementTaskState[] = [
       {
         id: "1",
         name: "Emma Johnson",
+        personnummer: "20011014-2398",
         email: "emma.johnson@student.umu.se",
         year: "2026",
         customRequestSubmitted: false,
@@ -91,6 +92,7 @@ export const mockPlacementTaskStates: PlacementTaskState[] = [
       {
         id: "2",
         name: "Michael Chen",
+        personnummer: "19990822-1547",
         email: "michael.chen@student.umu.se",
         year: "2026",
         customRequestSubmitted: false,
@@ -111,6 +113,7 @@ export const mockPlacementTaskStates: PlacementTaskState[] = [
       {
         id: "3",
         name: "Sarah Williams",
+        personnummer: "20020203-8821",
         email: "sarah.williams@student.umu.se",
         year: "2026",
         customRequestSubmitted: false,
@@ -148,6 +151,7 @@ export const mockPlacementTaskStates: PlacementTaskState[] = [
       {
         id: "4",
         name: "Lars Eriksson",
+        personnummer: "20000118-7723",
         email: "lars.eriksson@student.umu.se",
         year: "2026",
         customRequestSubmitted: false,
@@ -170,6 +174,7 @@ export const mockPlacementTaskStates: PlacementTaskState[] = [
       {
         id: "5",
         name: "Astrid Lindqvist",
+        personnummer: "20010906-5512",
         email: "astrid.lindqvist@student.umu.se",
         year: "2026",
         customRequestSubmitted: false,
@@ -193,6 +198,7 @@ export const mockPlacementTaskStates: PlacementTaskState[] = [
         // Imported but not yet assigned to a praksis place
         id: "6",
         name: "Johan Bergström",
+        personnummer: "19991203-3340",
         email: "johan.bergstrom@student.umu.se",
         year: "2026",
         customRequestSubmitted: false,

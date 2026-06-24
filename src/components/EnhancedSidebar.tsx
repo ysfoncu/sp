@@ -38,6 +38,7 @@ interface EnhancedSidebarProps {
       | "priorities"
       | "students"
       | "placementreport"
+      | "capacityreport"
       | "invoicereport",
   ) => void;
   onSettingsClick?: () => void;
@@ -182,6 +183,33 @@ export function EnhancedSidebar({
               <>
                 <div
                   className={`flex gap-2 h-8 items-center justify-start py-2 pl-9 pr-2 rounded shrink-0 w-52 cursor-pointer transition-colors ${
+                    currentView === "invoicereport"
+                      ? "bg-blue-100 border border-blue-200"
+                      : "hover:bg-gray-300"
+                  }`}
+                  onClick={() => onViewChange("invoicereport")}
+                >
+                  <Receipt
+                    size={16}
+                    className={
+                      currentView === "invoicereport"
+                        ? "text-blue-600"
+                        : "text-gray-500"
+                    }
+                  />
+                  <span
+                    className={`font-semibold text-sm ${
+                      currentView === "invoicereport"
+                        ? "text-blue-600"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    Invoicing
+                  </span>
+                </div>
+
+                <div
+                  className={`flex gap-2 h-8 items-center justify-start py-2 pl-9 pr-2 rounded shrink-0 w-52 cursor-pointer transition-colors ${
                     currentView === "students"
                       ? "bg-blue-100 border border-blue-200"
                       : "hover:bg-gray-300"
@@ -236,28 +264,28 @@ export function EnhancedSidebar({
 
                 <div
                   className={`flex gap-2 h-8 items-center justify-start py-2 pl-9 pr-2 rounded shrink-0 w-52 cursor-pointer transition-colors ${
-                    currentView === "invoicereport"
+                    currentView === "capacityreport"
                       ? "bg-blue-100 border border-blue-200"
                       : "hover:bg-gray-300"
                   }`}
-                  onClick={() => onViewChange("invoicereport")}
+                  onClick={() => onViewChange("capacityreport")}
                 >
-                  <Receipt
+                  <BarChart3
                     size={16}
                     className={
-                      currentView === "invoicereport"
+                      currentView === "capacityreport"
                         ? "text-blue-600"
                         : "text-gray-500"
                     }
                   />
                   <span
                     className={`font-semibold text-sm ${
-                      currentView === "invoicereport"
+                      currentView === "capacityreport"
                         ? "text-blue-600"
                         : "text-gray-500"
                     }`}
                   >
-                    Invoicing
+                    Capacity report
                   </span>
                 </div>
               </>
@@ -265,10 +293,11 @@ export function EnhancedSidebar({
           </div>
 
           {/* Secondary Navigation */}
-          <div className="mt-6 w-52">
+          <div className="mt-1 w-52">
             <div className="flex flex-col gap-1 items-start justify-start">
               
 
+              {/* Analytics-AI hidden for test scenarios — re-enable by uncommenting.
               <div
                 className="flex gap-2 h-8 items-center justify-start p-2 relative rounded shrink-0 w-52 cursor-pointer hover:bg-gray-300 transition-colors"
                 onClick={onAnalyticsClick}
@@ -281,6 +310,7 @@ export function EnhancedSidebar({
                   Analytics-AI
                 </span>
               </div>
+              */}
 
               {hasOnboardingFeedbackAccess && (
                 <div
@@ -300,7 +330,7 @@ export function EnhancedSidebar({
           </div>
 
           {/* Tertiary Navigation */}
-          <div className="mt-6 w-52">
+          <div className="mt-1 w-52">
             <div className="flex flex-col gap-1 items-start justify-start">
               
 

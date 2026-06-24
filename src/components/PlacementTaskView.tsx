@@ -349,6 +349,24 @@ export function PlacementTaskView({
     );
   }, [priorityPeriods, priorityApplications, placement]);
 
+  // Praksis places connected to this placement — the places that offer quota
+  // here (selected fixed quotas + coordinator requests) plus any a student is
+  // already assigned to. Used by the StudentsPanel assignment filter.
+  const connectedPraksisPlaces = useMemo(() => {
+    const byId = new Map<string, string>();
+    quotas.forEach((q) => q.placeId && byId.set(q.placeId, q.placeName));
+    coordinatorQuotaRequests.forEach(
+      (r) => r.praksisPlaceId && byId.set(r.praksisPlaceId, r.praksisPlaceName),
+    );
+    students.forEach((s) => {
+      const a = s.assignedPraksisPlace;
+      if (a?.placeId) byId.set(a.placeId, a.placeName);
+    });
+    return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [quotas, coordinatorQuotaRequests, students]);
+
   const totalQuotas = totalCoordinatorApprovedQuotas;
   const currentTask = tasks.find((t) => !t.completed);
   const isFirstPublishCompleted =
@@ -1534,6 +1552,7 @@ export function PlacementTaskView({
                     isFirstPublishCompleted={isFirstPublishCompleted}
                     isStudentsExpanded={isStudentsExpanded}
                     quotaEntityKeys={quotaEntityKeys}
+                    connectedPraksisPlaces={connectedPraksisPlaces}
                     priorityApplications={matchedPriorityApplications}
                     onStudentsExpandChange={setIsStudentsExpanded}
                     onImportStudents={handleImportStudents}

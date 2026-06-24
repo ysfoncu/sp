@@ -29,17 +29,12 @@ import {
   Check,
   BookOpen,
   Building2,
-  Star,
   Users,
 } from "lucide-react";
-import {
-  EnrolledStudent,
-  PriorityPlacementApplication,
-  PRIORITY_REASON_LABELS,
-  PRIORITY_REASON_POINTS,
-} from "../types/priorityPlacement";
 import { Student } from "../types/placementTask";
 import { PlacementTaskState, StudentPlacement } from "../types/studentPlacement";
+import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
+import { QuotaSelection } from "./SlideOverManageQuota";
 import { Study } from "./SettingsView";
 import { PeriodFilterButton } from "./PeriodFilterButton";
 import {
@@ -53,8 +48,7 @@ import {
 interface PlacementReportViewProps {
   placements: StudentPlacement[];
   placementTaskStates: PlacementTaskState[];
-  enrolledStudents: EnrolledStudent[];
-  priorityApplications: PriorityPlacementApplication[];
+  coordinatorQuotaRequests: CoordinatorQuotaRequest[];
   studies: Study[];
 }
 
@@ -82,22 +76,25 @@ function placementStatusClass(status?: string): string {
   }
 }
 
-function priorityStatusClass(status: string): string {
+function quotaStatusClass(status?: string): string {
   switch (status) {
     case "approved":
+    case "fulfilled":
+    case "fixed":
       return "bg-green-100 text-green-700 border border-green-200";
     case "rejected":
       return "bg-red-100 text-red-700 border border-red-200";
-    default:
+    case "pending":
       return "bg-yellow-100 text-yellow-700 border border-yellow-200";
+    default:
+      return "bg-gray-100 text-gray-500 border border-gray-200";
   }
 }
 
 export function PlacementReportView({
   placements,
   placementTaskStates,
-  enrolledStudents,
-  priorityApplications,
+  coordinatorQuotaRequests,
   studies,
 }: PlacementReportViewProps) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -121,6 +118,14 @@ export function PlacementReportView({
     const m = new Map<string, Student[]>();
     placementTaskStates.forEach((ts) =>
       m.set(ts.placementId, (ts.students as Student[]) ?? []),
+    );
+    return m;
+  }, [placementTaskStates]);
+
+  const quotasByPlacement = useMemo(() => {
+    const m = new Map<string, QuotaSelection[]>();
+    placementTaskStates.forEach((ts) =>
+      m.set(ts.placementId, (ts.quotas as QuotaSelection[]) ?? []),
     );
     return m;
   }, [placementTaskStates]);
@@ -533,8 +538,10 @@ export function PlacementReportView({
                   key={p.id}
                   placement={p}
                   students={studentsByPlacement.get(p.id) ?? []}
-                  enrolledStudents={enrolledStudents}
-                  priorityApplications={priorityApplications}
+                  quotas={quotasByPlacement.get(p.id) ?? []}
+                  requests={coordinatorQuotaRequests.filter(
+                    (r) => r.placementId === p.id,
+                  )}
                 />
               ))}
             </div>
@@ -548,190 +555,234 @@ export function PlacementReportView({
 function PlacementSection({
   placement,
   students,
-  enrolledStudents,
-  priorityApplications,
+  quotas,
+  requests,
 }: {
   placement: StudentPlacement;
   students: Student[];
-  enrolledStudents: EnrolledStudent[];
-  priorityApplications: PriorityPlacementApplication[];
+  quotas: QuotaSelection[];
+  requests: CoordinatorQuotaRequest[];
 }) {
+  const totalImported = students.length;
+  const notAttached = students.filter((s) => !s.assignedPraksisPlace).length;
+
+  // One row per connected entity (department) — keyed by place + entity.
+  interface PlaceRow {
+    key: string;
+    placeId: string;
+    organisationName: string; // praksis place / health trust
+    placeName: string; // entity / department
+    requested: number;
+    approved: number;
+    assigned: number;
+    quotaStatus?: string;
+  }
+  const rowMap = new Map<string, PlaceRow>();
+  const ensure = (placeId: string, org: string, entId: string, entName: string) => {
+    const key = `${placeId}|${entId}`;
+    let row = rowMap.get(key);
+    if (!row) {
+      row = {
+        key,
+        placeId,
+        organisationName: org,
+        placeName: entName,
+        requested: 0,
+        approved: 0,
+        assigned: 0,
+      };
+      rowMap.set(key, row);
+    }
+    return row;
+  };
+
+  // Capacity from coordinator quota requests (requested / approved / status)
+  requests.forEach((r) => {
+    const ents =
+      r.entityDistributions && r.entityDistributions.length > 0
+        ? r.entityDistributions
+        : [
+            {
+              entityId: r.departmentId,
+              entityName: r.departmentName,
+              requestedQuota: r.requestedCapacity,
+              approvedQuota: r.approvedCapacity,
+              status: r.status,
+            },
+          ];
+    ents.forEach((e) => {
+      const row = ensure(
+        r.praksisPlaceId,
+        r.praksisPlaceName,
+        e.entityId || r.departmentId,
+        e.entityName || r.departmentName,
+      );
+      row.requested += e.requestedQuota ?? 0;
+      row.approved += e.approvedQuota ?? 0;
+      row.quotaStatus = e.status ?? r.status ?? row.quotaStatus;
+    });
+  });
+
+  // Capacity from fixed quotas selected for the placement
+  quotas.forEach((q) => {
+    const row = ensure(q.placeId, q.placeName, q.departmentId, q.departmentName);
+    row.requested += q.requestQuota ?? 0;
+    row.approved += q.fixedQuota ?? 0;
+    if (!row.quotaStatus && (q.fixedQuota ?? 0) > 0) row.quotaStatus = "fixed";
+  });
+
+  // Students assigned to each entity (consumed capacity)
+  students.forEach((s) => {
+    const ap = s.assignedPraksisPlace;
+    if (!ap?.placeId) return;
+    const entId = ap.entityId ?? ap.departmentId ?? "";
+    const row = ensure(ap.placeId, ap.placeName, entId, ap.departmentName);
+    row.assigned += 1;
+  });
+
+  const rows = [...rowMap.values()].sort(
+    (a, b) =>
+      a.organisationName.localeCompare(b.organisationName) ||
+      a.placeName.localeCompare(b.placeName),
+  );
+
+  const placementCols = [
+    "Year",
+    "Semester",
+    "Emne",
+    "Start date",
+    "End date",
+    "Imported students",
+    "Not attached",
+  ];
+  const placeCols = [
+    "Organisation",
+    "Praksis place",
+    "Quota status",
+    "Requested",
+    "Approved",
+    "Consumed",
+    "Available",
+  ];
+
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
-      {/* Placement details header */}
-      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50/50 flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-gray-800">
-              {placement.title || termLabel(placement)}
-            </h3>
-            <Badge className="bg-blue-50 text-blue-700 border border-blue-200 text-xs">
-              {termLabel(placement)}
-            </Badge>
-            {placement.subject && (
-              <span className="text-xs text-gray-500">{placement.subject}</span>
-            )}
-            <Badge className={`${placementStatusClass(placement.status)} text-xs`}>
-              {placement.status}
-            </Badge>
-          </div>
-          <p className="text-xs text-gray-400 mt-1">
-            {placement.startDate} – {placement.endDate}
-          </p>
-        </div>
-        <span className="flex items-center gap-1 text-xs text-gray-500">
-          <Users className="h-3.5 w-3.5" /> {students.length} student
-          {students.length === 1 ? "" : "s"}
-        </span>
+      {/* Placement task header */}
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50/50 flex items-center gap-2 flex-wrap">
+        <h3 className="font-semibold text-gray-800">
+          {placement.title || termLabel(placement)}
+        </h3>
+        <Badge className={`${placementStatusClass(placement.status)} text-xs`}>
+          {placement.status}
+        </Badge>
       </div>
 
-      {/* Student / priority details table */}
-      {students.length > 0 ? (
+      {/* Placement task — one row */}
+      <div className="overflow-x-auto border-b border-gray-200">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-gray-50/50 text-left">
+              {placementCols.map((h) => (
+                <th
+                  key={h}
+                  className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap"
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="hover:bg-gray-50">
+              <td className="px-4 py-3 text-gray-700">{placement.year || "—"}</td>
+              <td className="px-4 py-3 text-gray-700">{placement.semester || "—"}</td>
+              <td className="px-4 py-3 text-gray-700">{placement.subject || "—"}</td>
+              <td className="px-4 py-3 text-gray-700">{placement.startDate || "—"}</td>
+              <td className="px-4 py-3 text-gray-700">{placement.endDate || "—"}</td>
+              <td className="px-4 py-3 font-medium text-gray-800">{totalImported}</td>
+              <td className="px-4 py-3 text-gray-700">{notAttached}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Praksis places — one row per connected entity */}
+      <div className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+        Praksis places ({rows.length})
+      </div>
+      {rows.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50/50 text-left">
-                <th className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">
-                  Student
-                </th>
-                <th className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">
-                  Study / Programme
-                </th>
-                <th className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">
-                  Praksis place
-                </th>
-                <th className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">
-                  Supervisor(s)
-                </th>
-                <th className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">
-                  Priority
-                </th>
+                {placeCols.map((h) => (
+                  <th
+                    key={h}
+                    className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y">
-              {students.map((st) => {
-                const enrolled = enrolledStudents.find((e) => e.id === st.id);
-                const ap = st.assignedPraksisPlace;
-                const supervisors =
-                  st.supervisors && st.supervisors.length > 0
-                    ? st.supervisors
-                    : st.supervisor
-                    ? [st.supervisor]
-                    : [];
-                const reqs = priorityApplications
-                  .filter((a) => a.studentId === st.id)
-                  .sort((a, b) => (a.submittedDate < b.submittedDate ? 1 : -1));
-                const latest = reqs[0];
-                const totalPoints = reqs.reduce(
-                  (sum, r) => sum + (r.totalPoints || 0),
-                  0,
-                );
+              {rows.map((row) => {
+                const consumed = row.assigned;
+                const available = row.approved - consumed;
                 return (
-                  <tr key={st.id} className="hover:bg-gray-50 align-top">
+                  <tr key={row.key} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-gray-700">
+                      <span className="flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                        {row.organisationName}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">{row.placeName || "—"}</td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-gray-800">
-                        {enrolled?.name ?? st.name}
-                      </p>
-                      <p className="text-xs font-mono text-gray-400">
-                        {enrolled?.personnummer ?? "—"}
-                      </p>
+                      <Badge
+                        className={`${quotaStatusClass(row.quotaStatus)} text-xs capitalize`}
+                      >
+                        {row.quotaStatus ?? "—"}
+                      </Badge>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {enrolled ? (
-                        <>
-                          <p>{enrolled.studyName}</p>
-                          <p className="text-xs text-gray-400">
-                            {enrolled.programName}
-                          </p>
-                        </>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {ap?.placeName ? (
-                        <span className="flex items-center gap-1.5">
-                          <Building2 className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-                          <span>
-                            {ap.placeName}
-                            {ap.departmentName ? (
-                              <span className="text-gray-400">
-                                {" "}
-                                · {ap.departmentName}
-                              </span>
-                            ) : null}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-gray-400 italic">Not assigned</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {supervisors.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {supervisors.map((sup, i) => (
-                            <Badge
-                              key={sup.id ?? i}
-                              className="bg-violet-50 text-violet-700 border border-violet-200 text-xs"
-                            >
-                              {sup.name}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400 text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {reqs.length > 0 ? (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <Badge className="bg-violet-50 text-violet-700 border border-violet-200 text-xs gap-1">
-                              <Star className="h-3 w-3" /> {totalPoints} pts
-                            </Badge>
-                            {latest && (
-                              <Badge
-                                className={`${priorityStatusClass(latest.status)} text-xs capitalize`}
-                              >
-                                {latest.status}
-                              </Badge>
-                            )}
-                            {reqs.length > 1 && (
-                              <span className="text-xs text-gray-400">
-                                +{reqs.length - 1} more
-                              </span>
-                            )}
-                          </div>
-                          {latest && latest.selectedReasons.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {latest.selectedReasons.map((r) => (
-                                <span
-                                  key={r}
-                                  title={PRIORITY_REASON_LABELS[r]}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 border border-gray-200"
-                                >
-                                  {PRIORITY_REASON_LABELS[r]} (+
-                                  {PRIORITY_REASON_POINTS[r]})
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400 text-xs">
-                          No priority request
-                        </span>
-                      )}
+                    <td className="px-4 py-3 text-gray-700">{row.requested}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.approved}</td>
+                    <td className="px-4 py-3 text-gray-700">{consumed}</td>
+                    <td
+                      className={`px-4 py-3 font-medium ${
+                        available < 0 ? "text-red-600" : "text-gray-700"
+                      }`}
+                    >
+                      {available}
                     </td>
                   </tr>
                 );
               })}
+              {(() => {
+                  const tReq = rows.reduce((s, r) => s + r.requested, 0);
+                  const tApp = rows.reduce((s, r) => s + r.approved, 0);
+                  const tCon = rows.reduce((s, r) => s + r.assigned, 0);
+                  const tAvail = tApp - tCon;
+                  return (
+                    <tr className="border-t-2 border-gray-300 bg-gray-50/70 font-semibold text-gray-800">
+                      <td className="px-4 py-3">Total</td>
+                      <td className="px-4 py-3" />
+                      <td className="px-4 py-3" />
+                      <td className="px-4 py-3">{tReq}</td>
+                      <td className="px-4 py-3">{tApp}</td>
+                      <td className="px-4 py-3">{tCon}</td>
+                      <td className={`px-4 py-3 ${tAvail < 0 ? "text-red-600" : ""}`}>
+                        {tAvail}
+                      </td>
+                    </tr>
+                  );
+                })()}
             </tbody>
           </table>
         </div>
       ) : (
         <p className="text-sm text-gray-400 italic px-4 py-6">
-          No students assigned to this placement yet.
+          No praksis places connected to this placement yet.
         </p>
       )}
     </div>

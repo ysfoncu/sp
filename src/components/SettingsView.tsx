@@ -176,36 +176,8 @@ export function SettingsView({
     "studies" | "admins" | "dashboard" | "workflows"
   >("studies");
 
-  // Studies state management
-  const [studies, setStudies] = useState<Study[]>([
-    {
-      id: "1",
-      name: "Helse-, sosial og idrettsfag",
-      universityId: "U1",
-      universityName: "University of Oslo",
-      programs: [
-        {
-          id: "1-1",
-          name: "Nursing",
-          emner: [
-            { id: "1-1-e1", name: "Kull 2024 Høst" },
-            { id: "1-1-e2", name: "Kull 2025 Vår" },
-          ],
-        },
-        { id: "1-2", name: "Physiotherapy" },
-      ],
-    },
-    {
-      id: "2",
-      name: "Engineering",
-      universityId: "U1",
-      universityName: "University of Oslo",
-      programs: [
-        { id: "2-1", name: "Software Engineering" },
-        { id: "2-2", name: "Electrical Engineering" },
-      ],
-    },
-  ]);
+  // Studies state management — starts empty; studies/programs are defined here.
+  const [studies, setStudies] = useState<Study[]>([]);
   const [newStudyName, setNewStudyName] = useState("");
   const [newProgramName, setNewProgramName] = useState<{
     [studyId: string]: string;

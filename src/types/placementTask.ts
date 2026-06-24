@@ -1,6 +1,7 @@
 export interface Student {
   id: string;
   name: string;
+  personnummer?: string;
   email: string;
   year: string;
   assignedPraksisPlace?: {
@@ -133,6 +134,7 @@ export const mockStudents: Student[] = [
   {
     id: "1",
     name: "Emma Johnson",
+    personnummer: "20011014-2398",
     email: "emma.johnson@university.edu",
     year: "3rd Year",
     customRequestSubmitted: false,
@@ -160,6 +162,7 @@ export const mockStudents: Student[] = [
   {
     id: "2",
     name: "Michael Chen",
+    personnummer: "19990822-1547",
     email: "michael.chen@university.edu",
     year: "2nd Year",
     customRequestSubmitted: false,
@@ -168,6 +171,7 @@ export const mockStudents: Student[] = [
   {
     id: "3",
     name: "Sarah Williams",
+    personnummer: "20020203-8821",
     email: "sarah.williams@university.edu",
     year: "4th Year",
     customRequestSubmitted: false,
@@ -213,6 +217,7 @@ export const mockStudents: Student[] = [
   {
     id: "4",
     name: "David Rodriguez",
+    personnummer: "20000511-6390",
     email: "david.rodriguez@university.edu",
     year: "3rd Year",
     customRequestSubmitted: false,
@@ -221,6 +226,7 @@ export const mockStudents: Student[] = [
   {
     id: "5",
     name: "Lisa Anderson",
+    personnummer: "20010727-4412",
     email: "lisa.anderson@university.edu",
     year: "2nd Year",
     customRequestSubmitted: false,

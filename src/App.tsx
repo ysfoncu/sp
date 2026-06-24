@@ -43,6 +43,7 @@ import { GanttView } from "./components/GanttView";
 import { TableView } from "./components/TableView";
 import { StudentsView } from "./components/StudentsView";
 import { PlacementReportView } from "./components/PlacementReportView";
+import { CapacityPlanningReportView } from "./components/CapacityPlanningReportView";
 import { InvoiceReportView } from "./components/InvoiceReportView";
 import { Dashboard } from "./components/Dashboard";
 import { PraksisPlacesView } from "./components/PraksisPlacesView";
@@ -276,6 +277,7 @@ export default function App() {
     | "priorityitem"
     | "students"
     | "placementreport"
+    | "capacityreport"
     | "invoicereport"
     | "settings"
     | "analytics"
@@ -1508,8 +1510,14 @@ export default function App() {
                       <PlacementReportView
                         placements={studentPlacements}
                         placementTaskStates={placementTaskStates}
-                        enrolledStudents={enrolledStudents}
-                        priorityApplications={priorityApplications}
+                        coordinatorQuotaRequests={coordinatorQuotaRequests}
+                        studies={studies}
+                      />
+                    ) : currentView === "capacityreport" ? (
+                      <CapacityPlanningReportView
+                        requests={coordinatorQuotaRequests}
+                        placements={studentPlacements}
+                        placementTaskStates={placementTaskStates}
                         studies={studies}
                       />
                     ) : currentView === "invoicereport" ? (
