@@ -191,23 +191,8 @@ export function SettingsView({
   const [addingEmneForProgram, setAddingEmneForProgram] =
     useState<string | null>(null);
 
-  // Study Admins state management
-  const [studyAdmins, setStudyAdmins] = useState<StudyAdmin[]>([
-    {
-      id: "1",
-      name: "Anne Larsen",
-      email: "anne.larsen@example.com",
-      studyId: "1",
-      programIds: ["1-1", "1-2"],
-    },
-    {
-      id: "2",
-      name: "John Smith",
-      email: "john.smith@example.com",
-      studyId: "2",
-      programIds: ["2-1"],
-    },
-  ]);
+  // Study Admins state management — starts empty; admins are created here.
+  const [studyAdmins, setStudyAdmins] = useState<StudyAdmin[]>([]);
   const [isAddingAdmin, setIsAddingAdmin] = useState(false);
   const [newAdmin, setNewAdmin] = useState<{
     name: string;

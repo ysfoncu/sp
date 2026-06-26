@@ -1373,6 +1373,7 @@ export default function App() {
                       );
                       setSelectedStudentPlacement(null);
                     }}
+                    onRequestQuota={() => setCurrentView("quotas")}
                     onTaskStateUpdate={(updatedState) => {
                       setPlacementTaskStates((prev) =>
                         prev.map((ts) =>

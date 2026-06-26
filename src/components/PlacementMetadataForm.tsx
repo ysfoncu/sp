@@ -46,8 +46,8 @@ export function PlacementMetadataForm({
   onCancel,
 }: PlacementMetadataFormProps) {
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="bg-white rounded-lg border border-gray-200 p-8">
+    <div className="px-8 py-6 max-w-3xl">
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="mb-6">
           <h2 className="text-xl font-bold text-gray-900 mb-2">
             Placement Details

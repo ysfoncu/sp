@@ -19,6 +19,8 @@ import AvailableQuotasTable from "./AvailableQuotasTable";
 import { findNodeById } from "../types/organizationStructure";
 import { PlacementTaskHeader } from "./PlacementTaskHeader";
 import { PlacementMetadataForm, MetadataFormData } from "./PlacementMetadataForm";
+import { NewPlacementPicker } from "./NewPlacementPicker";
+import { ConfirmPlacementDetails } from "./ConfirmPlacementDetails";
 import { AssignmentPublishBanner } from "./AssignmentPublishBanner";
 import { StudentsPanel } from "./StudentsPanel";
 import { PlacementModals, QuotaRequestOption } from "./PlacementModals";
@@ -61,6 +63,7 @@ interface PlacementTaskViewProps {
     },
   ) => void;
   onPlacementDelete?: (placementId: string) => void;
+  onRequestQuota?: () => void;
   initialTaskState?: {
     placementId: string;
     studentsImported: boolean;
@@ -108,6 +111,7 @@ export function PlacementTaskView({
   onPlacementStatusUpdate,
   onPlacementMetadataUpdate,
   onPlacementDelete,
+  onRequestQuota,
   initialTaskState,
   onTaskStateUpdate,
   nodeSlots = {},
@@ -174,6 +178,11 @@ export function PlacementTaskView({
 
   // ── UI layout state ──────────────────────────────────────────────────────
   const [isStudentsExpanded, setIsStudentsExpanded] = useState(false);
+  // For a new (draft) placement: show the capacity picker by default, switch
+  // to the blank "Placement Details" form when the user opts out.
+  const [showBlankForm, setShowBlankForm] = useState(false);
+  // A request chosen in the picker, pending confirmation on the Confirm screen.
+  const [confirmRequest, setConfirmRequest] = useState<CoordinatorQuotaRequest | null>(null);
 
   // ── Assignment publish state ─────────────────────────────────────────────
   const [isAssignmentPublished, setIsAssignmentPublished] = useState(
@@ -613,6 +622,39 @@ export function PlacementTaskView({
     }
   };
 
+  // Quota requests that match a placement by attributes — same rule the
+  // Available Quotas panel uses: study + programme + emne equal, and the
+  // placement period falls within the request's window. Praksis place is
+  // ignored, so requests at *other* places are matched too.
+  const findMatchingRequests = (m: {
+    studyId: string;
+    programId: string;
+    emne?: string;
+    startDate: string;
+    endDate: string;
+  }): CoordinatorQuotaRequest[] => {
+    if (!m.studyId || !m.programId || !m.startDate || !m.endDate) return [];
+    const ps = new Date(m.startDate), pe = new Date(m.endDate);
+    return coordinatorQuotaRequests.filter((r) => {
+      if (r.studyId !== m.studyId || r.programId !== m.programId) return false;
+      if (m.emne && r.emne && r.emne !== m.emne) return false;
+      if (!r.startDate || !r.endDate) return false;
+      return ps >= new Date(r.startDate) && pe <= new Date(r.endDate);
+    });
+  };
+
+  // Tell the user which matching requests were pulled into Available Quotas.
+  const notifyMatches = (matches: CoordinatorQuotaRequest[], excludeId?: string) => {
+    const others = matches.filter((r) => r.id !== excludeId);
+    if (others.length === 0) return;
+    const places = [...new Set(others.map((r) => r.praksisPlaceName))];
+    const n = others.length;
+    toast.success(
+      `${excludeId ? "Also matched" : "Matched"} ${n} quota request${n > 1 ? "s" : ""}`,
+      { description: `${places.join(", ")} — added to Available Quotas for this placement.` },
+    );
+  };
+
   const handleMetadataFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (dateValidationError) return;
@@ -636,9 +678,62 @@ export function PlacementTaskView({
       onPlacementStatusUpdate(placement.id, "upload");
     }
 
+    // Blank placement: surface every quota request that matches what was entered.
+    notifyMatches(
+      findMatchingRequests({
+        studyId: metadataFormData.studyId,
+        programId: metadataFormData.programId,
+        emne: metadataFormData.subject,
+        startDate: metadataFormData.startDate,
+        endDate: metadataFormData.endDate,
+      }),
+    );
+
     if (onboardingStep === 3 && setOnboardingStep) {
       setOnboardingStep(0);
     }
+  };
+
+  // Create the placement from a chosen quota request (confirmed on the Confirm
+  // screen): derive metadata from the request + the confirmed title/dates, then
+  // move the draft into the task workflow.
+  const applyRequest = (
+    req: CoordinatorQuotaRequest,
+    overrides: { title: string; startDate: string; endDate: string; totalPraksisHours?: number },
+  ) => {
+    const start = overrides.startDate || req.startDate;
+    const [yearStr, monthStr] = (start || "").split("-");
+    const year = yearStr || "";
+    const semester = parseInt(monthStr || "1", 10) < 7 ? "Spring" : "Autumn";
+
+    onPlacementMetadataUpdate?.(placement.id, {
+      title: overrides.title,
+      year,
+      semester,
+      subject: req.emne || "",
+      startDate: start,
+      endDate: overrides.endDate || req.endDate,
+      students: 50,
+      studyId: req.studyId,
+      programId: req.programId,
+      totalPraksisHours: overrides.totalPraksisHours,
+    });
+    if (placement.status === "draft") {
+      onPlacementStatusUpdate?.(placement.id, "upload");
+    }
+
+    // Surface any *other* requests that also match this placement (e.g. the
+    // same study/programme/emne offered at a different praksis place).
+    notifyMatches(
+      findMatchingRequests({
+        studyId: req.studyId,
+        programId: req.programId,
+        emne: req.emne,
+        startDate: start,
+        endDate: overrides.endDate || req.endDate,
+      }),
+      req.id,
+    );
   };
 
   const handleCancelDraft = () => {
@@ -1423,15 +1518,16 @@ export function PlacementTaskView({
 
         {/* Draft placement info banner */}
         {placement.status === "draft" && (
-          <div className="px-8 py-4">
+          <div className="px-8 py-4 max-w-3xl">
             <Alert className="bg-blue-50 border-blue-200">
               <Info className="h-4 w-4 text-blue-600" />
               <AlertTitle className="text-blue-900">
                 Welcome! Let's Get Started
               </AlertTitle>
               <AlertDescription className="text-blue-800">
-                Fill in the placement details below to create your student
-                placement program.
+                {showBlankForm
+                  ? "Fill in the placement details below to create your student placement program."
+                  : "Pick an approved request to start a placement matched to it — or start a blank placement to fill the details yourself."}
               </AlertDescription>
             </Alert>
           </div>
@@ -1460,16 +1556,36 @@ export function PlacementTaskView({
         {/* Content */}
         <div className="bg-white">
           {placement.status === "draft" ? (
-            <PlacementMetadataForm
-              formData={metadataFormData}
-              studies={studies}
-              dateValidationError={dateValidationError}
-              startDateInputRef={startDateInputRef}
-              endDateInputRef={endDateInputRef}
-              onChange={setMetadataFormData}
-              onSubmit={handleMetadataFormSubmit}
-              onCancel={handleCancelDraft}
-            />
+            showBlankForm ? (
+              <PlacementMetadataForm
+                formData={metadataFormData}
+                studies={studies}
+                dateValidationError={dateValidationError}
+                startDateInputRef={startDateInputRef}
+                endDateInputRef={endDateInputRef}
+                onChange={setMetadataFormData}
+                onSubmit={handleMetadataFormSubmit}
+                onCancel={handleCancelDraft}
+              />
+            ) : confirmRequest ? (
+              <ConfirmPlacementDetails
+                request={confirmRequest}
+                studyName={
+                  studies.find((s) => s.id === confirmRequest.studyId)?.name ||
+                  confirmRequest.studyName ||
+                  ""
+                }
+                onBack={() => setConfirmRequest(null)}
+                onCreate={(data) => applyRequest(confirmRequest, data)}
+              />
+            ) : (
+              <NewPlacementPicker
+                requests={coordinatorQuotaRequests}
+                onUseRequest={(req) => setConfirmRequest(req)}
+                onStartBlank={() => setShowBlankForm(true)}
+                onRequestQuota={onRequestQuota}
+              />
+            )
           ) : (
             <div className="space-y-4 pt-6">
               {/* Validation alerts */}
