@@ -6,7 +6,6 @@ import {
   Headphones,
   Home,
   Settings,
-  ClipboardList,
   MessageCircle,
   RotateCcw,
   Star,
@@ -82,12 +81,6 @@ export function EnhancedSidebar({
       label: "Dashboard",
       icon: Home,
       active: currentView === "dashboard",
-    },
-    {
-      id: "quotas",
-      label: "Capacity planning",
-      icon: ClipboardList,
-      active: currentView === "quotas",
     },
     {
       id: "placements",

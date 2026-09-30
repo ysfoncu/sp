@@ -97,22 +97,13 @@ This is the foundation step where you secure placement positions (quotas) and pr
 
 #### Actions Required:
 
-**A. Request or Select Quotas**
+**A. Check the available limits**
 
-1. **Navigate to \"Available Quotas\" tab** (or use the main view)
-2. **Review existing approved quotas** from previous placements
-3. **Request new quotas** if needed:
-   - Click **\"Request Quota\"** button
-   - Select the praksis place and department
-   - Choose the organizational hierarchy (Region → Municipality → Department)
-   - Specify the number of positions requested
-   - Set the placement period dates
-   - Add any notes or requirements
-   - Submit the request
-
-4. **Using Quick Request:**
-   - You can request quotas directly from the **Capacity Planning** page
-   - This creates quota requests that can be used across multiple placements
+1. **Look at \"Available limits\"** on the left of the placement view
+2. It lists the **Praksis place limits** that include this placement's emne, with the places left in the current period
+3. **No limit, or not enough places?** Add or raise a limit under **Praksis places → Limits**:
+   - Pick the entity (a limit also covers every unit under it)
+   - Set the limit, choose yearly or semester, and split it between the emner that can use it
 
 **B. Import Students**
 
@@ -356,28 +347,17 @@ Access the complete task overview:
    - Action buttons for each step
    - Mandatory vs. Optional labels
 
-### Quota Management
+### Limits
 
-**Request Quota Button:**
-- Available on main placement view and Capacity Planning page
-- Opens quota request form
-- Supports hierarchical organization selection
-- Can specify:
-  - Praksis place and department
-  - Number of positions needed
-  - Placement period
-  - Additional notes
+**Where limits come from:**
+- Limits are set per praksis place under **Praksis places → Limits**
+- Each limit is split between emner; this placement can use its emne's share
+- A yearly share is shared by all placements of the emne in the same yearly period; a semester share by placements in the same semester
 
-**Available Quotas Table:**
-- Shows all approved quotas for your placement
-- Displays available capacity
-- Quick assign functionality
-- Filtering and sorting options
-
-**Quota Calculation Display:**
-- **First number:** Sum of approved quotas (total positions available)
-- **Second number:** Count of students assigned to praksis places
-- **Example:** \"25/18\" means 25 quota positions available, 18 students assigned
+**Available limits panel:**
+- One row per limit, grouped by praksis place
+- Shows places left out of the emne's share, and how many are used in other placements
+- Quick assign places students on the limit's entity; the student's \"Add praksis place\" dialog also offers the units under it
 
 ### AI Auto-Assign
 

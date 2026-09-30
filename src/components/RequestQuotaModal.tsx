@@ -31,24 +31,23 @@ import {
   AlertCircle,
   ClipboardCheck,
 } from 'lucide-react';
-import { CoordinatorQuotaRequest, EntityDistribution } from '../types/coordinatorQuotaRequest';
+import {
+  CoordinatorQuotaRequest,
+  EntityDistribution,
+  formatReservation,
+} from '../types/coordinatorQuotaRequest';
 import { PraksisPlace } from '../types/praksisPlace';
 import { format } from 'date-fns';
 import { HierarchicalOrganizationSelector } from './HierarchicalOrganizationSelector';
 
-export interface Study {
-  id: string;
-  name: string;
-  programs: { id: string; name: string }[];
-}
-
+// Placement-task quota request (Capacity planning uses AddCapacityModal instead)
 interface RequestQuotaModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit?: (
     request: Omit<CoordinatorQuotaRequest, 'id' | 'requestedDate' | 'status'>
   ) => void;
-  placement?: {
+  placement: {
     id: string;
     studyId: string;
     studyName: string;
@@ -68,8 +67,6 @@ interface RequestQuotaModalProps {
   praksisPlaces: PraksisPlace[];
   currentUserName: string;
   existingRequests: CoordinatorQuotaRequest[];
-  studies?: Study[];
-  onSave?: (request: Omit<CoordinatorQuotaRequest, 'id' | 'requestedDate' | 'status'>) => void;
   editingRequest?: CoordinatorQuotaRequest;
   onUpdate?: (requestId: string, updates: Partial<CoordinatorQuotaRequest>) => void;
   nodeSlots?: Record<string, Record<string, number>>;
@@ -84,8 +81,6 @@ export function RequestQuotaModal({
   praksisPlaces,
   currentUserName,
   existingRequests,
-  studies,
-  onSave,
   editingRequest,
   onUpdate,
   nodeSlots = {},
@@ -96,9 +91,6 @@ export function RequestQuotaModal({
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
   const [notes, setNotes] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [selectedStudyId, setSelectedStudyId] = useState<string>('');
-  const [selectedProgramId, setSelectedProgramId] = useState<string>('');
-  const [emne, setEmne] = useState<string>('');
   const [entityDistributions, setEntityDistributions] = useState<EntityDistribution[]>([]);
 
   const dialogContentRef = useRef<HTMLDivElement>(null);
@@ -112,13 +104,10 @@ export function RequestQuotaModal({
       setEndDate(undefined);
       setNotes('');
       setErrors({});
-      setSelectedStudyId('');
-      setSelectedProgramId('');
-      setEmne('');
       setEntityDistributions([]);
     } else {
       setCurrentStep(1);
-      if (placement?.startDate && placement?.endDate) {
+      if (placement.startDate && placement.endDate) {
         setStartDate(new Date(placement.startDate));
         setEndDate(new Date(placement.endDate));
       }
@@ -127,11 +116,6 @@ export function RequestQuotaModal({
         setStartDate(new Date(editingRequest.startDate));
         setEndDate(new Date(editingRequest.endDate));
         setNotes(editingRequest.notes || '');
-        if (!placement) {
-          setSelectedStudyId(editingRequest.studyId);
-          setSelectedProgramId(editingRequest.programId);
-          setEmne(editingRequest.emne || '');
-        }
         if (editingRequest.entityDistributions && editingRequest.entityDistributions.length > 0) {
           setEntityDistributions(editingRequest.entityDistributions);
         } else if (editingRequest.departmentId && editingRequest.departmentName) {
@@ -146,7 +130,8 @@ export function RequestQuotaModal({
     }
   }, [isOpen, placement, editingRequest]);
 
-  const availablePrograms = studies?.find((s) => s.id === selectedStudyId)?.programs || [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   const handleRemoveEntity = (id: string) => {
     setEntityDistributions(entityDistributions.filter((e) => e.id !== id));
@@ -175,10 +160,6 @@ export function RequestQuotaModal({
     const newErrors: Record<string, string> = {};
 
     if (step === 1) {
-      if (!placement) {
-        if (!selectedStudyId) newErrors.study = 'Please select a study';
-        if (!selectedProgramId) newErrors.program = 'Please select a program';
-      }
       if (!startDate) newErrors.startDate = 'Please select a start date';
       if (!endDate) newErrors.endDate = 'Please select an end date';
       if (startDate && endDate && endDate <= startDate)
@@ -228,21 +209,9 @@ export function RequestQuotaModal({
     const selectedPlace = praksisPlaces.find((p) => p.id === selectedPraksisPlaceId);
     if (!selectedPlace || !startDate || !endDate) return;
 
-    let studyId, studyName, programId, programName, universityId, universityName;
-    if (placement) {
-      ({ studyId, studyName, programId, programName, universityId, universityName } = placement);
-    } else {
-      const selectedStudy = studies?.find((s) => s.id === selectedStudyId);
-      const selectedProgram = selectedStudy?.programs.find((p) => p.id === selectedProgramId);
-      studyId = selectedStudyId;
-      studyName = selectedStudy?.name || '';
-      programId = selectedProgramId;
-      programName = selectedProgram?.name || '';
-      universityId = 'U1';
-      universityName = 'Oslo University';
-    }
-
+    const { studyId, studyName, programId, programName, universityId, universityName } = placement;
     const totalRequestedCapacity = getTotalRequestedQuota();
+
     const firstEntity = entityDistributions[0] || {
       entityId: '',
       entityName: 'Multiple entities',
@@ -250,7 +219,7 @@ export function RequestQuotaModal({
     };
 
     const request: Omit<CoordinatorQuotaRequest, 'id' | 'requestedDate' | 'status'> = {
-      placementId: placement?.id ?? '',
+      placementId: placement.id,
       praksisPlaceId: selectedPlace.id,
       praksisPlaceName: selectedPlace.name,
       entityDistributions,
@@ -262,7 +231,6 @@ export function RequestQuotaModal({
       studyName,
       programId,
       programName,
-      emne: emne.trim() || undefined,
       requestedCapacity: totalRequestedCapacity,
       startDate: format(startDate, 'yyyy-MM-dd'),
       endDate: format(endDate, 'yyyy-MM-dd'),
@@ -274,7 +242,6 @@ export function RequestQuotaModal({
       onUpdate?.(editingRequest.id, request);
     } else {
       onSubmit?.(request);
-      onSave?.(request);
     }
     onClose();
   };
@@ -297,8 +264,6 @@ export function RequestQuotaModal({
   const stepInfo = getStepInfo();
 
   // Active existing requests for the selected place (endDate > today)
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
   const activeRequestsForPlace = existingRequests.filter(
     (r) => r.praksisPlaceId === selectedPraksisPlaceId && new Date(r.endDate) > today
   );
@@ -345,21 +310,19 @@ export function RequestQuotaModal({
                 {/* Left column: form */}
                 <div className="space-y-4">
                   {/* Request Context banner */}
-                  {placement && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <GraduationCap className="h-5 w-5 text-blue-600 mt-0.5" />
-                        <div className="flex-1 space-y-0.5">
-                          <h3 className="font-semibold text-sm text-blue-900">Request Context</h3>
-                          <div className="text-sm text-blue-800">
-                            <div><span className="font-medium">University:</span> {placement.universityName}</div>
-                            <div><span className="font-medium">Study:</span> {placement.studyName}</div>
-                            <div><span className="font-medium">Program:</span> {placement.programName}</div>
-                          </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <GraduationCap className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <div className="flex-1 space-y-0.5">
+                        <h3 className="font-semibold text-sm text-blue-900">Request Context</h3>
+                        <div className="text-sm text-blue-800">
+                          <div><span className="font-medium">University:</span> {placement.universityName}</div>
+                          <div><span className="font-medium">Study:</span> {placement.studyName}</div>
+                          <div><span className="font-medium">Program:</span> {placement.programName}</div>
                         </div>
                       </div>
                     </div>
-                  )}
+                  </div>
 
                   {/* 1. Praksis Place */}
                   <h3 className="font-semibold text-sm text-gray-900">Praksis Place</h3>
@@ -454,68 +417,6 @@ export function RequestQuotaModal({
                       {errors.endDate && <p className="text-sm text-red-600">{errors.endDate}</p>}
                     </div>
                   </div>
-
-                  {/* 3. Academic Information (only when no placement context) */}
-                  {!placement && studies && (
-                    <>
-                      <h3 className="font-semibold text-sm text-gray-900 pt-1">Academic Information</h3>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="study">Study <span className="text-red-500">*</span></Label>
-                        <Select
-                          value={selectedStudyId}
-                          onValueChange={(value) => {
-                            setSelectedStudyId(value);
-                            setSelectedProgramId('');
-                            setErrors((prev) => ({ ...prev, study: '' }));
-                          }}
-                        >
-                          <SelectTrigger id="study" className={cn(errors.study && 'border-red-500')}>
-                            <SelectValue placeholder="Select study" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {studies.map((s) => (
-                              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {errors.study && <p className="text-sm text-red-600">{errors.study}</p>}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="program">Program <span className="text-red-500">*</span></Label>
-                        <Select
-                          value={selectedProgramId}
-                          onValueChange={(value) => {
-                            setSelectedProgramId(value);
-                            setErrors((prev) => ({ ...prev, program: '' }));
-                          }}
-                          disabled={!selectedStudyId}
-                        >
-                          <SelectTrigger id="program" className={cn(errors.program && 'border-red-500')}>
-                            <SelectValue placeholder="Select program" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availablePrograms.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {errors.program && <p className="text-sm text-red-600">{errors.program}</p>}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="emne">Emne <span className="text-gray-500 text-xs">(Optional)</span></Label>
-                        <Input
-                          id="emne"
-                          value={emne}
-                          onChange={(e) => setEmne(e.target.value)}
-                          placeholder="Enter course or subject name"
-                          maxLength={100}
-                        />
-                      </div>
-                    </>
-                  )}
                 </div>
 
                 {/* Right column: existing requests */}
@@ -550,7 +451,7 @@ export function RequestQuotaModal({
                             <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Study / Program</th>
                             <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Entity</th>
                             <th className="px-3 py-2 text-center text-xs font-semibold text-gray-700">Req · Apr · Con</th>
-                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Period</th>
+                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Reservation</th>
                             <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700">Status</th>
                           </tr>
                         </thead>
@@ -589,7 +490,8 @@ export function RequestQuotaModal({
                                     <span className="text-xs font-bold text-purple-600">{entity.requestedQuota ?? '-'}</span>
                                     <span className="text-xs text-gray-400"> · </span>
                                     <span className="text-xs font-bold text-green-600">
-                                      {request.status === 'approved' && entity.approvedQuota !== undefined
+                                      {(entity.status ? entity.status === 'approved' : request.status === 'approved') &&
+                                      entity.approvedQuota !== undefined
                                         ? entity.approvedQuota
                                         : '-'}
                                     </span>
@@ -599,12 +501,9 @@ export function RequestQuotaModal({
                                     </span>
                                   </td>
 
-                                  {isFirst && (
-                                    <td className="px-3 py-2 align-top text-xs text-gray-600 whitespace-nowrap" rowSpan={rowSpan}>
-                                      <div>{format(new Date(request.startDate), 'MMM d, yy')}</div>
-                                      <div>{format(new Date(request.endDate), 'MMM d, yy')}</div>
-                                    </td>
-                                  )}
+                                  <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                                    {formatReservation(entity, request)}
+                                  </td>
 
                                   {isFirst && (
                                     <td className="px-3 py-2 align-top" rowSpan={rowSpan}>
@@ -793,23 +692,16 @@ export function RequestQuotaModal({
                     <div>
                       <Label className="text-xs text-blue-700">Study</Label>
                       <p className="text-sm font-medium text-blue-900">
-                        {placement ? placement.studyName : studies?.find((s) => s.id === selectedStudyId)?.name}
+                        {placement.studyName}
                       </p>
                     </div>
                     <div>
                       <Label className="text-xs text-blue-700">Program</Label>
                       <p className="text-sm font-medium text-blue-900">
-                        {placement ? placement.programName : availablePrograms.find((p) => p.id === selectedProgramId)?.name}
+                        {placement.programName}
                       </p>
                     </div>
                   </div>
-
-                  {emne && (
-                    <div>
-                      <Label className="text-xs text-blue-700">Emne</Label>
-                      <p className="text-sm font-medium text-blue-900">{emne}</p>
-                    </div>
-                  )}
 
                   <div>
                     <Label className="text-xs text-blue-700">Period</Label>

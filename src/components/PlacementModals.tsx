@@ -21,12 +21,10 @@ import { SlideOverManageQuota, QuotaSelection } from "./SlideOverManageQuota";
 import { AISupportSidebar } from "./AISupportSidebar";
 import { FirstPublishModal } from "./FirstPublishModal";
 import { PlacementNetworkDiagramModal } from "./PlacementNetworkDiagramModal";
-import { RequestQuotaModal } from "./RequestQuotaModal";
 import { PlacementTaskHelpOverlay } from "./PlacementTaskHelpOverlay";
 import { Student, PlacementTask } from "../types/placementTask";
 import { PraksisPlace } from "../types/praksisPlace";
 import { PriorityPlacementApplication } from "../types/priorityPlacement";
-import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
 import { toast } from "sonner@2.0.3";
 
 export interface QuotaRequestOption {
@@ -46,6 +44,10 @@ export interface QuotaRequestOption {
   availableCount: number;
   _quotaRequestId: string;
   _entityId?: string;
+  // Limits: the units a student can be placed in, with the places left there (smallest remainder
+  // over the limits on the unit's path) and the limit that sets it
+  units?: Array<{ id: string; name: string; depth: number; remaining?: number; limitingName?: string }>;
+  periodLabel?: string;
 }
 
 interface SelectedQuotaForAssignment {
@@ -56,18 +58,6 @@ interface SelectedQuotaForAssignment {
   departmentName: string;
   availableCapacity: number;
   entityId?: string;
-}
-
-interface RequestQuotaPlacementData {
-  id: string;
-  studyId: string;
-  studyName: string;
-  programId: string;
-  programName: string;
-  universityId: string;
-  universityName: string;
-  startDate: string;
-  endDate: string;
 }
 
 interface NetworkDiagramStudent {
@@ -134,28 +124,6 @@ interface PlacementModalsProps {
   onCloseManageQuota: () => void;
   onSaveQuotas: (quotas: QuotaSelection[]) => void;
 
-  // Request quota modal
-  isRequestQuotaModalOpen: boolean;
-  editingQuotaRequest: CoordinatorQuotaRequest | null;
-  requestQuotaPlacementData: RequestQuotaPlacementData;
-  existingQuotasForRequest: Array<{
-    praksisPlaceId: string;
-    praksisPlaceName: string;
-    departmentId: string;
-    departmentName: string;
-  }>;
-  currentUserName: string;
-  coordinatorQuotaRequestsForPlacement: CoordinatorQuotaRequest[];
-  nodeSlots?: Record<string, Record<string, number>>;
-  onCloseRequestQuota: () => void;
-  onRequestQuotaSubmit: (
-    data: Omit<CoordinatorQuotaRequest, "id" | "requestedDate" | "status">,
-  ) => void;
-  onUpdateQuotaRequest: (
-    id: string,
-    updates: Partial<CoordinatorQuotaRequest>,
-  ) => void;
-
   // AI support sidebar
   isAISidebarOpen: boolean;
   onCloseAISidebar: () => void;
@@ -219,16 +187,6 @@ export function PlacementModals({
   existingQuotas,
   onCloseManageQuota,
   onSaveQuotas,
-  isRequestQuotaModalOpen,
-  editingQuotaRequest,
-  requestQuotaPlacementData,
-  existingQuotasForRequest,
-  currentUserName,
-  coordinatorQuotaRequestsForPlacement,
-  nodeSlots = {},
-  onCloseRequestQuota,
-  onRequestQuotaSubmit,
-  onUpdateQuotaRequest,
   isAISidebarOpen,
   onCloseAISidebar,
   onAIAction,
@@ -309,7 +267,7 @@ export function PlacementModals({
           <DialogHeader>
             <DialogTitle>Select Praksis Place</DialogTitle>
             <DialogDescription>
-              Choose an available quota request to assign{" "}
+              Choose a unit covered by one of this emne's limits for{" "}
               <span className="font-semibold">{selectedStudent?.name}</span>
             </DialogDescription>
           </DialogHeader>
@@ -317,136 +275,116 @@ export function PlacementModals({
             {availableQuotaRequests.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <ClipboardCheck className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                <p className="text-sm">No available quota requests found</p>
+                <p className="text-sm">No limit with free places for this emne</p>
                 <p className="text-xs mt-1">
-                  Request quotas from the Capacity Planning page first
+                  Add or raise a limit for this emne under Praksis places → Limits
                 </p>
               </div>
             ) : (
               availableQuotaRequests.map((request) => {
-                const conflictHistory = (
-                  selectedStudent?.placementHistory ?? []
-                ).filter(
-                  (h) =>
-                    h.praksisPlaceName?.toLowerCase() ===
-                      request.praksisPlaceName.toLowerCase() &&
-                    h.unitName?.toLowerCase() ===
-                      request.departmentName.toLowerCase(),
-                );
-                const hasConflict = conflictHistory.length > 0;
+                const units = request.units ?? [
+                  { id: request.departmentId, name: request.departmentName, depth: 0 },
+                ];
+                // Earlier placements of this student at the same place and unit
+                const historyFor = (unitName: string) =>
+                  (selectedStudent?.placementHistory ?? []).filter(
+                    (h) =>
+                      h.praksisPlaceName?.toLowerCase() ===
+                        request.praksisPlaceName.toLowerCase() &&
+                      h.unitName?.toLowerCase() === unitName.toLowerCase(),
+                  );
 
                 return (
-                  <button
+                  <div
                     key={request.id}
-                    onClick={() => {
-                      if (selectedStudent) {
-                        toast.success(
-                          `Assigned ${selectedStudent.name} to ${request.praksisPlaceName} - ${request.departmentName}`,
-                        );
-                        onAssignStudentToQuota(
-                          selectedStudent.id,
-                          request.praksisPlaceId,
-                          request.departmentId,
-                          request._quotaRequestId,
-                          request._entityId,
-                        );
-                      }
-                    }}
-                    className={`w-full p-4 border rounded-lg transition-all text-left group ${
-                      hasConflict
-                        ? "border-amber-300 bg-amber-50 hover:border-amber-400"
-                        : "border-gray-200 hover:border-blue-500 hover:bg-blue-50"
-                    }`}
+                    className="border border-gray-200 rounded-lg overflow-hidden"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-start justify-between gap-3 px-4 py-3 bg-gray-50 border-b border-gray-200">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
                           <Building2 className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                          <span className="font-medium text-gray-900">
-                            {request.praksisPlaceName}
+                          <span className="font-medium text-gray-900 truncate">
+                            {request.departmentName
+                              ? `${request.praksisPlaceName} · ${request.departmentName}`
+                              : request.praksisPlaceName}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-sm text-gray-600 ml-6">
-                          {hasConflict && (
-                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
-                          )}
-                          {request.departmentName}
-                        </div>
-                        {request.emne && (
-                          <div className="text-xs text-gray-500 ml-6 mt-1 italic">
-                            Emne: {request.emne}
-                          </div>
-                        )}
-                        <div className="flex items-center gap-4 mt-2 ml-6 text-xs text-gray-500">
-                          <span className="flex items-center gap-1">
+                        {request.periodLabel && (
+                          <div className="flex items-center gap-1 ml-6 mt-1 text-xs text-gray-500">
                             <CalendarIcon className="h-3 w-3" />
-                            {new Date(request.startDate).toLocaleDateString(
-                              "en-US",
-                              { month: "short", day: "numeric" },
-                            )}{" "}
-                            -{" "}
-                            {new Date(request.endDate).toLocaleDateString(
-                              "en-US",
-                              {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              },
-                            )}
-                          </span>
-                        </div>
-
-                        {hasConflict && (
-                          <div className="mt-2 ml-6 space-y-1">
-                            {conflictHistory.map((h) => {
-                              const statusColor =
-                                h.status === "current"
-                                  ? "border-l-blue-400 bg-blue-50 text-blue-700"
-                                  : h.status === "upcoming"
-                                    ? "border-l-green-400 bg-green-50 text-green-700"
-                                    : "border-l-amber-400 bg-amber-100 text-amber-800";
-                              const label =
-                                h.status === "current"
-                                  ? "Current"
-                                  : h.status === "upcoming"
-                                    ? "Upcoming"
-                                    : "Previous";
-                              const topLine = [h.year, h.semester, h.emne]
-                                .filter(Boolean)
-                                .join(" / ");
-                              return (
-                                <div
-                                  key={h.placementId}
-                                  className={`border-l-2 pl-2 py-0.5 rounded-sm ${statusColor}`}
-                                >
-                                  <div className="text-xs font-medium">
-                                    {label} · {topLine}
-                                  </div>
-                                  <div className="text-xs opacity-70">
-                                    {h.praksisPlaceName}
-                                    {h.unitName && ` / ${h.unitName}`}
-                                  </div>
-                                </div>
-                              );
-                            })}
+                            {request.periodLabel}
                           </div>
                         )}
                       </div>
-                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                        <Badge
-                          variant="outline"
-                          className="bg-green-50 text-green-700 border-green-200"
-                        >
-                          {request.availableCount} available
-                        </Badge>
-                        <span className="text-xs text-gray-500">
-                          {request.assignedCount} /{" "}
-                          {request.approvedCapacity ?? request.requestedCapacity}{" "}
-                          assigned
-                        </span>
-                      </div>
+                      <Badge
+                        variant="outline"
+                        className="bg-green-50 text-green-700 border-green-200 flex-shrink-0"
+                      >
+                        {request.availableCount} available
+                      </Badge>
                     </div>
-                  </button>
+                    <div className="divide-y divide-gray-100">
+                      {units.map((unit) => {
+                        const history = historyFor(unit.name);
+                        const full = unit.remaining === 0;
+                        return (
+                          <button
+                            key={unit.id}
+                            disabled={full}
+                            onClick={() => {
+                              if (!selectedStudent) return;
+                              toast.success(
+                                `Assigned ${selectedStudent.name} to ${request.praksisPlaceName} - ${unit.name}`,
+                              );
+                              onAssignStudentToQuota(
+                                selectedStudent.id,
+                                request.praksisPlaceId,
+                                unit.id,
+                                request._quotaRequestId,
+                                unit.id,
+                              );
+                            }}
+                            className={`w-full text-left py-2 pr-4 text-sm transition-colors ${
+                              full
+                                ? "cursor-not-allowed opacity-50"
+                                : history.length > 0
+                                  ? "bg-amber-50 hover:bg-amber-100"
+                                  : "hover:bg-blue-50"
+                            }`}
+                            style={{ paddingLeft: `${16 + unit.depth * 20}px` }}
+                            title={
+                              full
+                                ? `Full: ${unit.limitingName ?? "the"} limit reached`
+                                : history.length > 0
+                                  ? `${selectedStudent?.name} was placed here before`
+                                  : undefined
+                            }
+                          >
+                            <span className="flex items-center gap-1.5">
+                              {history.length > 0 && (
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                              )}
+                              <span className={unit.depth === 0 ? "font-medium text-gray-900" : "text-gray-700"}>
+                                {unit.name}
+                              </span>
+                              {unit.remaining !== undefined && (
+                                <span className={`ml-auto flex-shrink-0 text-xs ${full ? "text-gray-400" : "text-green-700"}`}>
+                                  {full ? "Full" : `${unit.remaining} left`}
+                                </span>
+                              )}
+                            </span>
+                            {history.length > 0 && (
+                              <span className="block text-xs text-amber-700 mt-0.5">
+                                {history
+                                  .map((h) => [h.year, h.semester, h.emne].filter(Boolean).join(" / "))
+                                  .join(", ")}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })
             )}
@@ -460,20 +398,6 @@ export function PlacementModals({
         praksisPlaces={praksisPlaces}
         onSaveQuotas={onSaveQuotas}
         existingQuotas={existingQuotas}
-      />
-
-      <RequestQuotaModal
-        isOpen={isRequestQuotaModalOpen}
-        onClose={onCloseRequestQuota}
-        onSubmit={onRequestQuotaSubmit}
-        placement={requestQuotaPlacementData}
-        existingQuotas={existingQuotasForRequest}
-        praksisPlaces={praksisPlaces}
-        currentUserName={currentUserName}
-        existingRequests={coordinatorQuotaRequestsForPlacement}
-        editingRequest={editingQuotaRequest || undefined}
-        onUpdate={onUpdateQuotaRequest}
-        nodeSlots={nodeSlots}
       />
 
       <AISupportSidebar

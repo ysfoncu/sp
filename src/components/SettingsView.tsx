@@ -69,6 +69,8 @@ export interface DashboardSettings {
 interface SettingsViewProps {
   dashboardSettings: DashboardSettings;
   onSave: (settings: DashboardSettings) => void;
+  studies: Study[];
+  onStudiesChange: (studies: Study[]) => void;
 }
 
 const dashboardItems = [
@@ -168,6 +170,8 @@ const workflowSteps: {
 export function SettingsView({
   dashboardSettings,
   onSave,
+  studies,
+  onStudiesChange: setStudies,
 }: SettingsViewProps) {
   const [localSettings, setLocalSettings] =
     useState<DashboardSettings>(dashboardSettings);
@@ -176,8 +180,7 @@ export function SettingsView({
     "studies" | "admins" | "dashboard" | "workflows"
   >("studies");
 
-  // Studies state management — starts empty; studies/programs are defined here.
-  const [studies, setStudies] = useState<Study[]>([]);
+  // Studies are owned by App so they survive navigating away from Settings.
   const [newStudyName, setNewStudyName] = useState("");
   const [newProgramName, setNewProgramName] = useState<{
     [studyId: string]: string;

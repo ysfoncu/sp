@@ -76,6 +76,7 @@ import {
 } from "./types/quotaOffering";
 import {
   CoordinatorQuotaRequest,
+  deriveRequestApproval,
   mockCoordinatorQuotaRequests,
 } from "./types/coordinatorQuotaRequest";
 import { CoordinatorQuotasView } from "./components/CoordinatorQuotasView";
@@ -242,7 +243,14 @@ export default function App() {
       universityId: "U1",
       universityName: "University of Oslo",
       programs: [
-        { id: "2-1", name: "Software Engineering" },
+        {
+          id: "2-1",
+          name: "Software Engineering",
+          emner: [
+            { id: "2-1-e1", name: "Kull 2024 Høst" },
+            { id: "2-1-e2", name: "Kull 2025 Vår" },
+          ],
+        },
         { id: "2-2", name: "Electrical Engineering" },
       ],
     },
@@ -581,23 +589,63 @@ export default function App() {
   };
 
   // Coordinator Quota Request Handlers
+  // Builds a stored request; entities that don't require praksis-place approval arrive already approved
+  const buildCoordinatorQuotaRequest = (
+    request: Omit<
+      CoordinatorQuotaRequest,
+      "id" | "requestedDate" | "status"
+    >,
+    id: string,
+  ): CoordinatorQuotaRequest => {
+    const { status, approvedCapacity, allApproved } = deriveRequestApproval(
+      request.entityDistributions ?? [],
+    );
+    return {
+      ...request,
+      id,
+      requestedDate: new Date().toISOString(),
+      status,
+      ...(approvedCapacity !== undefined && { approvedCapacity }),
+      ...(allApproved && {
+        approvedDate: new Date().toISOString(),
+        approvedBy: request.requestedBy,
+      }),
+    };
+  };
+
   const handleCoordinatorQuotaRequestCreate = (
     request: Omit<
       CoordinatorQuotaRequest,
       "id" | "requestedDate" | "status"
     >,
   ) => {
-    const newRequest: CoordinatorQuotaRequest = {
-      ...request,
-      id: `cqr-${Date.now()}`,
-      requestedDate: new Date().toISOString(),
-      status: "pending",
-    };
-    setCoordinatorQuotaRequests([
-      ...coordinatorQuotaRequests,
-      newRequest,
-    ]);
-    toast.success("Quota request submitted successfully");
+    const newRequest = buildCoordinatorQuotaRequest(
+      request,
+      `cqr-${Date.now()}`,
+    );
+    setCoordinatorQuotaRequests((prev) => [...prev, newRequest]);
+    toast.success(
+      newRequest.status === "approved"
+        ? "Quota reserved successfully"
+        : "Quota request submitted successfully",
+    );
+  };
+
+  // Capacity planning adds one request per emne × praksis place/entity in one go
+  const handleCoordinatorQuotaRequestsCreate = (
+    requests: Omit<
+      CoordinatorQuotaRequest,
+      "id" | "requestedDate" | "status"
+    >[],
+  ) => {
+    const stamp = Date.now();
+    const newRequests = requests.map((r, i) =>
+      buildCoordinatorQuotaRequest(r, `cqr-${stamp}-${i}`),
+    );
+    setCoordinatorQuotaRequests((prev) => [...prev, ...newRequests]);
+    toast.success(
+      `${newRequests.length} quota item${newRequests.length === 1 ? "" : "s"} added`,
+    );
   };
 
   const handleCoordinatorQuotaRequestUpdate = (
@@ -1312,6 +1360,11 @@ export default function App() {
                       .map((ts) => ({
                         placementId: ts.placementId,
                         placementTitle: studentPlacements.find((p) => p.id === ts.placementId)?.title ?? ts.placementId,
+                        year: studentPlacements.find((p) => p.id === ts.placementId)?.year,
+                        semester: studentPlacements.find((p) => p.id === ts.placementId)?.semester,
+                        startDate: studentPlacements.find((p) => p.id === ts.placementId)?.startDate,
+                        programId: studentPlacements.find((p) => p.id === ts.placementId)?.programId,
+                        emne: studentPlacements.find((p) => p.id === ts.placementId)?.subject,
                         students: ts.students,
                       }))}
                     initialTaskState={placementTaskStates.find(
@@ -1373,7 +1426,7 @@ export default function App() {
                       );
                       setSelectedStudentPlacement(null);
                     }}
-                    onRequestQuota={() => setCurrentView("quotas")}
+                    onRequestQuota={() => setCurrentView("praksisplaces")}
                     onTaskStateUpdate={(updatedState) => {
                       setPlacementTaskStates((prev) =>
                         prev.map((ts) =>
@@ -1437,15 +1490,6 @@ export default function App() {
                       })
                     }
                     studies={studies}
-                    coordinatorQuotaRequests={
-                      coordinatorQuotaRequests
-                    }
-                    onCoordinatorQuotaRequestCreate={
-                      handleCoordinatorQuotaRequestCreate
-                    }
-                    onCoordinatorQuotaRequestUpdate={
-                      handleCoordinatorQuotaRequestUpdate
-                    }
                     currentUserName="John Coordinator"
                     prefillData={
                       quotaRequestPrefillData || undefined
@@ -1487,7 +1531,8 @@ export default function App() {
                         onStartOnboarding={() =>
                           setOnboardingStep(1)
                         }
-                        dashboardSettings={dashboardSettings}
+                        // Capacity planning is retired, so its quota-request widget stays hidden
+                        dashboardSettings={{ ...dashboardSettings, quotaRequests: false }}
                       />
                     ) : currentView === "settings" ? (
                       <SettingsView
@@ -1496,6 +1541,8 @@ export default function App() {
                           setDashboardSettings(settings);
                           // Optionally show a success message
                         }}
+                        studies={studies}
+                        onStudiesChange={setStudies}
                       />
                     ) : currentView === "analytics" ? (
                       <AnalyticsAI />
@@ -1516,7 +1563,7 @@ export default function App() {
                       />
                     ) : currentView === "capacityreport" ? (
                       <CapacityPlanningReportView
-                        requests={coordinatorQuotaRequests}
+                        praksisPlaces={praksisPlaces}
                         placements={studentPlacements}
                         placementTaskStates={placementTaskStates}
                         studies={studies}
@@ -1565,8 +1612,8 @@ export default function App() {
                           placementTaskStates
                         }
                         nodeSlots={nodeSlots}
-                        onRequestCreate={
-                          handleCoordinatorQuotaRequestCreate
+                        onRequestsCreate={
+                          handleCoordinatorQuotaRequestsCreate
                         }
                         onRequestUpdate={
                           handleCoordinatorQuotaRequestUpdate
@@ -1636,6 +1683,7 @@ export default function App() {
                               handlePraksisPlacesUpdate
                             }
                             nodeSlots={nodeSlots}
+                            studies={studies}
                             onNodeSlotsChange={(placeId, slots) =>
                               setNodeSlots((prev) => ({ ...prev, [placeId]: slots }))
                             }

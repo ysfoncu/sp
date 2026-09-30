@@ -12,15 +12,15 @@ import {
   mockStudents,
 } from "../types/placementTask";
 import { CrossPlacementData } from "./AvailableQuotasTable";
-import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
+import { PraksisPlaceLimit, savePraksisLimits, usePraksisLimits } from "../types/praksisLimit";
+import { AddLimitModal } from "./AddLimitModal";
+import { limitTreeForPlacement, limitViolations, totalPlacesForPlacement } from "../types/limitUsage";
 import { PriorityPlacementPeriod, PriorityPlacementApplication } from "../types/priorityPlacement";
 import { toast } from "sonner@2.0.3";
-import AvailableQuotasTable from "./AvailableQuotasTable";
+import AvailableLimitsPanel from "./AvailableLimitsPanel";
 import { findNodeById } from "../types/organizationStructure";
 import { PlacementTaskHeader } from "./PlacementTaskHeader";
 import { PlacementMetadataForm, MetadataFormData } from "./PlacementMetadataForm";
-import { NewPlacementPicker } from "./NewPlacementPicker";
-import { ConfirmPlacementDetails } from "./ConfirmPlacementDetails";
 import { AssignmentPublishBanner } from "./AssignmentPublishBanner";
 import { StudentsPanel } from "./StudentsPanel";
 import { PlacementModals, QuotaRequestOption } from "./PlacementModals";
@@ -29,19 +29,11 @@ interface PlacementTaskViewProps {
   placement: StudentPlacement;
   praksisPlaces: PraksisPlace[];
   quotaRequests: QuotaRequest[];
-  coordinatorQuotaRequests?: CoordinatorQuotaRequest[];
   studies: Study[];
   onBack: () => void;
   isAISidebarOpen?: boolean;
   onAISidebarChange?: (isOpen: boolean) => void;
   onQuotaRequestCreate?: (requests: any[]) => void;
-  onCoordinatorQuotaRequestCreate?: (
-    request: Omit<CoordinatorQuotaRequest, "id" | "requestedDate" | "status">,
-  ) => void;
-  onCoordinatorQuotaRequestUpdate?: (
-    requestId: string,
-    updates: Partial<CoordinatorQuotaRequest>,
-  ) => void;
   currentUserName?: string;
   onPlacementStatusUpdate?: (
     placementId: string,
@@ -63,6 +55,7 @@ interface PlacementTaskViewProps {
     },
   ) => void;
   onPlacementDelete?: (placementId: string) => void;
+  // Opens Praksis places, where limits are added
   onRequestQuota?: () => void;
   initialTaskState?: {
     placementId: string;
@@ -99,14 +92,11 @@ export function PlacementTaskView({
   placement,
   praksisPlaces,
   quotaRequests,
-  coordinatorQuotaRequests = [],
   studies,
   onBack,
   isAISidebarOpen = false,
   onAISidebarChange,
   onQuotaRequestCreate,
-  onCoordinatorQuotaRequestCreate,
-  onCoordinatorQuotaRequestUpdate,
   currentUserName = "PK Coordinator",
   onPlacementStatusUpdate,
   onPlacementMetadataUpdate,
@@ -172,17 +162,9 @@ export function PlacementTaskView({
   const [quotas, setQuotas] = useState<QuotaSelection[]>(
     initialTaskState?.quotas || [],
   );
-  const [autoImportedQuotasCount, setAutoImportedQuotasCount] = useState(0);
-  const [isAutoImportAlertDismissed, setIsAutoImportAlertDismissed] =
-    useState(false);
 
   // ── UI layout state ──────────────────────────────────────────────────────
   const [isStudentsExpanded, setIsStudentsExpanded] = useState(false);
-  // For a new (draft) placement: show the capacity picker by default, switch
-  // to the blank "Placement Details" form when the user opts out.
-  const [showBlankForm, setShowBlankForm] = useState(false);
-  // A request chosen in the picker, pending confirmation on the Confirm screen.
-  const [confirmRequest, setConfirmRequest] = useState<CoordinatorQuotaRequest | null>(null);
 
   // ── Assignment publish state ─────────────────────────────────────────────
   const [isAssignmentPublished, setIsAssignmentPublished] = useState(
@@ -199,7 +181,6 @@ export function PlacementTaskView({
   // ── Modal / dialog open state ────────────────────────────────────────────
   const [isTasksModalOpen, setIsTasksModalOpen] = useState(false);
   const [isManageQuotaModalOpen, setIsManageQuotaModalOpen] = useState(false);
-  const [isRequestQuotaModalOpen, setIsRequestQuotaModalOpen] = useState(false);
   const [isQuickAssignModalOpen, setIsQuickAssignModalOpen] = useState(false);
   const [isQuotaSelectionDialogOpen, setIsQuotaSelectionDialogOpen] =
     useState(false);
@@ -208,6 +189,8 @@ export function PlacementTaskView({
   const [isFirstPublishModalOpen, setIsFirstPublishModalOpen] = useState(false);
   const [isNetworkDiagramOpen, setIsNetworkDiagramOpen] = useState(false);
   const [isHelpOverlayOpen, setIsHelpOverlayOpen] = useState(false);
+  // Edit a Praksis place limit without leaving the placement (limits are added on Praksis places)
+  const [editingLimit, setEditingLimit] = useState<PraksisPlaceLimit | null>(null);
 
   // ── Modal selection state ────────────────────────────────────────────────
   const [selectedQuotaForAssignment, setSelectedQuotaForAssignment] = useState<{
@@ -219,14 +202,11 @@ export function PlacementTaskView({
     availableCapacity: number;
     entityId?: string;
   } | null>(null);
-  const [editingQuotaRequest, setEditingQuotaRequest] =
-    useState<CoordinatorQuotaRequest | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
   // ── Refs ─────────────────────────────────────────────────────────────────
   const startDateInputRef = useRef<HTMLInputElement>(null);
   const endDateInputRef = useRef<HTMLInputElement>(null);
-  const importedCoordinatorRequestIds = useRef<Set<string>>(new Set());
   const hasInitialized = useRef(false);
   const onTaskStateUpdateRef = useRef(onTaskStateUpdate);
   useEffect(() => {
@@ -264,81 +244,44 @@ export function PlacementTaskView({
     return sum;
   }, 0);
 
-  const totalCoordinatorApprovedQuotas = coordinatorQuotaRequests
-    ? coordinatorQuotaRequests.reduce((sum, req) => {
-        const matchesStudy =
-          req.studyId === placement.studyId ||
-          req.studyId === metadataFormData.studyId;
-        const matchesProgram =
-          req.programId === placement.programId ||
-          req.programId === metadataFormData.programId;
-        const isApproved = req.status === "approved";
+  // The placement's program/emne and period — only Praksis place limits that include this emne
+  // can be used, counted per limit period across placements
+  const quotaContext = {
+    studyId: metadataFormData.studyId || placement.studyId,
+    programId: metadataFormData.programId || placement.programId,
+    emne: metadataFormData.subject || placement.subject,
+    startDate: metadataFormData.startDate || placement.startDate,
+    year: metadataFormData.year || placement.year,
+    semester: metadataFormData.semester || placement.semester,
+  };
 
-        let matchesDates = true;
-        const placementStart =
-          placement.startDate || metadataFormData.startDate;
-        const placementEnd = placement.endDate || metadataFormData.endDate;
+  const allLimits = usePraksisLimits();
+  // Limits (nested) this emne can use, per praksis place, with usage worked out from where
+  // students are placed — here and in other placements of the emne in the same period
+  const limitTrees = limitTreeForPlacement(allLimits, praksisPlaces, quotaContext, students, allPlacementsData);
 
-        if (placementStart && placementEnd) {
-          const ps = new Date(placementStart);
-          const pe = new Date(placementEnd);
-          const qs = new Date(req.startDate);
-          const qe = new Date(req.endDate);
-          ps.setHours(0, 0, 0, 0);
-          pe.setHours(0, 0, 0, 0);
-          qs.setHours(0, 0, 0, 0);
-          qe.setHours(0, 0, 0, 0);
-          matchesDates = ps >= qs && pe <= qe;
-        }
-
-        if (isApproved && matchesStudy && matchesProgram && matchesDates) {
-          if (req.entityDistributions && req.entityDistributions.length > 0) {
-            let totalAvailable = 0;
-            for (const entity of req.entityDistributions) {
-              const entityAssignedCount = students.filter(
-                (s) =>
-                  s.assignedPraksisPlace?.placeId === req.praksisPlaceId &&
-                  s.assignedPraksisPlace?.entityId === entity.entityId &&
-                  s.assignedPraksisPlace?.quotaRequestId === req.id,
-              ).length;
-              const entityApprovedCapacity =
-                entity.approvedQuota !== undefined
-                  ? entity.approvedQuota
-                  : entity.requestedQuota;
-              totalAvailable += Math.max(
-                0,
-                entityApprovedCapacity - entityAssignedCount,
-              );
-            }
-            return sum + totalAvailable;
-          } else {
-            const assignedCount = students.filter(
-              (s) =>
-                s.assignedPraksisPlace?.placeId === req.praksisPlaceId &&
-                s.assignedPraksisPlace?.departmentId === req.departmentId &&
-                s.assignedPraksisPlace?.quotaRequestId === req.id,
-            ).length;
-            const approvedCapacity =
-              req.approvedCapacity ?? req.requestedCapacity;
-            return sum + Math.max(0, approvedCapacity - assignedCount);
-          }
-        }
-        return sum;
-      }, 0)
-    : 0;
-
-  const quotaEntityKeys = new Set<string>(
-    coordinatorQuotaRequests.flatMap((req) => {
-      if (req.entityDistributions && req.entityDistributions.length > 0) {
-        return req.entityDistributions.map(
-          (e) =>
-            `${req.praksisPlaceName.toLowerCase()}|${e.entityName.toLowerCase()}`,
-        );
-      }
-      return [
-        `${req.praksisPlaceName.toLowerCase()}|${req.departmentName.toLowerCase()}`,
-      ];
+  // Limits breaking the nesting rules, shown with a danger icon in the panel
+  const limitRuleViolations = new Map(
+    limitTrees.flatMap((t) => {
+      const root = praksisPlaces.find((p) => p.id === t.praksisPlaceId)?.organizationStructure;
+      return root ? [...limitViolations(allLimits.filter((l) => l.praksisPlaceId === t.praksisPlaceId), root)] : [];
     }),
+  );
+
+  const placementEmneRef = (() => {
+    const program = studies
+      .find((st) => st.id === quotaContext.studyId)
+      ?.programs.find((pr) => pr.id === quotaContext.programId);
+    const emne = program?.emner?.find((e) => e.name === quotaContext.emne);
+    return program && emne ? { programId: program.id, emneId: emne.id } : undefined;
+  })();
+
+  // Places this placement can use: every topmost limit's share minus what other placements used
+  const totalLimitPlaces = totalPlacesForPlacement(limitTrees);
+
+  // "place|unit" for every unit the limits cover — used to flag earlier placements at the same unit
+  const quotaEntityKeys = new Set<string>(
+    limitTrees.flatMap((t) => t.units.map((u) => `${t.praksisPlaceName.toLowerCase()}|${u.name.toLowerCase()}`)),
   );
 
   const matchedPriorityApplications = useMemo((): PriorityPlacementApplication[] => {
@@ -358,15 +301,12 @@ export function PlacementTaskView({
     );
   }, [priorityPeriods, priorityApplications, placement]);
 
-  // Praksis places connected to this placement — the places that offer quota
-  // here (selected fixed quotas + coordinator requests) plus any a student is
-  // already assigned to. Used by the StudentsPanel assignment filter.
+  // Praksis places connected to this placement — the places with limits for this emne plus any
+  // a student is already assigned to. Used by the StudentsPanel assignment filter.
   const connectedPraksisPlaces = useMemo(() => {
     const byId = new Map<string, string>();
     quotas.forEach((q) => q.placeId && byId.set(q.placeId, q.placeName));
-    coordinatorQuotaRequests.forEach(
-      (r) => r.praksisPlaceId && byId.set(r.praksisPlaceId, r.praksisPlaceName),
-    );
+    limitTrees.forEach((t) => byId.set(t.praksisPlaceId, t.praksisPlaceName));
     students.forEach((s) => {
       const a = s.assignedPraksisPlace;
       if (a?.placeId) byId.set(a.placeId, a.placeName);
@@ -374,9 +314,9 @@ export function PlacementTaskView({
     return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) =>
       a.name.localeCompare(b.name),
     );
-  }, [quotas, coordinatorQuotaRequests, students]);
+  }, [quotas, limitTrees, students]);
 
-  const totalQuotas = totalCoordinatorApprovedQuotas;
+  const totalQuotas = totalLimitPlaces;
   const currentTask = tasks.find((t) => !t.completed);
   const isFirstPublishCompleted =
     tasks.find((t) => t.step === "2/6")?.completed || false;
@@ -432,155 +372,35 @@ export function PlacementTaskView({
     0,
   );
 
-  const getAvailableQuotaRequests = (): QuotaRequestOption[] => {
-    const result: QuotaRequestOption[] = [];
-
-    for (const request of coordinatorQuotaRequests) {
-      if (request.status !== "approved") continue;
-
-      const matchesStudy =
-        request.studyId ===
-        (metadataFormData.studyId || placement.studyId);
-      const matchesProgram =
-        request.programId ===
-        (metadataFormData.programId || placement.programId);
-      if (!matchesStudy || !matchesProgram) continue;
-
-      if (
-        request.entityDistributions &&
-        request.entityDistributions.length > 0
-      ) {
-        for (const entity of request.entityDistributions) {
-          const capacity = entity.approvedQuota ?? entity.requestedQuota;
-          const assignedCount = students.filter(
-            (s) =>
-              s.assignedPraksisPlace?.quotaRequestId === request.id &&
-              s.assignedPraksisPlace?.entityId === entity.entityId,
-          ).length;
-          const crossConsumed = allPlacementsData.flatMap((d) => d.students).filter(
-            (s) =>
-              s.assignedPraksisPlace?.quotaRequestId === request.id &&
-              s.assignedPraksisPlace?.entityId === entity.entityId,
-          ).length;
-          const availableCount = capacity - crossConsumed - assignedCount;
-          if (availableCount <= 0) continue;
-
-          result.push({
-            id: `${request.id}-${entity.id}`,
-            praksisPlaceId: request.praksisPlaceId,
-            praksisPlaceName: request.praksisPlaceName,
-            departmentId: entity.entityId,
-            departmentName: entity.entityName,
-            requestedCapacity: entity.requestedQuota,
-            approvedCapacity: entity.approvedQuota,
-            startDate: request.startDate,
-            endDate: request.endDate,
-            emne: request.emne,
-            studyId: request.studyId,
-            programId: request.programId,
-            assignedCount,
-            availableCount,
-            _quotaRequestId: request.id,
-            _entityId: entity.entityId,
-          });
-        }
-      } else {
-        const approvedCapacity =
-          request.approvedCapacity ?? request.requestedCapacity;
-        const assignedCount = students.filter(
-          (s) => s.assignedPraksisPlace?.quotaRequestId === request.id,
-        ).length;
-        const crossConsumed = allPlacementsData.flatMap((d) => d.students).filter(
-          (s) => s.assignedPraksisPlace?.quotaRequestId === request.id,
-        ).length;
-        const availableCount = approvedCapacity - crossConsumed - assignedCount;
-        if (availableCount <= 0) continue;
-
-        result.push({
-          id: request.id,
-          praksisPlaceId: request.praksisPlaceId,
-          praksisPlaceName: request.praksisPlaceName,
-          departmentId: request.departmentId,
-          departmentName: request.departmentName,
-          requestedCapacity: request.requestedCapacity,
-          approvedCapacity: request.approvedCapacity,
-          startDate: request.startDate,
-          endDate: request.endDate,
-          emne: request.emne,
-          studyId: request.studyId,
-          programId: request.programId,
-          assignedCount,
-          availableCount,
-          _quotaRequestId: request.id,
-          _entityId: undefined,
-        });
-      }
-    }
-
-    return result;
-  };
-
-  // ── Auto-import approved coordinator quota requests ───────────────────────
-  const autoImportApprovedQuotaRequests = (): number => {
-    const approvedRequests = coordinatorQuotaRequests.filter(
-      (request) =>
-        request.placementId === placement.id &&
-        request.status === "approved" &&
-        !importedCoordinatorRequestIds.current.has(request.id),
-    );
-
-    if (approvedRequests.length === 0) return 0;
-
-    const updatedQuotasMap = new Map<string, QuotaSelection>();
-    quotas.forEach((quota) => {
-      updatedQuotasMap.set(`${quota.placeId}-${quota.departmentId}`, {
-        ...quota,
-      });
+  // Praksis places with usable units, for the per-student assign dialog. Every unit shows the
+  // places left there; full ones are disabled in the dialog.
+  const getAvailableQuotaRequests = (): QuotaRequestOption[] =>
+    limitTrees.map((t) => {
+      const left = t.nodes.filter((n) => n.depth === 0).reduce((sum, n) => sum + n.remaining, 0);
+      return {
+        id: t.praksisPlaceId,
+        praksisPlaceId: t.praksisPlaceId,
+        praksisPlaceName: t.praksisPlaceName,
+        departmentId: "",
+        departmentName: "",
+        requestedCapacity: left,
+        startDate: quotaContext.startDate,
+        endDate: metadataFormData.endDate || placement.endDate,
+        emne: quotaContext.emne,
+        studyId: quotaContext.studyId,
+        programId: quotaContext.programId,
+        assignedCount: 0,
+        availableCount: left,
+        _quotaRequestId: "",
+        units: t.units.map((u) => ({
+          id: u.id,
+          name: u.name,
+          depth: u.depth,
+          remaining: u.effectiveRemaining,
+          limitingName: u.limitingName,
+        })),
+      };
     });
-
-    let newImportCount = 0;
-    approvedRequests.forEach((request) => {
-      const key = `${request.praksisPlaceId}-${request.departmentId}`;
-      if (!updatedQuotasMap.has(key)) {
-        updatedQuotasMap.set(key, {
-          placeId: request.praksisPlaceId,
-          placeName: request.praksisPlaceName,
-          departmentId: request.departmentId,
-          departmentName: request.departmentName,
-          fixedQuota: request.requestedCapacity,
-          requestQuota: 0,
-        });
-        newImportCount++;
-      }
-      importedCoordinatorRequestIds.current.add(request.id);
-    });
-
-    if (newImportCount > 0) {
-      const updatedQuotas = Array.from(updatedQuotasMap.values());
-      setQuotas(updatedQuotas);
-      setQuotasSelected(true);
-
-      if (onTaskStateUpdateRef.current) {
-        const completedTaskIds = tasks.filter((t) => t.completed).map((t) => t.id);
-        const allAssigned =
-          students.length > 0 && students.every((s) => s.assignedPraksisPlace);
-        onTaskStateUpdateRef.current({
-          placementId: placement.id,
-          studentsImported,
-          students,
-          quotasSelected: true,
-          quotas: updatedQuotas,
-          firstPublished: tasks.find((t) => t.step === "2/6")?.completed || false,
-          studentsAssigned: allAssigned,
-          documentsAttached: tasks.find((t) => t.step === "5/6")?.completed || false,
-          finalPublished: tasks.find((t) => t.step === "6/6")?.completed || false,
-          completedTasks: completedTaskIds,
-        });
-      }
-    }
-
-    return newImportCount;
-  };
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -622,37 +442,20 @@ export function PlacementTaskView({
     }
   };
 
-  // Quota requests that match a placement by attributes — same rule the
-  // Available Quotas panel uses: study + programme + emne equal, and the
-  // placement period falls within the request's window. Praksis place is
-  // ignored, so requests at *other* places are matched too.
-  const findMatchingRequests = (m: {
-    studyId: string;
-    programId: string;
-    emne?: string;
-    startDate: string;
-    endDate: string;
-  }): CoordinatorQuotaRequest[] => {
-    if (!m.studyId || !m.programId || !m.startDate || !m.endDate) return [];
-    const ps = new Date(m.startDate), pe = new Date(m.endDate);
-    return coordinatorQuotaRequests.filter((r) => {
-      if (r.studyId !== m.studyId || r.programId !== m.programId) return false;
-      if (m.emne && r.emne && r.emne !== m.emne) return false;
-      if (!r.startDate || !r.endDate) return false;
-      return ps >= new Date(r.startDate) && pe <= new Date(r.endDate);
+  // Tell the user which limits the chosen emne can use
+  const notifyLimits = (m: typeof quotaContext) => {
+    const trees = limitTreeForPlacement(allLimits, praksisPlaces, m, students, allPlacementsData);
+    if (trees.length === 0) {
+      toast.info(`No limit for ${m.emne || "this emne"} yet`, {
+        description: "Add one under Praksis places → Limits to start assigning students.",
+      });
+      return;
+    }
+    const places = trees.map((t) => t.praksisPlaceName);
+    const n = trees.reduce((sum, t) => sum + t.nodes.length, 0);
+    toast.success(`${n} limit${n > 1 ? "s" : ""} available for ${m.emne}`, {
+      description: `${places.join(", ")} — shown in Available limits for this placement.`,
     });
-  };
-
-  // Tell the user which matching requests were pulled into Available Quotas.
-  const notifyMatches = (matches: CoordinatorQuotaRequest[], excludeId?: string) => {
-    const others = matches.filter((r) => r.id !== excludeId);
-    if (others.length === 0) return;
-    const places = [...new Set(others.map((r) => r.praksisPlaceName))];
-    const n = others.length;
-    toast.success(
-      `${excludeId ? "Also matched" : "Matched"} ${n} quota request${n > 1 ? "s" : ""}`,
-      { description: `${places.join(", ")} — added to Available Quotas for this placement.` },
-    );
   };
 
   const handleMetadataFormSubmit = (e: React.FormEvent) => {
@@ -678,62 +481,18 @@ export function PlacementTaskView({
       onPlacementStatusUpdate(placement.id, "upload");
     }
 
-    // Blank placement: surface every quota request that matches what was entered.
-    notifyMatches(
-      findMatchingRequests({
-        studyId: metadataFormData.studyId,
-        programId: metadataFormData.programId,
-        emne: metadataFormData.subject,
-        startDate: metadataFormData.startDate,
-        endDate: metadataFormData.endDate,
-      }),
-    );
+    notifyLimits({
+      studyId: metadataFormData.studyId,
+      programId: metadataFormData.programId,
+      emne: metadataFormData.subject,
+      startDate: metadataFormData.startDate,
+      year: metadataFormData.year,
+      semester: metadataFormData.semester,
+    });
 
     if (onboardingStep === 3 && setOnboardingStep) {
       setOnboardingStep(0);
     }
-  };
-
-  // Create the placement from a chosen quota request (confirmed on the Confirm
-  // screen): derive metadata from the request + the confirmed title/dates, then
-  // move the draft into the task workflow.
-  const applyRequest = (
-    req: CoordinatorQuotaRequest,
-    overrides: { title: string; startDate: string; endDate: string; totalPraksisHours?: number },
-  ) => {
-    const start = overrides.startDate || req.startDate;
-    const [yearStr, monthStr] = (start || "").split("-");
-    const year = yearStr || "";
-    const semester = parseInt(monthStr || "1", 10) < 7 ? "Spring" : "Autumn";
-
-    onPlacementMetadataUpdate?.(placement.id, {
-      title: overrides.title,
-      year,
-      semester,
-      subject: req.emne || "",
-      startDate: start,
-      endDate: overrides.endDate || req.endDate,
-      students: 50,
-      studyId: req.studyId,
-      programId: req.programId,
-      totalPraksisHours: overrides.totalPraksisHours,
-    });
-    if (placement.status === "draft") {
-      onPlacementStatusUpdate?.(placement.id, "upload");
-    }
-
-    // Surface any *other* requests that also match this placement (e.g. the
-    // same study/programme/emne offered at a different praksis place).
-    notifyMatches(
-      findMatchingRequests({
-        studyId: req.studyId,
-        programId: req.programId,
-        emne: req.emne,
-        startDate: start,
-        endDate: overrides.endDate || req.endDate,
-      }),
-      req.id,
-    );
   };
 
   const handleCancelDraft = () => {
@@ -931,7 +690,7 @@ export function PlacementTaskView({
         selectedQuotaForAssignment.praksisPlaceId,
         selectedQuotaForAssignment.departmentId,
         false,
-        selectedQuotaForAssignment.requestId,
+        undefined, // only the unit is stored — limit usage is worked out from where students are
         selectedQuotaForAssignment.entityId,
       );
     });
@@ -947,10 +706,11 @@ export function PlacementTaskView({
     studentId: string,
     placeId: string,
     deptId: string,
-    requestId: string,
+    _requestId: string,
     entityId?: string,
   ) => {
-    handleAssignStudent(studentId, placeId, deptId, false, requestId, entityId);
+    // Only the unit is stored — limit usage is worked out from where students are placed
+    handleAssignStudent(studentId, placeId, deptId, false, undefined, entityId);
     setIsQuotaSelectionDialogOpen(false);
     setSelectedStudent(null);
   };
@@ -1131,15 +891,6 @@ export function PlacementTaskView({
     }
   };
 
-  const handleRequestQuotaSubmit = (
-    requestData: Omit<CoordinatorQuotaRequest, "id" | "requestedDate" | "status">,
-  ) => {
-    if (onCoordinatorQuotaRequestCreate) {
-      onCoordinatorQuotaRequestCreate(requestData);
-      setIsRequestQuotaModalOpen(false);
-    }
-  };
-
   const handleQuickAssign = (quotaInfo: {
     requestId: string;
     praksisPlaceId: string;
@@ -1160,87 +911,6 @@ export function PlacementTaskView({
     }
     setSelectedQuotaForAssignment(quotaInfo);
     setIsQuickAssignModalOpen(true);
-  };
-
-  const handleRequestMoreQuotas = () => setIsRequestQuotaModalOpen(true);
-
-  const handleApproveRequest = async (
-    requestId: string,
-    approvedCapacity: number,
-    entityId?: string,
-  ) => {
-    if (!onCoordinatorQuotaRequestUpdate) return;
-
-    if (entityId) {
-      const request = coordinatorQuotaRequests.find((r) => r.id === requestId);
-      if (request?.entityDistributions) {
-        const updatedDistributions = request.entityDistributions.map((e) =>
-          e.entityId === entityId ? { ...e, approvedQuota: approvedCapacity } : e,
-        );
-        const allApproved = updatedDistributions.every(
-          (e) => e.approvedQuota !== undefined,
-        );
-        onCoordinatorQuotaRequestUpdate(requestId, {
-          entityDistributions: updatedDistributions,
-          ...(allApproved ? { status: "approved" as const } : {}),
-        });
-        toast.success(
-          `Approved capacity of ${approvedCapacity} for ${request.entityDistributions.find((e) => e.entityId === entityId)?.entityName ?? entityId}`,
-        );
-      }
-    } else {
-      onCoordinatorQuotaRequestUpdate(requestId, {
-        status: "approved",
-        approvedCapacity,
-      });
-      toast.success(
-        `Quota request approved with capacity of ${approvedCapacity}`,
-      );
-    }
-  };
-
-  const handleEditRequest = (requestId: string) => {
-    const request = coordinatorQuotaRequests.find((r) => r.id === requestId);
-    if (request) {
-      setEditingQuotaRequest(request);
-      setIsRequestQuotaModalOpen(true);
-    }
-  };
-
-  const handleDeleteRequest = (requestId: string, entityId?: string) => {
-    if (!onCoordinatorQuotaRequestUpdate) return;
-
-    if (entityId) {
-      const request = coordinatorQuotaRequests.find((r) => r.id === requestId);
-      if (request?.entityDistributions) {
-        const updatedDistributions = request.entityDistributions.filter(
-          (e) => e.entityId !== entityId,
-        );
-        if (updatedDistributions.length === 0) {
-          onCoordinatorQuotaRequestUpdate(requestId, { status: "rejected" });
-        } else {
-          onCoordinatorQuotaRequestUpdate(requestId, {
-            entityDistributions: updatedDistributions,
-          });
-        }
-        toast.success("Entity removed from quota request");
-      }
-    } else {
-      onCoordinatorQuotaRequestUpdate(requestId, { status: "rejected" });
-      toast.success("Quota request deleted successfully");
-    }
-  };
-
-  const handleUpdateQuotaRequest = (
-    requestId: string,
-    updates: Partial<CoordinatorQuotaRequest>,
-  ) => {
-    if (onCoordinatorQuotaRequestUpdate) {
-      onCoordinatorQuotaRequestUpdate(requestId, updates);
-      setIsRequestQuotaModalOpen(false);
-      setEditingQuotaRequest(null);
-      toast.success("Quota request updated successfully");
-    }
   };
 
   const handleAIAction = (action: string, data: any) => {
@@ -1338,13 +1008,6 @@ export function PlacementTaskView({
     }
   }, [initialTaskState]);
 
-  // Auto-import approved coordinator quota requests
-  useEffect(() => {
-    if (coordinatorQuotaRequests.length > 0 && placement.id) {
-      autoImportApprovedQuotaRequests();
-    }
-  }, [coordinatorQuotaRequests, placement.id]);
-
   // Sync state back to parent
   useEffect(() => {
     if (onTaskStateUpdateRef.current) {
@@ -1379,122 +1042,45 @@ export function PlacementTaskView({
 
   // ── Pre-computed modal data ───────────────────────────────────────────────
 
-  const networkDiagramStudents = students.map((s) => ({
-    id: s.id,
-    name: s.name,
-    assignedPlace: s.assignedPraksisPlace
-      ? {
-          placeId: s.assignedPraksisPlace.placeId,
-          placeName: s.assignedPraksisPlace.placeName,
-          departmentId: s.assignedPraksisPlace.departmentId,
-          departmentName: s.assignedPraksisPlace.departmentName,
-          quotaRequestId: s.assignedPraksisPlace.quotaRequestId,
-          entityId: s.assignedPraksisPlace.entityId,
-        }
-      : undefined,
-  }));
+  // Students are drawn under the nearest limit above the unit they're placed in
+  const networkDiagramStudents = students.map((s) => {
+    const a = s.assignedPraksisPlace;
+    const unit = a
+      ? limitTrees
+          .find((t) => t.praksisPlaceId === a.placeId)
+          ?.units.find((u) => u.id === (a.entityId ?? a.departmentId))
+      : undefined;
+    return {
+      id: s.id,
+      name: s.name,
+      assignedPlace: a
+        ? {
+            placeId: a.placeId,
+            placeName: a.placeName,
+            departmentId: unit ? unit.governingNodeId : a.departmentId,
+            departmentName: unit ? unit.governingName : a.departmentName,
+            quotaRequestId: unit?.governingLimitId,
+            entityId: unit ? unit.governingNodeId : a.entityId,
+          }
+        : undefined,
+    };
+  });
 
-  const placementStudyId = metadataFormData.studyId || placement.studyId;
   const placementProgramId = metadataFormData.programId || placement.programId;
-  const placementStartDate = metadataFormData.startDate || placement.startDate;
-  const placementEndDate = metadataFormData.endDate || placement.endDate;
-  const placementEmne = metadataFormData.emne || (placement as any).emne;
+  const placementEmne = quotaContext.emne;
 
-  const networkDiagramQuotas = (coordinatorQuotaRequests || [])
-    .filter((req) => {
-      if (
-        req.studyId !== placementStudyId ||
-        req.programId !== placementProgramId
-      )
-        return false;
-      if (placementEmne && req.emne && req.emne !== placementEmne) return false;
-      if (req.status !== "approved" && req.status !== "pending") return false;
-      if (
-        placementStartDate &&
-        placementEndDate &&
-        req.startDate &&
-        req.endDate
-      ) {
-        const ps = new Date(placementStartDate);
-        const pe = new Date(placementEndDate);
-        const qs = new Date(req.startDate);
-        const qe = new Date(req.endDate);
-        ps.setHours(0, 0, 0, 0);
-        pe.setHours(0, 0, 0, 0);
-        qs.setHours(0, 0, 0, 0);
-        qe.setHours(0, 0, 0, 0);
-        if (!(ps >= qs && pe <= qe)) return false;
-      }
-      return true;
-    })
-    .flatMap((req) => {
-      if (req.entityDistributions && req.entityDistributions.length > 0) {
-        return req.entityDistributions.map((entity) => {
-          const assignedCount = students.filter(
-            (s) =>
-              s.assignedPraksisPlace?.placeId === req.praksisPlaceId &&
-              s.assignedPraksisPlace?.entityId === entity.entityId &&
-              s.assignedPraksisPlace?.quotaRequestId === req.id,
-          ).length;
-          return {
-            requestId: req.id,
-            placeId: req.praksisPlaceId,
-            placeName: req.praksisPlaceName,
-            departmentId: entity.entityId,
-            departmentName: entity.entityName,
-            currentAssigned: assignedCount,
-            quota:
-              req.status === "approved" ? (entity.approvedQuota ?? 0) : 0,
-            status: req.status,
-          };
-        });
-      } else {
-        const assignedCount = students.filter(
-          (s) =>
-            s.assignedPraksisPlace?.placeId === req.praksisPlaceId &&
-            s.assignedPraksisPlace?.departmentId === req.departmentId &&
-            s.assignedPraksisPlace?.quotaRequestId === req.id,
-        ).length;
-        return [
-          {
-            requestId: req.id,
-            placeId: req.praksisPlaceId,
-            placeName: req.praksisPlaceName,
-            departmentId: req.departmentId,
-            departmentName: req.departmentName,
-            currentAssigned: assignedCount,
-            quota:
-              req.status === "approved"
-                ? (req.approvedCapacity ?? req.requestedCapacity)
-                : 0,
-            status: req.status,
-          },
-        ];
-      }
-    });
-
-  const requestQuotaPlacementData = {
-    id: placement.id,
-    studyId: placementStudyId,
-    studyName:
-      studies.find((s) => s.id === placementStudyId)?.name || "",
-    programId: placementProgramId,
-    programName:
-      studies
-        .find((s) => s.id === placementStudyId)
-        ?.programs.find((p) => p.id === placementProgramId)?.name || "",
-    universityId: "U1",
-    universityName: "University of Oslo",
-    startDate: placementStartDate,
-    endDate: placementEndDate,
-  };
-
-  const existingQuotasForRequest = quotas.map((q) => ({
-    praksisPlaceId: (q as any).praksisPlaceId || q.placeId,
-    praksisPlaceName: (q as any).praksisPlaceName || q.placeName,
-    departmentId: q.departmentId,
-    departmentName: q.departmentName,
-  }));
+  const networkDiagramQuotas = limitTrees.flatMap((t) =>
+    t.nodes.map((n) => ({
+      requestId: n.limit.id,
+      placeId: t.praksisPlaceId,
+      placeName: t.praksisPlaceName,
+      departmentId: n.limit.entityId,
+      departmentName: n.limit.entityName,
+      currentAssigned: n.used,
+      quota: n.share - n.usedElsewhere,
+      status: "approved",
+    })),
+  );
 
   const aiCurrentTaskIndex =
     tasks.findIndex((t) => !t.completed) >= 0
@@ -1525,9 +1111,8 @@ export function PlacementTaskView({
                 Welcome! Let's Get Started
               </AlertTitle>
               <AlertDescription className="text-blue-800">
-                {showBlankForm
-                  ? "Fill in the placement details below to create your student placement program."
-                  : "Pick an approved request to start a placement matched to it — or start a blank placement to fill the details yourself."}
+                Fill in the placement details below. Students can only be placed with Praksis place
+                limits that include the selected emne.
               </AlertDescription>
             </Alert>
           </div>
@@ -1556,36 +1141,17 @@ export function PlacementTaskView({
         {/* Content */}
         <div className="bg-white">
           {placement.status === "draft" ? (
-            showBlankForm ? (
-              <PlacementMetadataForm
-                formData={metadataFormData}
-                studies={studies}
-                dateValidationError={dateValidationError}
-                startDateInputRef={startDateInputRef}
-                endDateInputRef={endDateInputRef}
-                onChange={setMetadataFormData}
-                onSubmit={handleMetadataFormSubmit}
-                onCancel={handleCancelDraft}
-              />
-            ) : confirmRequest ? (
-              <ConfirmPlacementDetails
-                request={confirmRequest}
-                studyName={
-                  studies.find((s) => s.id === confirmRequest.studyId)?.name ||
-                  confirmRequest.studyName ||
-                  ""
-                }
-                onBack={() => setConfirmRequest(null)}
-                onCreate={(data) => applyRequest(confirmRequest, data)}
-              />
-            ) : (
-              <NewPlacementPicker
-                requests={coordinatorQuotaRequests}
-                onUseRequest={(req) => setConfirmRequest(req)}
-                onStartBlank={() => setShowBlankForm(true)}
-                onRequestQuota={onRequestQuota}
-              />
-            )
+            // New placements always start blank
+            <PlacementMetadataForm
+              formData={metadataFormData}
+              studies={studies}
+              dateValidationError={dateValidationError}
+              startDateInputRef={startDateInputRef}
+              endDateInputRef={endDateInputRef}
+              onChange={setMetadataFormData}
+              onSubmit={handleMetadataFormSubmit}
+              onCancel={handleCancelDraft}
+            />
           ) : (
             <div className="space-y-4 pt-6">
               {/* Validation alerts */}
@@ -1596,14 +1162,13 @@ export function PlacementTaskView({
                   <Alert className="bg-amber-50 border-amber-200">
                     <Info className="h-4 w-4 text-amber-600" />
                     <AlertTitle className="text-amber-900">
-                      Insufficient Quotas
+                      Not enough places
                     </AlertTitle>
                     <AlertDescription className="text-amber-800">
-                      You have {students.length} students but only {totalQuotas}{" "}
-                      quota{totalQuotas !== 1 ? "s" : ""}. Add{" "}
-                      {students.length - totalQuotas} more quota
-                      {students.length - totalQuotas !== 1 ? "s" : ""} to
-                      complete this step.
+                      You have {students.length} students but the limits for this emne
+                      only have {totalQuotas} place{totalQuotas !== 1 ? "s" : ""} for this
+                      placement. Raise or add limits under Praksis places → Limits for{" "}
+                      {students.length - totalQuotas} more.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -1615,8 +1180,8 @@ export function PlacementTaskView({
                     Import Students
                   </AlertTitle>
                   <AlertDescription className="text-blue-800">
-                    You have allocated {totalQuotas} quota
-                    {totalQuotas !== 1 ? "s" : ""}. Import students to continue
+                    The limits for this emne have {totalQuotas} place
+                    {totalQuotas !== 1 ? "s" : ""} for this placement. Import students to continue
                     with the placement process.
                   </AlertDescription>
                 </Alert>
@@ -1635,27 +1200,28 @@ export function PlacementTaskView({
 
               {/* Split panel: quotas sidebar + students */}
               <div className="flex gap-4 items-start">
-                {/* Left panel: Available Quotas (sticky sidebar) */}
+                {/* Left panel: Available limits (sticky sidebar) */}
                 {!isStudentsExpanded && (
                   <div className="w-[400px] flex-shrink-0 sticky top-6 max-h-[calc(100vh-220px)] overflow-y-auto rounded-lg border border-gray-200 bg-white">
-                    <AvailableQuotasTable
-                      coordinatorQuotaRequests={coordinatorQuotaRequests}
+                    <AvailableLimitsPanel
+                      trees={limitTrees}
+                      violations={limitRuleViolations}
                       students={students}
-                      crossPlacementData={allPlacementsData}
-                      praksisPlaces={praksisPlaces}
-                      placementId={placement.id}
-                      studyId={placementStudyId}
-                      programId={placementProgramId}
                       emne={placementEmne}
-                      startDate={placementStartDate}
-                      endDate={placementEndDate}
+                      hasPlacementDetails={!!(placementProgramId && placementEmne)}
                       isPublished={isFirstPublishCompleted}
                       readOnly={isAssignmentPublished}
                       onQuickAssign={handleQuickAssign}
-                      onRequestMoreQuotas={handleRequestMoreQuotas}
-                      onApproveRequest={handleApproveRequest}
-                      onEditRequest={handleEditRequest}
-                      onDeleteRequest={handleDeleteRequest}
+                      onPublishRequired={() => setShowPublishWarning(true)}
+                      onOpenLimits={onRequestQuota}
+                      onEditLimit={
+                        placementEmneRef
+                          ? (limitId) => {
+                              const limit = allLimits.find((l) => l.id === limitId);
+                              if (limit) setEditingLimit(limit);
+                            }
+                          : undefined
+                      }
                     />
                   </div>
                 )}
@@ -1689,6 +1255,22 @@ export function PlacementTaskView({
           )}
         </div>
 
+        {editingLimit && (
+          <AddLimitModal
+            place={praksisPlaces.find((p) => p.id === editingLimit.praksisPlaceId)}
+            entity={{ id: editingLimit.entityId, name: editingLimit.entityName }}
+            existingLimits={allLimits}
+            studies={studies}
+            fixedEmne={placementEmneRef}
+            editingLimit={editingLimit}
+            onClose={() => setEditingLimit(null)}
+            onSave={(saved) => {
+              savePraksisLimits(saved);
+              toast.success("Limit updated");
+            }}
+          />
+        )}
+
         {/* All modals and overlays */}
         <PlacementModals
           isTasksModalOpen={isTasksModalOpen}
@@ -1720,21 +1302,6 @@ export function PlacementTaskView({
           existingQuotas={quotas}
           onCloseManageQuota={() => setIsManageQuotaModalOpen(false)}
           onSaveQuotas={handleSaveQuotas}
-          isRequestQuotaModalOpen={isRequestQuotaModalOpen}
-          editingQuotaRequest={editingQuotaRequest}
-          requestQuotaPlacementData={requestQuotaPlacementData}
-          existingQuotasForRequest={existingQuotasForRequest}
-          currentUserName={currentUserName}
-          coordinatorQuotaRequestsForPlacement={coordinatorQuotaRequests.filter(
-            (req) => req.placementId === placement.id,
-          )}
-          nodeSlots={nodeSlots}
-          onCloseRequestQuota={() => {
-            setIsRequestQuotaModalOpen(false);
-            setEditingQuotaRequest(null);
-          }}
-          onRequestQuotaSubmit={handleRequestQuotaSubmit}
-          onUpdateQuotaRequest={handleUpdateQuotaRequest}
           isAISidebarOpen={isAISidebarOpen}
           onCloseAISidebar={() => onAISidebarChange?.(false)}
           onAIAction={handleAIAction}

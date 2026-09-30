@@ -20,7 +20,10 @@ import {
 } from "lucide-react";
 import { PraksisPlace } from "../types/praksisPlace";
 import { DashboardSettings, Study } from "./SettingsView";
-import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
+import {
+  CoordinatorQuotaRequest,
+  PERMANENT_END_DATE,
+} from "../types/coordinatorQuotaRequest";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1362,10 +1365,12 @@ export function Dashboard({
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2 text-sm text-gray-600">
                               <Calendar className="h-4 w-4" />
-                              {formatQuotaDateRange(
-                                request.startDate,
-                                request.endDate,
-                              )}
+                              {request.endDate === PERMANENT_END_DATE
+                                ? "Permanent"
+                                : formatQuotaDateRange(
+                                    request.startDate,
+                                    request.endDate,
+                                  )}
                             </div>
                           </td>
                         )}

@@ -12,7 +12,66 @@ export interface EntityDistribution {
   contactPersonId?: string; // Contact person ID for this specific entity
   contactPersonName?: string; // Contact person name for this specific entity
   contactPersonEmail?: string; // Contact person email for this specific entity
+  reservationType?: 'permanent' | 'deadline'; // Permanent reservation or usable until a deadline
+  deadline?: string; // yyyy-MM-dd; required when reservationType is 'deadline'
+  requiresApproval?: boolean; // Whether the praksis place must approve this entity's quota
 }
+
+// endDate used for permanent reservations so period filters and timelines keep working
+export const PERMANENT_END_DATE = "9999-12-31";
+
+// Human-readable reservation for an entity; falls back to the request period for legacy data
+export const formatReservation = (
+  entity: Pick<EntityDistribution, 'reservationType' | 'deadline'>,
+  request: Pick<CoordinatorQuotaRequest, 'startDate' | 'endDate'>,
+): string => {
+  const fmt = (d: string) =>
+    new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  if (entity.reservationType === 'permanent') return "Permanent";
+  if (entity.reservationType === 'deadline' && entity.deadline) return `Until ${fmt(entity.deadline)}`;
+  if (request.endDate === PERMANENT_END_DATE) return "Permanent";
+  return `${fmt(request.startDate)} - ${fmt(request.endDate)}`;
+};
+
+// Request-level status/approval derived from its entities: approved only when every entity is
+export const deriveRequestApproval = (
+  entities: EntityDistribution[],
+): Pick<CoordinatorQuotaRequest, 'status' | 'approvedCapacity'> & { allApproved: boolean } => {
+  const approved = entities.filter((e) => e.status === 'approved');
+  const allApproved = entities.length > 0 && approved.length === entities.length;
+  return {
+    status: allApproved ? 'approved' : 'pending',
+    approvedCapacity:
+      approved.length > 0 ? approved.reduce((sum, e) => sum + (e.approvedQuota ?? 0), 0) : undefined,
+    allApproved,
+  };
+};
+
+// Emner covered by a request (new requests use emner[]; legacy ones a single emne)
+export const getRequestEmner = (
+  request: Pick<CoordinatorQuotaRequest, 'emne' | 'emner'>,
+): string[] => request.emner ?? (request.emne ? [request.emne] : []);
+
+// A placement can only use quota configured in Capacity planning for its study, program and emne,
+// that is not rejected and whose reservation is still valid when the placement starts.
+export const requestUsableForPlacement = (
+  request: CoordinatorQuotaRequest,
+  placement: { studyId?: string; programId?: string; emne?: string; startDate?: string },
+): boolean => {
+  if (!placement.studyId || !placement.programId || !placement.emne) return false;
+  if (request.studyId !== placement.studyId || request.programId !== placement.programId) return false;
+  if (!getRequestEmner(request).includes(placement.emne)) return false;
+  if (request.status === 'rejected') return false;
+  if (placement.startDate && request.endDate && request.endDate < placement.startDate) return false;
+  return true;
+};
+
+export const isDeadlineExpired =(entity: Pick<EntityDistribution, 'reservationType' | 'deadline'>): boolean => {
+  if (entity.reservationType !== 'deadline' || !entity.deadline) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(entity.deadline) < today;
+};
 
 export interface CoordinatorQuotaRequest {
   id: string;
@@ -38,7 +97,8 @@ export interface CoordinatorQuotaRequest {
   studyName: string;
   programId: string;
   programName: string;
-  emne?: string; // Optional course/subject field
+  emne?: string; // Optional course/subject field (joined emner for new requests)
+  emner?: string[]; // Selected emner sharing this request's quota pool
   
   // Request details
   requestedCapacity: number;
@@ -59,152 +119,5 @@ export interface CoordinatorQuotaRequest {
   notes?: string; // PK person's original request notes
 }
 
-// Mock data for Coordinator Quota Requests — connected to mockStudentPlacements
-// (sp-1: Oslo University Hospital HF; sp-2: Bergen Kommune). Entities and
-// capacities line up with the students assigned in mockPlacementTaskStates.
-export const mockCoordinatorQuotaRequests: CoordinatorQuotaRequest[] = [
-  {
-    id: "cqr-sp1-oslo",
-    placementId: "sp-1",
-    praksisPlaceId: "place-oslo-university-hospital",
-    praksisPlaceName: "Oslo University Hospital HF",
-    entityDistributions: [
-      {
-        id: "ed-sp1-emergency",
-        entityId: "dept-emergency",
-        entityName: "Emergency Department",
-        requestedQuota: 3,
-        approvedQuota: 3,
-        consumedQuota: 2,
-        status: "approved",
-      },
-      {
-        id: "ed-sp1-pediatrics",
-        entityId: "dept-pediatrics",
-        entityName: "Pediatrics",
-        requestedQuota: 2,
-        approvedQuota: 1,
-        consumedQuota: 1,
-        status: "approved",
-      },
-    ],
-    departmentId: "dept-emergency",
-    departmentName: "Emergency Department",
-    universityId: "U1",
-    universityName: "University of Oslo",
-    studyId: "1",
-    studyName: "Helse-, sosial og idrettsfag",
-    programId: "1-1",
-    programName: "Nursing",
-    emne: "SYK301",
-    requestedCapacity: 5,
-    approvedCapacity: 4,
-    startDate: "2026-01-15",
-    endDate: "2026-05-30",
-    status: "approved",
-    requestedBy: "John Coordinator",
-    requestedDate: "2025-11-10T09:00:00.000Z",
-    approvedDate: "2025-11-14T10:30:00.000Z",
-    approvedBy: "Sarah Contact",
-  },
-  {
-    id: "cqr-sp1-oslo-surgery",
-    placementId: "sp-1",
-    praksisPlaceId: "place-oslo-university-hospital",
-    praksisPlaceName: "Oslo University Hospital HF",
-    entityDistributions: [
-      {
-        id: "ed-sp1-surgery",
-        entityId: "dept-surgery",
-        entityName: "Surgery",
-        requestedQuota: 2,
-        status: "pending",
-      },
-    ],
-    departmentId: "dept-surgery",
-    departmentName: "Surgery",
-    universityId: "U1",
-    universityName: "University of Oslo",
-    studyId: "1",
-    studyName: "Helse-, sosial og idrettsfag",
-    programId: "1-1",
-    programName: "Nursing",
-    emne: "SYK301",
-    requestedCapacity: 2,
-    startDate: "2026-01-15",
-    endDate: "2026-05-30",
-    status: "pending",
-    requestedBy: "John Coordinator",
-    requestedDate: "2025-11-20T09:00:00.000Z",
-  },
-  {
-    id: "cqr-sp1-bergen",
-    placementId: "sp-1",
-    praksisPlaceId: "place-bergen-kommune",
-    praksisPlaceName: "Bergen Kommune",
-    entityDistributions: [
-      {
-        id: "ed-sp1-bergen-primary",
-        entityId: "dept-primary-care",
-        entityName: "Primary Care",
-        requestedQuota: 2,
-        approvedQuota: 2,
-        consumedQuota: 0,
-        status: "approved",
-      },
-    ],
-    departmentId: "dept-primary-care",
-    departmentName: "Primary Care",
-    universityId: "U1",
-    universityName: "University of Oslo",
-    studyId: "1",
-    studyName: "Helse-, sosial og idrettsfag",
-    programId: "1-1",
-    programName: "Nursing",
-    emne: "SYK301",
-    requestedCapacity: 2,
-    approvedCapacity: 2,
-    startDate: "2026-01-15",
-    endDate: "2026-05-30",
-    status: "approved",
-    requestedBy: "John Coordinator",
-    requestedDate: "2025-11-12T09:00:00.000Z",
-    approvedDate: "2025-11-15T10:00:00.000Z",
-    approvedBy: "Sarah Contact",
-  },
-  {
-    id: "cqr-sp2-bergen",
-    placementId: "sp-2",
-    praksisPlaceId: "place-bergen-kommune",
-    praksisPlaceName: "Bergen Kommune",
-    entityDistributions: [
-      {
-        id: "ed-sp2-primary",
-        entityId: "dept-primary-care",
-        entityName: "Primary Care",
-        requestedQuota: 4,
-        approvedQuota: 3,
-        consumedQuota: 2,
-        status: "approved",
-      },
-    ],
-    departmentId: "dept-primary-care",
-    departmentName: "Primary Care",
-    universityId: "U1",
-    universityName: "University of Oslo",
-    studyId: "1",
-    studyName: "Helse-, sosial og idrettsfag",
-    programId: "1-1",
-    programName: "Nursing",
-    emne: "SYK201",
-    requestedCapacity: 4,
-    approvedCapacity: 3,
-    startDate: "2026-08-20",
-    endDate: "2026-12-15",
-    status: "approved",
-    requestedBy: "John Coordinator",
-    requestedDate: "2026-05-12T09:00:00.000Z",
-    approvedDate: "2026-05-16T11:00:00.000Z",
-    approvedBy: "Sarah Contact",
-  },
-];
+// Capacity planning starts empty — quota requests are created by the coordinator at runtime
+export const mockCoordinatorQuotaRequests: CoordinatorQuotaRequest[] = [];

@@ -45,6 +45,13 @@ export function PlacementMetadataForm({
   onSubmit,
   onCancel,
 }: PlacementMetadataFormProps) {
+  const availableEmner =
+    studies
+      .find((s) => s.id === formData.studyId)
+      ?.programs.find((p) => p.id === formData.programId)?.emner ?? [];
+  // Study, program and emne are mandatory (the selects aren't covered by native `required`)
+  const missingSelection = !formData.studyId || !formData.programId || !formData.subject;
+
   return (
     <div className="px-8 py-6 max-w-3xl">
       <div className="bg-white rounded-lg border border-gray-200 p-5">
@@ -66,7 +73,7 @@ export function PlacementMetadataForm({
             <Select
               value={formData.studyId}
               onValueChange={(value: string) =>
-                onChange({ ...formData, studyId: value, programId: "" })
+                onChange({ ...formData, studyId: value, programId: "", subject: "" })
               }
             >
               <SelectTrigger className="h-10">
@@ -89,7 +96,7 @@ export function PlacementMetadataForm({
             <Select
               value={formData.programId}
               onValueChange={(value: string) =>
-                onChange({ ...formData, programId: value })
+                onChange({ ...formData, programId: value, subject: "" })
               }
               disabled={!formData.studyId}
             >
@@ -111,17 +118,36 @@ export function PlacementMetadataForm({
 
           <div className="space-y-2">
             <label className="font-medium text-gray-700 text-sm block">
-              Emne (Subject) *
+              Emne *
             </label>
-            <Input
+            {/* Emne must be one of the program's emner defined in Settings */}
+            <Select
               value={formData.subject}
-              onChange={(e) =>
-                onChange({ ...formData, subject: e.target.value })
-              }
-              placeholder="e.g., Clinical Practice"
-              className="h-10"
-              required
-            />
+              onValueChange={(value) => onChange({ ...formData, subject: value })}
+              disabled={!formData.programId || availableEmner.length === 0}
+            >
+              <SelectTrigger className="h-10">
+                <SelectValue
+                  placeholder={
+                    formData.programId && availableEmner.length === 0
+                      ? "No emner defined for this program"
+                      : "Select an emne"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {availableEmner.map((e) => (
+                  <SelectItem key={e.id} value={e.name}>
+                    {e.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {formData.programId && availableEmner.length === 0 && (
+              <p className="text-xs text-gray-500">
+                Add emner to this program in Settings → Studies & Programs.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -225,6 +251,8 @@ export function PlacementMetadataForm({
             </Button>
             <Button
               type="submit"
+              disabled={missingSelection}
+              title={missingSelection ? "Select study, program and emne" : undefined}
               className="px-6 h-10 bg-blue-600 hover:bg-blue-700 text-white"
             >
               Save and Continue

@@ -26,6 +26,7 @@ import {
   Edit,
   Trash2,
   ChevronLeft,
+  AlertOctagon,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
@@ -52,6 +53,10 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { allMockContacts, allMockSupervisors } from "../data/mockContactsAndSupervisors";
+import { AddLimitModal } from "./AddLimitModal";
+import { Study } from "./SettingsView";
+import { PraksisPlaceLimit, removePraksisLimit, savePraksisLimits, usePraksisLimits } from "../types/praksisLimit";
+import { childLimitsOf, limitViolations } from "../types/limitUsage";
 
 interface PraksisPlacesViewProps {
   places: PraksisPlace[];
@@ -60,6 +65,8 @@ interface PraksisPlacesViewProps {
   onPlacesUpdate?: (places: PraksisPlace[]) => void;
   nodeSlots: Record<string, Record<string, number>>;
   onNodeSlotsChange: (placeId: string, slots: Record<string, number>) => void;
+  // Used by the limits dialog to split a limit between emner
+  studies: Study[];
 }
 
 export function PraksisPlacesView({
@@ -69,6 +76,7 @@ export function PraksisPlacesView({
   onPlacesUpdate,
   nodeSlots,
   onNodeSlotsChange,
+  studies,
 }: PraksisPlacesViewProps) {
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -83,6 +91,14 @@ export function PraksisPlacesView({
   const [supervisorsPerPage, setSupervisorsPerPage] = useState(10);
   const [supervisorsSearchQuery, setSupervisorsSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"contacts" | "supervisors" | "slots">("contacts");
+  // Praksis place limits (Limits tab)
+  const allLimits = usePraksisLimits();
+  // Add / edit the limit of one entity (opened from its row in the Limits tree)
+  const [limitDialog, setLimitDialog] = useState<{
+    entity: { id: string; name: string };
+    limit?: PraksisPlaceLimit;
+  } | null>(null);
+  const [collapsedLimitNodes, setCollapsedLimitNodes] = useState<Set<string>>(new Set());
   
   // Filter states for chips
   const [selectedContactType, setSelectedContactType] = useState<string | null>(null);
@@ -448,43 +464,35 @@ export function PraksisPlacesView({
     return path.map(n => n.name).join("/");
   };
 
-  // Helper function to collect all nodes recursively with their paths for slots view
-  const collectAllNodesWithPaths = (node: OrganizationNode, parentPath: string = ""): Array<{ node: OrganizationNode; path: string }> => {
-    const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name;
-    const result = [{ node, path: currentPath }];
-    
-    node.children.forEach((child) => {
-      result.push(...collectAllNodesWithPaths(child, currentPath));
-    });
-    
-    return result;
-  };
+  // Limits saved for the selected praksis place
+  const placeLimits = selectedPlaceId ? allLimits.filter((l) => l.praksisPlaceId === selectedPlaceId) : [];
 
-  // Get all nodes for slots view
-  const getNodesForSlotsView = () => {
-    if (!selectedNode) return [];
-    
-    const allNodes = collectAllNodesWithPaths(selectedNode);
-    
-    if (hideChildItems) {
-      // Only show the selected node itself
-      return [allNodes[0]];
-    }
-    
-    return allNodes;
-  };
+  // Limits tab: the praksis place's entities below the top one, one row per entity (collapsed
+  // nodes hide their units). With an entity picked in the left tree, only that entity and its
+  // units are shown.
+  const limitTreeRows = (() => {
+    const root = selectedPlace?.organizationStructure;
+    const out: Array<{ node: OrganizationNode; depth: number }> = [];
+    const walk = (node: OrganizationNode, depth: number) => {
+      out.push({ node, depth });
+      if (!collapsedLimitNodes.has(node.id)) node.children.forEach((c) => walk(c, depth + 1));
+    };
+    if (!root) return out;
+    const tops = selectedNode && selectedNode.id !== root.id ? [selectedNode] : root.children;
+    tops.forEach((n) => walk(n, 0));
+    return out;
+  })();
 
-  const nodesForSlots = getNodesForSlotsView();
+  // Total limit of an entity: its own limit when it has one (units under it are part of it),
+  // otherwise the totals of its units added up
+  const totalLimitOf = (node: OrganizationNode): number =>
+    placeLimits.find((l) => l.entityId === node.id)?.limit ??
+    node.children.reduce((sum, c) => sum + totalLimitOf(c), 0);
 
-  // Slots for the currently selected place
-  const currentNodeSlots = selectedPlaceId ? (nodeSlots[selectedPlaceId] ?? {}) : {};
-
-  // Handler for updating slot value
-  const handleSlotChange = (nodeId: string, value: string) => {
-    if (!selectedPlaceId) return;
-    const numValue = parseInt(value) || 0;
-    onNodeSlotsChange(selectedPlaceId, { ...currentNodeSlots, [nodeId]: numValue });
-  };
+  // Limits that break the nesting rules (saved before the rules existed), with the reasons
+  const violations = selectedPlace?.organizationStructure
+    ? limitViolations(placeLimits, selectedPlace.organizationStructure)
+    : new Map<string, string[]>();
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -649,13 +657,14 @@ export function PraksisPlacesView({
                           : "border-transparent text-gray-600 hover:text-gray-900"
                       }`}
                     >
-                      Slots
+                      Limits
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* Search Input - Outside the table container */}
+              {/* Search Input - Outside the table container (contacts/supervisors only) */}
+              {activeTab !== "slots" && (
               <div className="mb-4 mt-4">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -675,9 +684,10 @@ export function PraksisPlacesView({
                   />
                 </div>
               </div>
+              )}
 
               {/* Table Container */}
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+              <div className={`bg-white border border-gray-200 rounded-lg overflow-hidden ${activeTab === "slots" ? "mt-4" : ""}`}>
                 {activeTab === "contacts" && (
                   <div className="p-6">
                     <div className="space-y-4">
@@ -1068,98 +1078,164 @@ export function PraksisPlacesView({
                 {activeTab === "slots" && (
                   <div className="p-6">
                     <div className="space-y-4">
-                      {/* Header with title and description */}
-                      <div className="flex items-start justify-between">
+                      <div className="flex items-start justify-between gap-4">
                         <div>
-                          <h3 className="font-semibold text-gray-900 mb-1">Student Slots</h3>
-                          <p className="text-sm text-gray-500">Configure how many students each place can accept per semester</p>
+                          <h3 className="font-semibold text-gray-900 mb-1">Praksis place limits</h3>
+                          <p className="text-sm text-gray-500">
+                            Configure how many students in total can be deployed to a praksis place between 2 dates.
+                            A limit covers its entity and every unit under it, so limits can be nested.
+                          </p>
                         </div>
                       </div>
-
-                      {/* Filter - Hide child items checkbox */}
-                      <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={hideChildItems}
-                            onChange={(e) => setHideChildItems(e.target.checked)}
-                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-                          />
-                          Hide child items
-                        </label>
-                      </div>
-
-                      {/* Table */}
-                      {nodesForSlots.length === 0 ? (
-                        <div className="text-center py-12 text-sm text-gray-400">
-                          No places to configure
-                        </div>
+                      {limitTreeRows.length === 0 ? (
+                        <p className="text-sm text-gray-500 border border-dashed border-gray-200 rounded-lg p-6 text-center">
+                          No entities are defined for this praksis place
+                        </p>
                       ) : (
-                        <div className="space-y-4">
-                          <div className="border border-gray-200 rounded-lg overflow-hidden">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead className="font-semibold text-gray-700">TYPE</TableHead>
-                                  <TableHead className="font-semibold text-gray-700">PLACE / SUB-PLACE</TableHead>
-                                  <TableHead className="font-semibold text-gray-700 w-48">STUDENT CAPACITY</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {nodesForSlots.map(({ node, path }) => (
-                                  <TableRow key={node.id}>
+                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="font-semibold text-gray-700">ENTITY</TableHead>
+                                <TableHead className="font-semibold text-gray-700">LIMIT</TableHead>
+                                <TableHead className="font-semibold text-gray-700" title="Own limit plus the limits of every unit under it">
+                                  TOTAL LIMIT
+                                </TableHead>
+                                <TableHead className="font-semibold text-gray-700">PROGRAMS / EMNER</TableHead>
+                                <TableHead className="font-semibold text-gray-700">TYPE / PERIOD</TableHead>
+                                <TableHead className="w-32" />
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {limitTreeRows.map(({ node, depth }) => {
+                                const l = placeLimits.find((x) => x.entityId === node.id);
+                                const reasons = l ? violations.get(l.id) ?? [] : [];
+                                const collapsed = collapsedLimitNodes.has(node.id);
+                                const total = totalLimitOf(node);
+                                // How much of this limit is already given to limits on its units
+                                const onUnits =
+                                  l && selectedPlace?.organizationStructure
+                                    ? childLimitsOf(node.id, placeLimits, selectedPlace.organizationStructure).reduce(
+                                        (sum, c) => sum + c.limit,
+                                        0,
+                                      )
+                                    : 0;
+                                return (
+                                  <TableRow key={node.id} className={reasons.length > 0 ? "bg-red-50/40" : l ? "bg-white" : "bg-gray-50/40"}>
                                     <TableCell>
-                                      <Badge
-                                        variant="outline"
-                                        className={`text-xs ${
-                                          node.type === "Helseforetak"
-                                            ? "bg-purple-50 text-purple-700 border-purple-200"
-                                            : node.type === "Kommune"
-                                            ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                            : node.type === "Klinikk"
-                                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                                            : node.type === "Sykehjem"
-                                            ? "bg-cyan-50 text-cyan-700 border-cyan-200"
-                                            : node.type === "Avdeling"
-                                            ? "bg-green-50 text-green-700 border-green-200"
-                                            : node.type === "Seksjon"
-                                            ? "bg-orange-50 text-orange-700 border-orange-200"
-                                            : node.type === "Gruppe"
-                                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                                            : "bg-pink-50 text-pink-700 border-pink-200"
-                                        }`}
-                                      >
-                                        {node.type}
-                                      </Badge>
-                                    </TableCell>
-                                    <TableCell className="font-medium text-gray-900">
-                                      {path}
+                                      <div className="flex items-center gap-1.5" style={{ paddingLeft: `${depth * 24}px` }}>
+                                        {node.children.length > 0 ? (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setCollapsedLimitNodes((prev) => {
+                                                const next = new Set(prev);
+                                                next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+                                                return next;
+                                              })
+                                            }
+                                            className="flex-shrink-0 text-gray-500 hover:text-gray-800"
+                                            title={collapsed ? "Expand" : "Collapse"}
+                                          >
+                                            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                          </button>
+                                        ) : (
+                                          <span className="w-4 flex-shrink-0" />
+                                        )}
+                                        <span className={l ? "font-medium text-gray-900" : "text-gray-700"}>{node.name}</span>
+                                        {reasons.length > 0 && (
+                                          <span title={reasons.join("\n")} className="flex-shrink-0">
+                                            <AlertOctagon className="h-4 w-4 text-red-600" />
+                                          </span>
+                                        )}
+                                      </div>
+                                      {reasons.length > 0 && (
+                                        <ul className="mt-1 space-y-0.5" style={{ paddingLeft: `${depth * 24 + 22}px` }}>
+                                          {reasons.map((r) => (
+                                            <li key={r} className="text-xs text-red-600">{r}</li>
+                                          ))}
+                                        </ul>
+                                      )}
                                     </TableCell>
                                     <TableCell>
-                                      <Input
-                                        type="number"
-                                        min="0"
-                                        placeholder="0"
-                                        value={currentNodeSlots[node.id] || ""}
-                                        onChange={(e) => handleSlotChange(node.id, e.target.value)}
-                                        className="h-9 w-32"
-                                      />
+                                      {l ? (
+                                        <>
+                                          <span className="font-semibold text-purple-600">{l.limit}</span>
+                                          <span className="text-xs text-gray-500"> students</span>
+                                        </>
+                                      ) : (
+                                        <span className="text-gray-300">—</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {total > 0 ? (
+                                        <>
+                                          <span className="font-semibold text-gray-900">{total}</span>
+                                          <span className="text-xs text-gray-500"> students</span>
+                                          {onUnits > 0 && (
+                                            <div className="text-[11px] text-gray-400">{onUnits} set on units</div>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <span className="text-gray-300">—</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {l && (
+                                        <div className="space-y-0.5">
+                                          {l.emneShares.map((share) => (
+                                            <div key={`${share.programId}-${share.emneId}`} className="text-sm text-gray-700">
+                                              <span className="text-gray-500">{share.programName} ·</span> {share.emneName}
+                                              <span className="ml-1.5 font-medium text-gray-900">{share.limit}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="text-gray-700">
+                                      {l && (l.limitType === "yearly" ? `Yearly ${l.periodStart} – ${l.periodEnd}` : "Semester")}
+                                    </TableCell>
+                                    <TableCell>
+                                      {l ? (
+                                        <div className="flex items-center justify-end gap-1">
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setLimitDialog({ entity: { id: node.id, name: node.name }, limit: l })}
+                                            className="text-gray-600 hover:text-gray-900 hover:bg-gray-100 h-8 w-8 p-0"
+                                            title="Edit limit"
+                                          >
+                                            <Edit className="h-4 w-4" />
+                                          </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => removePraksisLimit(l.id)}
+                                            className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
+                                            title="Delete limit"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <div className="flex justify-end">
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setLimitDialog({ entity: { id: node.id, name: node.name } })}
+                                            className="h-7 gap-1 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                          >
+                                            <Plus className="h-3.5 w-3.5" />
+                                            Add limit
+                                          </Button>
+                                        </div>
+                                      )}
                                     </TableCell>
                                   </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-
-                          {/* Summary */}
-                          <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                            <span className="text-sm text-gray-600">
-                              Total places: {nodesForSlots.length}
-                            </span>
-                            <span className="text-sm font-medium text-gray-900">
-                              Total capacity: {Object.values(currentNodeSlots).reduce((sum, val) => sum + (val || 0), 0)} students
-                            </span>
-                          </div>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
                         </div>
                       )}
                     </div>
@@ -1196,6 +1272,17 @@ export function PraksisPlacesView({
           </div>
         </DialogContent>
       </Dialog>
+      {limitDialog && selectedPlace && (
+        <AddLimitModal
+          place={selectedPlace}
+          entity={limitDialog.entity}
+          existingLimits={placeLimits}
+          studies={studies}
+          editingLimit={limitDialog.limit}
+          onClose={() => setLimitDialog(null)}
+          onSave={savePraksisLimits}
+        />
+      )}
     </div>
   );
 }

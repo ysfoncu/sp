@@ -67,13 +67,10 @@ export function HierarchicalOrganizationSelector({
   expandFirstLevel = false,
 }: HierarchicalOrganizationSelectorProps) {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-  const [nodeQuotas, setNodeQuotas] = useState<Record<string, number>>({});
-
   const selectedPlace = praksisPlaces.find((p) => p.id === selectedPraksisPlaceId);
 
-  // When the place changes, reset quotas; optionally pre-expand root + its direct children
+  // When the place changes, optionally pre-expand root + its direct children
   useEffect(() => {
-    setNodeQuotas({});
     if (expandFirstLevel && selectedPlace?.organizationStructure) {
       const root = selectedPlace.organizationStructure;
       setExpandedNodes(new Set([root.id, ...root.children.map((c) => c.id)]));
@@ -103,19 +100,29 @@ export function HierarchicalOrganizationSelector({
 
   const handleAddClick = (node: OrganizationNode, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (onAddEntity) {
-      const qty = nodeQuotas[node.id] ?? 1;
-      onAddEntity(node.id, node.name, qty);
-      setNodeQuotas((prev) => ({ ...prev, [node.id]: 1 }));
-    }
+    if (onAddEntity) onAddEntity(node.id, node.name, 1);
   };
 
-  // Recursive tree node renderer
-  const renderNode = (node: OrganizationNode, depth: number) => {
+  // Name of the first added entity below `node`, if any
+  const findAddedDescendant = (node: OrganizationNode): string | undefined => {
+    for (const child of node.children) {
+      if (addedEntityIds.includes(child.id)) return child.name;
+      const deeper = findAddedDescendant(child);
+      if (deeper) return deeper;
+    }
+    return undefined;
+  };
+
+  // Recursive tree node renderer. `coveredBy` is the name of an added ancestor:
+  // once a parent entity is added, its child entities can't be added separately —
+  // and a parent can't be added when one of its children already is.
+  const renderNode = (node: OrganizationNode, depth: number, coveredBy?: string) => {
     const isExpanded = expandedNodes.has(node.id);
     const hasChildren = node.children.length > 0;
     const isSelected = selectedOrganizationNodeId === node.id;
     const isAdded = addedEntityIds.includes(node.id);
+    const childCoveredBy = coveredBy ?? (isAdded ? node.name : undefined);
+    const containsAdded = !isAdded && !coveredBy && onAddEntity ? findAddedDescendant(node) : undefined;
     const TypeIcon = getTypeIcon(node.type);
 
     return (
@@ -171,46 +178,36 @@ export function HierarchicalOrganizationSelector({
             </span>
           </button>
 
-          {/* Number input + add button */}
-          {onAddEntity && (
+          {/* Add button — quota is set afterwards in the distribution table.
+              The top node is the praksis place itself, so only its entities can be added. */}
+          {onAddEntity && depth > 0 && (
             <div
               className="flex items-center gap-1 flex-shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
-              {(() => {
-                const slotMax = selectedPraksisPlaceId ? nodeSlots[selectedPraksisPlaceId]?.[node.id] : undefined;
-                const currentQty = nodeQuotas[node.id] ?? 1;
-                const isOverMax = slotMax !== undefined && currentQty > slotMax;
-                const isAtZeroMax = slotMax === 0;
-                return (
-                  <>
-                    <input
-                      type="number"
-                      min={1}
-                      max={slotMax ?? 999}
-                      value={currentQty}
-                      onChange={(e) => {
-                        let val = Math.max(1, parseInt(e.target.value, 10) || 1);
-                        if (slotMax !== undefined) val = Math.min(val, Math.max(1, slotMax));
-                        setNodeQuotas((prev) => ({ ...prev, [node.id]: val }));
-                      }}
-                      disabled={disabled || isAtZeroMax}
-                      className="w-12 h-6 text-xs text-center border border-gray-300 rounded px-1 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-40"
-                    />
-                    {slotMax !== undefined && (
-                      <span className="text-xs text-gray-400 whitespace-nowrap">/{slotMax}</span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => handleAddClick(node, e)}
-                      disabled={disabled || isAdded || isOverMax || isAtZeroMax}
-                      className="w-6 h-6 flex items-center justify-center rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </button>
-                  </>
-                );
-              })()}
+              <button
+                type="button"
+                onClick={(e) => handleAddClick(node, e)}
+                disabled={
+                  disabled ||
+                  isAdded ||
+                  !!coveredBy ||
+                  !!containsAdded ||
+                  (!!selectedPraksisPlaceId && nodeSlots[selectedPraksisPlaceId]?.[node.id] === 0)
+                }
+                title={
+                  isAdded
+                    ? "Already added"
+                    : coveredBy
+                      ? `Included in ${coveredBy}`
+                      : containsAdded
+                        ? `${containsAdded} is already added`
+                        : "Add"
+                }
+                className="w-6 h-6 flex items-center justify-center rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
         </div>
@@ -218,7 +215,7 @@ export function HierarchicalOrganizationSelector({
         {/* Children */}
         {hasChildren && isExpanded && (
           <div>
-            {node.children.map((child) => renderNode(child, depth + 1))}
+            {node.children.map((child) => renderNode(child, depth + 1, childCoveredBy))}
           </div>
         )}
       </div>
