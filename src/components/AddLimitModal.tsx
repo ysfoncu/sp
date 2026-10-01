@@ -30,8 +30,7 @@ import { Study, StudyEmne, StudyProgram } from './SettingsView';
 interface LimitForm {
   limit: number;
   limitType: 'yearly' | 'semester';
-  periodStart: string;
-  periodEnd: string;
+  periodStart: string; // yearly: the reset day (MM/DD)
   // Selected emner (by emneKey), in the order they were picked, with each one's share of the limit
   shares: Record<string, number>;
 }
@@ -81,7 +80,6 @@ export function AddLimitModal({
           limit: editingLimit.limit,
           limitType: editingLimit.limitType,
           periodStart: editingLimit.periodStart ?? '01/01',
-          periodEnd: editingLimit.periodEnd ?? '12/31',
           shares: Object.fromEntries(editingLimit.emneShares.map((s) => [emneKey(s.programId, s.emneId), s.limit])),
         }
       : {
@@ -89,7 +87,6 @@ export function AddLimitModal({
           // A limit under another one usually counts in the same period
           limitType: parent?.limitType ?? 'yearly',
           periodStart: parent?.periodStart ?? '01/01',
-          periodEnd: parent?.periodEnd ?? '12/31',
           shares: fixedEmne ? { [emneKey(fixedEmne.programId, fixedEmne.emneId)]: 0 } : {},
         }
   );
@@ -134,8 +131,9 @@ export function AddLimitModal({
       if (left < 0) p.distribution = `${-left} more than the limit of ${form.limit} distributed`;
     }
     // Under another limit the period is the parent's, so only a top limit's own period is checked
-    if (!parent && form.limitType === 'yearly' && (!isValidMonthDay(form.periodStart) || !isValidMonthDay(form.periodEnd))) {
-      p.period = 'Use MM/DD, e.g. 01/01';
+    if (!parent && form.limitType === 'yearly') {
+      if (!isValidMonthDay(form.periodStart)) p.period = 'Use MM/DD, e.g. 01/01';
+      else if (form.periodStart === '02/29') p.period = 'Pick a day that exists every year';
     }
     return p;
   })();
@@ -154,8 +152,8 @@ export function AddLimitModal({
 
   // Under another limit, type and period are the parent's
   const period = parent
-    ? { limitType: parent.limitType, periodStart: parent.periodStart, periodEnd: parent.periodEnd }
-    : { limitType: form.limitType, periodStart: form.periodStart, periodEnd: form.periodEnd };
+    ? { limitType: parent.limitType, periodStart: parent.periodStart }
+    : { limitType: form.limitType, periodStart: form.periodStart };
 
   const draft: PraksisPlaceLimit = {
     id: editingLimit?.id ?? `limit-${Date.now()}`,
@@ -164,7 +162,7 @@ export function AddLimitModal({
     entityName: entity.name,
     limit: form.limit,
     limitType: period.limitType,
-    ...(period.limitType === 'yearly' && { periodStart: period.periodStart, periodEnd: period.periodEnd }),
+    ...(period.limitType === 'yearly' && { periodStart: period.periodStart }),
     emneShares,
     createdAt: editingLimit?.createdAt ?? new Date().toISOString(),
   };
@@ -181,7 +179,7 @@ export function AddLimitModal({
           ...l,
           limitType: draft.limitType,
           periodStart: draft.periodStart,
-          periodEnd: draft.periodEnd,
+          periodEnd: undefined,
         }))
     : [];
 
@@ -466,7 +464,7 @@ export function AddLimitModal({
               {parent ? (
                 // Under another limit, type and period are the parent's
                 <div className="col-span-2 space-y-1.5">
-                  <label className="block text-xs font-semibold text-gray-700">Limit type / Period</label>
+                  <label className="block text-xs font-semibold text-gray-700">Limit type / Reset date</label>
                   <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700 w-fit">
                     <Lock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
                     {limitPeriodLabel(parent)}
@@ -494,29 +492,23 @@ export function AddLimitModal({
                 </div>
               </div>
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-gray-700">Period (MM/DD)</label>
+                <label className="block text-xs font-semibold text-gray-700">Reset date (MM/DD)</label>
                 {form.limitType === 'semester' ? (
                   <p className="text-sm text-gray-400 py-1">Not needed for semester</p>
                 ) : (
                   <>
-                    <div className="flex items-center gap-1.5">
-                      <Input
-                        value={form.periodStart}
-                        onChange={(e) => update({ periodStart: e.target.value })}
-                        placeholder="01/01"
-                        maxLength={5}
-                        className={cn('w-20 text-center', problem.period && !isValidMonthDay(form.periodStart) && 'border-red-500')}
-                      />
-                      <span className="text-gray-400">–</span>
-                      <Input
-                        value={form.periodEnd}
-                        onChange={(e) => update({ periodEnd: e.target.value })}
-                        placeholder="12/31"
-                        maxLength={5}
-                        className={cn('w-20 text-center', problem.period && !isValidMonthDay(form.periodEnd) && 'border-red-500')}
-                      />
-                    </div>
-                    {problem.period && <p className="text-xs text-red-600">{problem.period}</p>}
+                    <Input
+                      value={form.periodStart}
+                      onChange={(e) => update({ periodStart: e.target.value })}
+                      placeholder="01/01"
+                      maxLength={5}
+                      className={cn('w-20 text-center', problem.period && 'border-red-500')}
+                    />
+                    {problem.period ? (
+                      <p className="text-xs text-red-600">{problem.period}</p>
+                    ) : (
+                      <p className="text-xs text-gray-500">The limit starts over every year on this day</p>
+                    )}
                   </>
                 )}
               </div>

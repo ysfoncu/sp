@@ -1082,8 +1082,8 @@ export function PraksisPlacesView({
                         <div>
                           <h3 className="font-semibold text-gray-900 mb-1">Praksis place limits</h3>
                           <p className="text-sm text-gray-500">
-                            Configure how many students in total can be deployed to a praksis place between 2 dates.
-                            A limit covers its entity and every unit under it, so limits can be nested.
+                            Configure how many students can be deployed to a praksis place per year (from a reset date) or
+                            per semester. A limit covers its entity and every unit under it, so limits can be nested.
                           </p>
                         </div>
                       </div>
@@ -1193,7 +1193,7 @@ export function PraksisPlacesView({
                                       )}
                                     </TableCell>
                                     <TableCell className="text-gray-700">
-                                      {l && (l.limitType === "yearly" ? `Yearly ${l.periodStart} – ${l.periodEnd}` : "Semester")}
+                                      {l && (l.limitType === "yearly" ? `Yearly · resets ${l.periodStart}` : "Semester")}
                                     </TableCell>
                                     <TableCell>
                                       {l ? (

@@ -28,7 +28,7 @@ interface PraksisPlaceLimit {
   id; praksisPlaceId; entityId; entityName;
   limit: number;                        // total
   limitType: "yearly" | "semester";
-  periodStart?: "MM/DD"; periodEnd?: "MM/DD";   // yearly only
+  periodStart?: "MM/DD";                // yearly only: the reset date (periodEnd is legacy and ignored)
   emneShares: LimitEmneShare[];         // { studyId, programId, programName, emneId, emneName, limit }, sums to `limit`
   createdAt;
 }
@@ -59,10 +59,10 @@ interface PraksisPlaceLimit {
 
 ### Add / Edit limit dialog
 The dialog is for **one limit on one entity**. There's no entity picker.
-- **Required:** the limit total, the Programs / Emner (picked through study → program → emne; picking a program selects all its emner), the distribution of the total between the emner (it must add up; *Split evenly* fills it in), the limit type, and the period (MM/DD, yearly only).
+- **Required:** the limit total, the Programs / Emner (picked through study → program → emne; picking a program selects all its emner), the distribution of the total between the emner (it must add up; *Split evenly* fills it in), the limit type, and for yearly limits the **reset date** (one MM/DD: the limit starts over every year on this day; 02/29 isn't allowed).
 - **"Within {parent}" line:** shows the parent's shares and how much room is left for this unit.
 - **Range hints:** "Allowed: 50+" or "Allowed: 0–10" under the total, and "min · max" under each emne share. They turn red when a value is out of range.
-- **Type and period:**
+- **Type and reset date:**
   - **Under a parent limit:** they are **locked to the parent's**.
   - **On a top limit:** a change also applies to every limit below it ("Also updates N limits below").
 - **Blocking:** Save stays disabled while any rule is broken, and every rule break is listed in red.
@@ -73,7 +73,7 @@ The dialog is for **one limit on one entity**. There's no entity picker.
   - So a limit can't be lower than the limits under it.
   - A limit must fit in the room its parent has left after its siblings: `max = P.limit − Σ(other C(P))`. This applies to the total and to each emne.
   - A child can't use an emne its parent doesn't include.
-- **R2:** a limit's type and period match P(X).
+- **R2:** a limit's type and reset date match P(X).
 - **Deleting a limit is always allowed.** Removing a limit in the middle can't break R1.
 
 ---
@@ -91,7 +91,7 @@ The dialog is for **one limit on one entity**. There's no entity picker.
 - **Only the unit is stored.** A placed student records the unit (`assignedPraksisPlace.placeId` + `entityId`/`departmentId`). `quotaRequestId` is no longer set or read.
 - **Where an emne can place:** units with at least one limit above them (or on themselves), where **every** limit above them has a share for the emne. The limit's period must also cover the placement.
 - **Usage of a limit:** the students of this emne (same program) placed at its entity or any unit under it. It counts this placement plus other placements whose period matches:
-  - **yearly:** the placement's start date falls in the same MM/DD–MM/DD window, including windows that cross New Year;
+  - **yearly:** the placement's start date falls in the same yearly period. A period runs from the reset date up to (not including) the same date the next year, so every date belongs to exactly one period;
   - **semester:** the same year and semester.
 - **Places left at a unit:** the smallest remainder over the limits above it. The limit with the smallest remainder is named in tooltips.
 - **Changes apply at once:** because usage is always recalculated, adding, changing or removing a parent limit later is correct immediately.

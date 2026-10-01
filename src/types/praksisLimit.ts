@@ -21,8 +21,10 @@ export interface PraksisPlaceLimit {
   entityName: string;
   limit: number;
   limitType: "yearly" | "semester";
-  periodStart?: string; // "MM/DD", yearly limits only
-  periodEnd?: string; // "MM/DD", yearly limits only
+  // Yearly limits: the day ("MM/DD") the limit resets each year — a period runs from this day
+  // to the day before it next year. (Older data may still carry a `periodEnd`; it's ignored.)
+  periodStart?: string;
+  periodEnd?: string;
   // Which emner can use the limit, and how it is split between them (shares add up to `limit`)
   emneShares: LimitEmneShare[];
   createdAt: string;

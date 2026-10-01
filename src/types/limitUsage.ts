@@ -86,31 +86,26 @@ const parseMonthDay = (value?: string): [number, number] | null => {
   return match ? [Number(match[1]), Number(match[2])] : null;
 };
 
-// The period of `limit` that a placement falls in, or null when the placement is outside every
-// window of the limit (e.g. a 01/01–06/30 yearly limit and a placement starting in September).
+// The period of `limit` that a placement falls in. A yearly limit resets every year on its reset
+// day (`periodStart`, MM/DD): a period runs from that day up to (not including) the same day the
+// next year, so every date belongs to exactly one period. Null when the reset day is missing.
 export const periodKeyFor = (limit: PraksisPlaceLimit, ctx: LimitPlacementContext): string | null => {
   if (limit.limitType === "semester") return `S:${Number(ctx.year)}-${normalizeSemester(ctx.semester)}`;
 
-  const start = parseMonthDay(limit.periodStart);
-  const end = parseMonthDay(limit.periodEnd);
-  if (!start || !end) return null;
+  const reset = parseMonthDay(limit.periodStart);
+  if (!reset) return null;
 
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(ctx.startDate ?? "");
   const [y, m, d] = dateMatch ? [Number(dateMatch[1]), Number(dateMatch[2]), Number(dateMatch[3])] : [Number(ctx.year), 1, 1];
   const date = dayNumber(y, m, d);
 
-  // A window runs from start in year Y to end in Y (or Y+1 when it wraps past New Year)
-  const wraps = end[0] < start[0] || (end[0] === start[0] && end[1] < start[1]);
-  for (const windowYear of [y - 1, y]) {
-    const from = dayNumber(windowYear, start[0], start[1]);
-    const to = dayNumber(wraps ? windowYear + 1 : windowYear, end[0], end[1]);
-    if (date >= from && date <= to) return `Y:${windowYear}-${pad(start[0])}-${pad(start[1])}`;
-  }
-  return null;
+  // Before this year's reset day the placement still belongs to last year's period
+  const periodYear = date >= dayNumber(y, reset[0], reset[1]) ? y : y - 1;
+  return `Y:${periodYear}-${pad(reset[0])}-${pad(reset[1])}`;
 };
 
 export const limitPeriodLabel = (limit: PraksisPlaceLimit) =>
-  limit.limitType === "yearly" ? `Yearly ${limit.periodStart} – ${limit.periodEnd}` : "Semester";
+  limit.limitType === "yearly" ? `Yearly · resets ${limit.periodStart}` : "Semester";
 
 export const findNode = (node: OrganizationNode, id: string): OrganizationNode | null => {
   if (node.id === id) return node;
@@ -285,9 +280,9 @@ export const limitsBelow = (
   placeLimits.filter((l) => l.entityId !== entityId && pathToNode(root, l.entityId).includes(entityId));
 
 export const samePeriod = (
-  a: Pick<PraksisPlaceLimit, "limitType" | "periodStart" | "periodEnd">,
-  b: Pick<PraksisPlaceLimit, "limitType" | "periodStart" | "periodEnd">,
-) => a.limitType === b.limitType && (a.limitType === "semester" || (a.periodStart === b.periodStart && a.periodEnd === b.periodEnd));
+  a: Pick<PraksisPlaceLimit, "limitType" | "periodStart">,
+  b: Pick<PraksisPlaceLimit, "limitType" | "periodStart">,
+) => a.limitType === b.limitType && (a.limitType === "semester" || a.periodStart === b.periodStart);
 
 export interface EmneBounds {
   key: string;
