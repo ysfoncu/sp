@@ -170,7 +170,7 @@ export function AddLimitModal({ place, entity, fixedEmne, studies, onClose, onSa
       <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {editingLimit ? 'Edit limit' : 'Add limit'} · {entity.name}
+            {editingLimit ? 'Edit capacity' : 'Add capacity'} · {entity.name}
           </DialogTitle>
           <DialogDescription>
             {place?.name ? `${place.name}. ` : ''}How many students of each emne {entity.name} takes. Emnes left at 0 are
@@ -184,7 +184,7 @@ export function AddLimitModal({ place, entity, fixedEmne, studies, onClose, onSa
           </p>
         ) : !canHaveLimit ? (
           <p className="text-sm text-gray-600 border border-dashed border-gray-200 rounded-lg p-6 text-center">
-            Limits are set on the lowest units. Set them on the units under {entity.name}.
+            Capacity is set on the lowest units. Set it on the units under {entity.name}.
           </p>
         ) : (
           <div className="space-y-3 py-1">
@@ -248,7 +248,7 @@ export function AddLimitModal({ place, entity, fixedEmne, studies, onClose, onSa
                   {(
                     [
                       ['all', 'All emner'],
-                      ['set', `With a limit (${setCount})`],
+                      ['set', `With capacity (${setCount})`],
                     ] as const
                   ).map(([id, label]) => (
                     <button
@@ -281,7 +281,7 @@ export function AddLimitModal({ place, entity, fixedEmne, studies, onClose, onSa
                 <p className="px-3 py-10 text-center text-sm text-gray-500">No emner defined in Settings</p>
               ) : filtered.length === 0 && shownOrphans.length === 0 ? (
                 <div className="px-3 py-10 text-center text-sm text-gray-500">
-                  {view === 'set' && !filtering ? 'No emner have a limit yet' : 'No emner match the filter'}
+                  {view === 'set' && !filtering ? 'No emner have capacity yet' : 'No emner match the filter'}
                   <div>
                     <button type="button" onClick={clearFilters} className="mt-1 text-blue-600 hover:underline">
                       Clear filters
@@ -331,14 +331,14 @@ export function AddLimitModal({ place, entity, fixedEmne, studies, onClose, onSa
             </div>
             {hiddenSet > 0 && (
               <p className="text-xs text-gray-500">
-                {hiddenSet} more emne{hiddenSet === 1 ? ' has' : 's have'} a limit outside this filter.
+                {hiddenSet} more emne{hiddenSet === 1 ? ' has' : 's have'} capacity outside this filter.
               </p>
             )}
 
             <div className="flex items-center justify-between">
               <div
                 className="flex items-center gap-2 whitespace-nowrap rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
-                title={`Set for ${place.name}. Change it on the Limits page.`}
+                title={`Set for ${place.name}. Change it on the Capacity tab.`}
               >
                 <Lock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
                 {limitPeriodLabel(period)}
@@ -357,7 +357,7 @@ export function AddLimitModal({ place, entity, fixedEmne, studies, onClose, onSa
             Cancel
           </Button>
           <Button type="button" onClick={handleSave} disabled={!isValid} className="bg-purple-600 hover:bg-purple-700">
-            {editingLimit ? 'Save changes' : 'Add limit'}
+            {editingLimit ? 'Save changes' : 'Add capacity'}
           </Button>
         </DialogFooter>
       </DialogContent>

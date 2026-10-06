@@ -52,7 +52,7 @@ export default function AvailableLimitsPanel({
       <div className="bg-white rounded-lg p-8 text-center">
         <Clock className="h-10 w-10 text-gray-300 mx-auto mb-3" />
         <h3 className="text-sm font-medium text-gray-900 mb-1">Complete Placement Details</h3>
-        <p className="text-xs text-gray-500">Fill out the placement details above to see the available limits</p>
+        <p className="text-xs text-gray-500">Fill out the placement details above to see the available capacity</p>
       </div>
     );
   }
@@ -63,10 +63,10 @@ export default function AvailableLimitsPanel({
         <div className="inline-flex items-center justify-center w-12 h-12 bg-gray-100 rounded-full mb-3">
           <Gauge className="h-6 w-6 text-gray-400" />
         </div>
-        <h3 className="text-sm font-medium text-gray-900 mb-1">No limit for {emne ?? 'this emne'}</h3>
+        <h3 className="text-sm font-medium text-gray-900 mb-1">No capacity for {emne ?? 'this emne'}</h3>
         <p className="text-xs text-gray-500 mb-4">
-          Limits are defined per praksis place. Add a limit that includes this emne under Praksis places →
-          Limits to start assigning students.
+          Capacity is defined per praksis place. Add capacity for this emne under Praksis places →
+          Capacity to start assigning students.
         </p>
         {onOpenLimits && (
           <Button onClick={onOpenLimits} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
@@ -93,7 +93,7 @@ export default function AvailableLimitsPanel({
     <div className="bg-white rounded-lg">
       {/* Header */}
       <div className="border-b border-gray-200 px-4 py-3">
-        <h3 className="text-sm font-semibold text-gray-900">Available limits</h3>
+        <h3 className="text-sm font-semibold text-gray-900">Available capacity</h3>
         <p className="text-xs text-gray-500 mt-0.5">
           {emne} · {totalRemaining} of {totalCapacity} places left
         </p>
@@ -104,8 +104,7 @@ export default function AvailableLimitsPanel({
           <div className="bg-gray-50 px-4 py-2.5">
             <p className="text-sm font-bold text-gray-900 truncate">{tree.praksisPlaceName}</p>
             <p className="text-[11px] text-gray-400 mt-0.5">
-              {tree.nodes.length} limit{tree.nodes.length !== 1 ? 's' : ''} · {tree.units.length} unit
-              {tree.units.length !== 1 ? 's' : ''} available
+              {tree.units.length} unit{tree.units.length !== 1 ? 's' : ''} available
             </p>
           </div>
 
@@ -156,7 +155,7 @@ export default function AvailableLimitsPanel({
                       variant="ghost"
                       onClick={() => onEditLimit(limit.id)}
                       className="h-7 w-7 p-0 flex-shrink-0 text-gray-500 hover:text-gray-900"
-                      title="Edit limit"
+                      title="Edit capacity"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -187,7 +186,7 @@ export default function AvailableLimitsPanel({
                       title={
                         node.effectiveRemaining > 0
                           ? `Assign students to ${limit.entityName}`
-                          : `Full: ${node.limitingName} limit reached`
+                          : `Full: ${node.limitingName} capacity reached`
                       }
                     >
                       <UserPlus className="h-3.5 w-3.5" />
@@ -246,13 +245,13 @@ export default function AvailableLimitsPanel({
       <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 rounded-b-lg flex items-start gap-2 text-xs text-gray-500">
         <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-gray-400" />
         <p>
-          Can't see a limit you expected for {emne ?? 'this emne'}? Add it under{' '}
+          Can't see capacity you expected for {emne ?? 'this emne'}? Add it under{' '}
           {onOpenLimits ? (
             <button type="button" onClick={onOpenLimits} className="text-blue-600 hover:underline">
-              Praksis places → Limits
+              Praksis places → Capacity
             </button>
           ) : (
-            'Praksis places → Limits'
+            'Praksis places → Capacity'
           )}
           .
         </p>

@@ -97,13 +97,13 @@ This is the foundation step where you secure placement positions (quotas) and pr
 
 #### Actions Required:
 
-**A. Check the available limits**
+**A. Check the available capacity**
 
-1. **Look at \"Available limits\"** on the left of the placement view
-2. It lists the **Praksis place limits** that include this placement's emne, with the places left in the current period
-3. **No limit, or not enough places?** Add or raise a limit under **Praksis places → Limits**:
-   - Pick the entity (a limit also covers every unit under it)
-   - Set the limit, choose yearly or semester, and split it between the emner that can use it
+1. **Look at \"Available capacity\"** on the left of the placement view
+2. It lists the **Praksis place capacity** for this placement's emne, with the places left in the current period
+3. **No capacity, or not enough places?** Add or raise capacity under **Praksis places → Capacity**:
+   - Pick the lowest unit where students are placed (units above show the sum)
+   - Set the number of students per emne (the period is set once per praksis place)
 
 **B. Import Students**
 
@@ -192,7 +192,7 @@ When the **AI Auto-Assign** button appears in the Current Task Banner:
 2. **Review the AI's suggested assignments:**
    - The AI considers student preferences
    - Balances quota distribution
-   - Respects capacity limits
+   - Respects capacity
    - Accounts for custom requests
 
 3. **Accept or modify suggestions:**
@@ -347,17 +347,17 @@ Access the complete task overview:
    - Action buttons for each step
    - Mandatory vs. Optional labels
 
-### Limits
+### Capacity
 
-**Where limits come from:**
-- Limits are set per praksis place under **Praksis places → Limits**
-- Each limit is split between emner; this placement can use its emne's share
+**Where capacity comes from:**
+- Capacity is set on the lowest units of a praksis place under **Praksis places → Capacity**
+- Each unit has a number per emne; this placement can use its emne's number
 - A yearly share is shared by all placements of the emne in the same yearly period; a semester share by placements in the same semester
 
-**Available limits panel:**
-- One row per limit, grouped by praksis place
+**Available capacity panel:**
+- One row per unit with capacity, grouped by praksis place
 - Shows places left out of the emne's share, and how many are used in other placements
-- Quick assign places students on the limit's entity; the student's \"Add praksis place\" dialog also offers the units under it
+- Quick assign places students in that unit
 
 ### AI Auto-Assign
 
@@ -505,7 +505,7 @@ The system provides helpful alerts:
 **Validation Errors:**
 - Date range validation
 - Required field checks
-- Capacity limit warnings
+- Capacity warnings
 
 ---
 

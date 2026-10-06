@@ -671,7 +671,7 @@ export function PraksisPlacesView({
                           : "border-transparent text-gray-600 hover:text-gray-900"
                       }`}
                     >
-                      Limits
+                      Capacity
                     </button>
                   </div>
                 </div>
@@ -1094,9 +1094,9 @@ export function PraksisPlacesView({
                     <div className="space-y-4">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <h3 className="font-semibold text-gray-900 mb-1">Praksis place limits</h3>
+                          <h3 className="font-semibold text-gray-900 mb-1">Praksis place capacity</h3>
                           <p className="text-sm text-gray-500">
-                            Set how many students of each emne a unit takes. Limits are set on the lowest units; the
+                            Set how many students of each emne a unit takes. Capacity is set on the lowest units; the
                             units above show the sum of what is under them.
                           </p>
                         </div>
@@ -1123,9 +1123,9 @@ export function PraksisPlacesView({
                             <TableHeader>
                               <TableRow>
                                 <TableHead className="font-semibold text-gray-700">ENTITY</TableHead>
-                                <TableHead className="font-semibold text-gray-700">LIMIT</TableHead>
-                                <TableHead className="font-semibold text-gray-700" title="The limits on the lowest units under it, added up">
-                                  TOTAL LIMIT
+                                <TableHead className="font-semibold text-gray-700">CAPACITY</TableHead>
+                                <TableHead className="font-semibold text-gray-700" title="The capacity of the lowest units under it, added up">
+                                  TOTAL CAPACITY
                                 </TableHead>
                                 <TableHead className="font-semibold text-gray-700">PROGRAMS / EMNER</TableHead>
                                 <TableHead className="w-32" />
@@ -1227,7 +1227,7 @@ export function PraksisPlacesView({
                                               size="sm"
                                               onClick={() => setLimitDialog({ entity: { id: node.id, name: node.name }, limit: l })}
                                               className="text-gray-600 hover:text-gray-900 hover:bg-gray-100 h-8 w-8 p-0"
-                                              title="Edit limit"
+                                              title="Edit capacity"
                                             >
                                               <Edit className="h-4 w-4" />
                                             </Button>
@@ -1237,7 +1237,7 @@ export function PraksisPlacesView({
                                             size="sm"
                                             onClick={() => removePraksisLimit(l.id)}
                                             className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
-                                            title="Delete limit"
+                                            title="Delete capacity"
                                           >
                                             <Trash2 className="h-4 w-4" />
                                           </Button>
@@ -1251,7 +1251,7 @@ export function PraksisPlacesView({
                                             className="h-7 gap-1 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                                           >
                                             <Plus className="h-3.5 w-3.5" />
-                                            Add limit
+                                            Add capacity
                                           </Button>
                                         </div>
                                       ) : null}

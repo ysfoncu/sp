@@ -267,7 +267,7 @@ export function PlacementModals({
           <DialogHeader>
             <DialogTitle>Select Praksis Place</DialogTitle>
             <DialogDescription>
-              Choose a unit covered by one of this emne's limits for{" "}
+              Choose a unit with capacity for this emne for{" "}
               <span className="font-semibold">{selectedStudent?.name}</span>
             </DialogDescription>
           </DialogHeader>
@@ -275,9 +275,9 @@ export function PlacementModals({
             {availableQuotaRequests.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <ClipboardCheck className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                <p className="text-sm">No limit with free places for this emne</p>
+                <p className="text-sm">No capacity with free places for this emne</p>
                 <p className="text-xs mt-1">
-                  Add or raise a limit for this emne under Praksis places → Limits
+                  Add or raise capacity for this emne under Praksis places → Capacity
                 </p>
               </div>
             ) : (
@@ -354,7 +354,7 @@ export function PlacementModals({
                             style={{ paddingLeft: `${16 + unit.depth * 20}px` }}
                             title={
                               full
-                                ? `Full: ${unit.limitingName ?? "the"} limit reached`
+                                ? `Full: ${unit.limitingName ?? "the"} capacity reached`
                                 : history.length > 0
                                   ? `${selectedStudent?.name} was placed here before`
                                   : undefined

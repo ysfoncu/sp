@@ -30,14 +30,14 @@ export function PlacePeriodDialog({ placeName, period, onClose, onSave }: PlaceP
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Limit period · {placeName}</DialogTitle>
+          <DialogTitle>Capacity period · {placeName}</DialogTitle>
           <DialogDescription>
-            Every limit of this praksis place counts students in this period. Changing it applies to all its limits.
+            All capacity of this praksis place counts students in this period. Changing it applies to all of it.
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-[auto_1fr] gap-6 py-2">
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-gray-700">Limit type</label>
+            <label className="block text-xs font-semibold text-gray-700">Capacity type</label>
             <div className="inline-flex rounded-md border border-gray-200 p-0.5 bg-gray-50">
               {(['yearly', 'semester'] as const).map((type) => (
                 <button
@@ -70,7 +70,7 @@ export function PlacePeriodDialog({ placeName, period, onClose, onSave }: PlaceP
                 {error ? (
                   <p className="text-xs text-red-600">{error}</p>
                 ) : (
-                  <p className="text-xs text-gray-500">The limits start over every year on this day</p>
+                  <p className="text-xs text-gray-500">Capacity starts over every year on this day</p>
                 )}
               </>
             )}

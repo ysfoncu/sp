@@ -207,7 +207,7 @@ export function CapacityPlanningReportView({
         <div>
           <h1 className="font-bold text-gray-900 text-2xl">Capacity planning report</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Praksis place limits per study, program and emne, and how many places placements use
+            Praksis place capacity per study, program and emne, and how many places placements use
           </p>
         </div>
         {/* Semester the usage is counted for */}
@@ -319,7 +319,7 @@ export function CapacityPlanningReportView({
               <div className="text-center">
                 <ClipboardList className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                 <p className="text-gray-600 font-medium">Select a study, program or emne</p>
-                <p className="text-sm text-gray-400 mt-1">Its praksis place limits and their usage are shown here</p>
+                <p className="text-sm text-gray-400 mt-1">Its praksis place capacity and its usage are shown here</p>
               </div>
             </div>
           ) : selectedEmner.length === 0 ? (
@@ -360,14 +360,14 @@ export function CapacityPlanningReportView({
 
                   {trees.length === 0 ? (
                     <p className="text-sm text-gray-500 px-4 py-6">
-                      No limits include {emne.name} for {semester} {year}. Add them under Praksis places → Limits.
+                      No capacity includes {emne.name} for {semester} {year}. Add it under Praksis places → Capacity.
                     </p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b bg-gray-50/50 text-left">
-                            {["Praksis place / Entity", "Type / Period", "Limit", "Used", "Left", "Used by placements"].map((h) => (
+                            {["Praksis place / Entity", "Type / Period", "Capacity", "Used", "Left", "Used by placements"].map((h) => (
                               <th key={h} className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">
                                 {h}
                               </th>

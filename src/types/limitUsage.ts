@@ -218,7 +218,7 @@ export const limitViolations = (placeLimits: PraksisPlaceLimit[], root: Organiza
   placeLimits.forEach((l) => {
     const node = findNode(root, l.entityId);
     if (node && !isLowestUnit(node)) {
-      out.set(l.id, ["Limits are set on the lowest units. Delete this one and set limits on the units below."]);
+      out.set(l.id, ["Capacity is set on the lowest units. Delete this one and set capacity on the units below."]);
     }
   });
   return out;

@@ -446,15 +446,15 @@ export function PlacementTaskView({
   const notifyLimits = (m: typeof quotaContext) => {
     const trees = limitTreeForPlacement(allLimits, praksisPlaces, m, students, allPlacementsData);
     if (trees.length === 0) {
-      toast.info(`No limit for ${m.emne || "this emne"} yet`, {
-        description: "Add one under Praksis places → Limits to start assigning students.",
+      toast.info(`No capacity for ${m.emne || "this emne"} yet`, {
+        description: "Add it under Praksis places → Capacity to start assigning students.",
       });
       return;
     }
     const places = trees.map((t) => t.praksisPlaceName);
     const n = trees.reduce((sum, t) => sum + t.nodes.length, 0);
-    toast.success(`${n} limit${n > 1 ? "s" : ""} available for ${m.emne}`, {
-      description: `${places.join(", ")} — shown in Available limits for this placement.`,
+    toast.success(`Capacity available in ${n} unit${n > 1 ? "s" : ""} for ${m.emne}`, {
+      description: `${places.join(", ")} — shown in Available capacity for this placement.`,
     });
   };
 
@@ -1111,8 +1111,8 @@ export function PlacementTaskView({
                 Welcome! Let's Get Started
               </AlertTitle>
               <AlertDescription className="text-blue-800">
-                Fill in the placement details below. Students can only be placed with Praksis place
-                limits that include the selected emne.
+                Fill in the placement details below. Students can only be placed in Praksis place
+                units that have capacity for the selected emne.
               </AlertDescription>
             </Alert>
           </div>
@@ -1165,9 +1165,9 @@ export function PlacementTaskView({
                       Not enough places
                     </AlertTitle>
                     <AlertDescription className="text-amber-800">
-                      You have {students.length} students but the limits for this emne
-                      only have {totalQuotas} place{totalQuotas !== 1 ? "s" : ""} for this
-                      placement. Raise or add limits under Praksis places → Limits for{" "}
+                      You have {students.length} students but the capacity for this emne
+                      only has {totalQuotas} place{totalQuotas !== 1 ? "s" : ""} for this
+                      placement. Raise or add capacity under Praksis places → Capacity for{" "}
                       {students.length - totalQuotas} more.
                     </AlertDescription>
                   </Alert>
@@ -1180,7 +1180,7 @@ export function PlacementTaskView({
                     Import Students
                   </AlertTitle>
                   <AlertDescription className="text-blue-800">
-                    The limits for this emne have {totalQuotas} place
+                    The capacity for this emne has {totalQuotas} place
                     {totalQuotas !== 1 ? "s" : ""} for this placement. Import students to continue
                     with the placement process.
                   </AlertDescription>
@@ -1266,7 +1266,7 @@ export function PlacementTaskView({
             onClose={() => setEditingLimit(null)}
             onSave={(saved) => {
               savePraksisLimits(saved);
-              toast.success("Limit updated");
+              toast.success("Capacity updated");
             }}
           />
         )}
