@@ -125,3 +125,64 @@ const subscribe = (listener: () => void) => {
 
 export const usePraksisLimits = (): PraksisPlaceLimit[] =>
   useSyncExternalStore(subscribe, () => limits);
+
+// ── Period ────────────────────────────────────────────────────────────────────
+// One period per praksis place: every limit of the place counts students the same way, so totals
+// above the lowest units are plain sums. Each limit also carries a copy of its place's period
+// (kept in sync below), so code that counts usage only has to look at the limit.
+export interface PlacePeriod {
+  limitType: "yearly" | "semester";
+  periodStart?: string; // yearly: the reset day (MM/DD)
+}
+
+export const DEFAULT_PLACE_PERIOD: PlacePeriod = { limitType: "yearly", periodStart: "01/01" };
+
+const PERIOD_KEY = "praksisPlacePeriods";
+
+const loadPeriods = (): Record<string, PlacePeriod> => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PERIOD_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+let periods: Record<string, PlacePeriod> = loadPeriods();
+
+// The place's period: the one chosen for it, else the period its first limit already has
+// (limits saved before places had a period), else yearly from 01/01
+export const placePeriodOf = (
+  placeId: string,
+  placeLimits: PraksisPlaceLimit[],
+  chosen: Record<string, PlacePeriod> = periods,
+): PlacePeriod => {
+  if (chosen[placeId]) return chosen[placeId];
+  const first = placeLimits.find((l) => l.praksisPlaceId === placeId);
+  return first
+    ? { limitType: first.limitType, ...(first.limitType === "yearly" && { periodStart: first.periodStart ?? "01/01" }) }
+    : DEFAULT_PLACE_PERIOD;
+};
+
+export const usePlacePeriod = (placeId: string | undefined): PlacePeriod => {
+  const all = useSyncExternalStore(subscribe, () => limits);
+  const chosen = useSyncExternalStore(subscribe, () => periods);
+  return placeId ? placePeriodOf(placeId, all, chosen) : DEFAULT_PLACE_PERIOD;
+};
+
+// Sets the place's period and applies it to every limit of the place
+export const setPlacePeriod = (placeId: string, period: PlacePeriod) => {
+  periods = { ...periods, [placeId]: period };
+  try {
+    localStorage.setItem(PERIOD_KEY, JSON.stringify(periods));
+  } catch {
+    // Storage unavailable — keep the in-memory copy
+  }
+  setLimits(
+    limits.map((l) =>
+      l.praksisPlaceId === placeId
+        ? { ...l, limitType: period.limitType, periodStart: period.periodStart, periodEnd: undefined }
+        : l,
+    ),
+  );
+};

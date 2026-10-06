@@ -55,8 +55,9 @@ import {
 import { allMockContacts, allMockSupervisors } from "../data/mockContactsAndSupervisors";
 import { AddLimitModal } from "./AddLimitModal";
 import { Study } from "./SettingsView";
-import { PraksisPlaceLimit, removePraksisLimit, savePraksisLimits, usePraksisLimits } from "../types/praksisLimit";
-import { childLimitsOf, limitViolations } from "../types/limitUsage";
+import { PraksisPlaceLimit, removePraksisLimit, savePraksisLimits, setPlacePeriod, usePlacePeriod, usePraksisLimits } from "../types/praksisLimit";
+import { isLowestUnit, limitPeriodLabel, limitViolations, limitsUnder } from "../types/limitUsage";
+import { PlacePeriodDialog } from "./PlacePeriodDialog";
 
 interface PraksisPlacesViewProps {
   places: PraksisPlace[];
@@ -99,6 +100,7 @@ export function PraksisPlacesView({
     limit?: PraksisPlaceLimit;
   } | null>(null);
   const [collapsedLimitNodes, setCollapsedLimitNodes] = useState<Set<string>>(new Set());
+  const [periodDialogOpen, setPeriodDialogOpen] = useState(false);
   
   // Filter states for chips
   const [selectedContactType, setSelectedContactType] = useState<string | null>(null);
@@ -483,13 +485,25 @@ export function PraksisPlacesView({
     return out;
   })();
 
-  // Total limit of an entity: its own limit when it has one (units under it are part of it),
-  // otherwise the totals of its units added up
+  // A unit's total: the limits on the lowest units under it, added up (for a lowest unit, its own)
   const totalLimitOf = (node: OrganizationNode): number =>
-    placeLimits.find((l) => l.entityId === node.id)?.limit ??
-    node.children.reduce((sum, c) => sum + totalLimitOf(c), 0);
+    limitsUnder(node, placeLimits).reduce((sum, l) => sum + l.limit, 0);
 
-  // Limits that break the nesting rules (saved before the rules existed), with the reasons
+  // The same per emne, for the parents' rows
+  const emneTotalsOf = (node: OrganizationNode) => {
+    const totals = new Map<string, { label: string; limit: number }>();
+    limitsUnder(node, placeLimits).forEach((l) =>
+      l.emneShares.forEach((s) => {
+        const key = `${s.programId}-${s.emneId}`;
+        totals.set(key, { label: `${s.programName} · ${s.emneName}`, limit: (totals.get(key)?.limit ?? 0) + s.limit });
+      })
+    );
+    return [...totals.entries()].map(([key, v]) => ({ key, ...v }));
+  };
+
+  const placePeriod = usePlacePeriod(selectedPlaceId ?? undefined);
+
+  // Older limits on units that have units under them, with the reason
   const violations = selectedPlace?.organizationStructure
     ? limitViolations(placeLimits, selectedPlace.organizationStructure)
     : new Map<string, string[]>();
@@ -1082,9 +1096,21 @@ export function PraksisPlacesView({
                         <div>
                           <h3 className="font-semibold text-gray-900 mb-1">Praksis place limits</h3>
                           <p className="text-sm text-gray-500">
-                            Configure how many students can be deployed to a praksis place per year (from a reset date) or
-                            per semester. A limit covers its entity and every unit under it, so limits can be nested.
+                            Set how many students of each emne a unit takes. Limits are set on the lowest units; the
+                            units above show the sum of what is under them.
                           </p>
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700">
+                          <span className="text-xs text-gray-500">Period</span>
+                          <span className="font-medium">{limitPeriodLabel(placePeriod)}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setPeriodDialogOpen(true)}
+                            className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          >
+                            Change
+                          </Button>
                         </div>
                       </div>
                       {limitTreeRows.length === 0 ? (
@@ -1098,11 +1124,10 @@ export function PraksisPlacesView({
                               <TableRow>
                                 <TableHead className="font-semibold text-gray-700">ENTITY</TableHead>
                                 <TableHead className="font-semibold text-gray-700">LIMIT</TableHead>
-                                <TableHead className="font-semibold text-gray-700" title="Own limit plus the limits of every unit under it">
+                                <TableHead className="font-semibold text-gray-700" title="The limits on the lowest units under it, added up">
                                   TOTAL LIMIT
                                 </TableHead>
                                 <TableHead className="font-semibold text-gray-700">PROGRAMS / EMNER</TableHead>
-                                <TableHead className="font-semibold text-gray-700">TYPE / PERIOD</TableHead>
                                 <TableHead className="w-32" />
                               </TableRow>
                             </TableHeader>
@@ -1112,14 +1137,8 @@ export function PraksisPlacesView({
                                 const reasons = l ? violations.get(l.id) ?? [] : [];
                                 const collapsed = collapsedLimitNodes.has(node.id);
                                 const total = totalLimitOf(node);
-                                // How much of this limit is already given to limits on its units
-                                const onUnits =
-                                  l && selectedPlace?.organizationStructure
-                                    ? childLimitsOf(node.id, placeLimits, selectedPlace.organizationStructure).reduce(
-                                        (sum, c) => sum + c.limit,
-                                        0,
-                                      )
-                                    : 0;
+                                const lowest = isLowestUnit(node);
+                                const emneTotals = lowest ? [] : emneTotalsOf(node);
                                 return (
                                   <TableRow key={node.id} className={reasons.length > 0 ? "bg-red-50/40" : l ? "bg-white" : "bg-gray-50/40"}>
                                     <TableCell>
@@ -1152,7 +1171,7 @@ export function PraksisPlacesView({
                                       {reasons.length > 0 && (
                                         <ul className="mt-1 space-y-0.5" style={{ paddingLeft: `${depth * 24 + 22}px` }}>
                                           {reasons.map((r) => (
-                                            <li key={r} className="text-xs text-red-600">{r}</li>
+                                            <li key={r} className="max-w-[280px] whitespace-normal text-xs text-red-600">{r}</li>
                                           ))}
                                         </ul>
                                       )}
@@ -1172,16 +1191,13 @@ export function PraksisPlacesView({
                                         <>
                                           <span className="font-semibold text-gray-900">{total}</span>
                                           <span className="text-xs text-gray-500"> students</span>
-                                          {onUnits > 0 && (
-                                            <div className="text-[11px] text-gray-400">{onUnits} set on units</div>
-                                          )}
                                         </>
                                       ) : (
                                         <span className="text-gray-300">—</span>
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      {l && (
+                                      {lowest && l && (
                                         <div className="space-y-0.5">
                                           {l.emneShares.map((share) => (
                                             <div key={`${share.programId}-${share.emneId}`} className="text-sm text-gray-700">
@@ -1191,22 +1207,31 @@ export function PraksisPlacesView({
                                           ))}
                                         </div>
                                       )}
-                                    </TableCell>
-                                    <TableCell className="text-gray-700">
-                                      {l && (l.limitType === "yearly" ? `Yearly · resets ${l.periodStart}` : "Semester")}
+                                      {emneTotals.length > 0 && (
+                                        <div className="space-y-0.5">
+                                          {emneTotals.map((e) => (
+                                            <div key={e.key} className="text-sm text-gray-500">
+                                              {e.label}
+                                              <span className="ml-1.5 font-medium text-gray-700">{e.limit}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
                                     </TableCell>
                                     <TableCell>
                                       {l ? (
                                         <div className="flex items-center justify-end gap-1">
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => setLimitDialog({ entity: { id: node.id, name: node.name }, limit: l })}
-                                            className="text-gray-600 hover:text-gray-900 hover:bg-gray-100 h-8 w-8 p-0"
-                                            title="Edit limit"
-                                          >
-                                            <Edit className="h-4 w-4" />
-                                          </Button>
+                                          {lowest && (
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => setLimitDialog({ entity: { id: node.id, name: node.name }, limit: l })}
+                                              className="text-gray-600 hover:text-gray-900 hover:bg-gray-100 h-8 w-8 p-0"
+                                              title="Edit limit"
+                                            >
+                                              <Edit className="h-4 w-4" />
+                                            </Button>
+                                          )}
                                           <Button
                                             variant="ghost"
                                             size="sm"
@@ -1217,7 +1242,7 @@ export function PraksisPlacesView({
                                             <Trash2 className="h-4 w-4" />
                                           </Button>
                                         </div>
-                                      ) : (
+                                      ) : lowest ? (
                                         <div className="flex justify-end">
                                           <Button
                                             variant="ghost"
@@ -1229,7 +1254,7 @@ export function PraksisPlacesView({
                                             Add limit
                                           </Button>
                                         </div>
-                                      )}
+                                      ) : null}
                                     </TableCell>
                                   </TableRow>
                                 );
@@ -1281,6 +1306,14 @@ export function PraksisPlacesView({
           editingLimit={limitDialog.limit}
           onClose={() => setLimitDialog(null)}
           onSave={savePraksisLimits}
+        />
+      )}
+      {periodDialogOpen && selectedPlace && (
+        <PlacePeriodDialog
+          placeName={selectedPlace.name}
+          period={placePeriod}
+          onClose={() => setPeriodDialogOpen(false)}
+          onSave={(period) => setPlacePeriod(selectedPlace.id, period)}
         />
       )}
     </div>

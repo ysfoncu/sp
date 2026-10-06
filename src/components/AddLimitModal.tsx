@@ -9,310 +9,172 @@ import {
 } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { cn } from './ui/utils';
-import { AlertOctagon, Check, ChevronDown, CornerLeftUp, Lock, Minus, Trash2 } from 'lucide-react';
+import { Lock, Search, X } from 'lucide-react';
 import { PraksisPlace } from '../types/praksisPlace';
-import { LimitEmneShare, PraksisPlaceLimit, isValidMonthDay } from '../types/praksisLimit';
-import { limitBounds, limitPeriodLabel, limitsBelow, parentLimitOf, samePeriod, validateLimit } from '../types/limitUsage';
+import { LimitEmneShare, PraksisPlaceLimit, usePlacePeriod } from '../types/praksisLimit';
+import { findNode, isLowestUnit, limitPeriodLabel } from '../types/limitUsage';
 import { Study, StudyEmne, StudyProgram } from './SettingsView';
-
-// The limit being entered in the dialog
-interface LimitForm {
-  limit: number;
-  limitType: 'yearly' | 'semester';
-  periodStart: string; // yearly: the reset day (MM/DD)
-  // Selected emner (by emneKey), in the order they were picked, with each one's share of the limit
-  shares: Record<string, number>;
-}
 
 const emneKey = (programId: string, emneId: string) => `${programId}::${emneId}`;
 
-// Keep a single selected emne in sync with the limit, so there is nothing to distribute by hand
-const withAutoShare = (form: LimitForm): LimitForm => {
-  const keys = Object.keys(form.shares);
-  return keys.length === 1 ? { ...form, shares: { [keys[0]]: form.limit } } : form;
-};
-
 interface AddLimitModalProps {
-  // The praksis place and the entity the limit is for (an entity has at most one limit)
+  // The praksis place and the unit the limit is for (a unit has at most one limit)
   place?: PraksisPlace;
   entity: { id: string; name: string };
-  // Saved limits — used for the nesting rules (range, room left, period)
-  existingLimits: PraksisPlaceLimit[];
-  // Opened from a placement: the emne list can't be changed
+  // Kept so callers can pass every saved limit; units don't depend on each other
+  existingLimits?: PraksisPlaceLimit[];
+  // Opened from a placement: this emne is pinned to the top
   fixedEmne?: { programId: string; emneId: string };
-  // Studies → programs → emner that can be given a share of a limit
+  // Studies → programs → emner a unit can take students from
   studies: Study[];
   onClose: () => void;
-  // The limit, plus the limits below it when a changed type/period is applied to them
   onSave: (limits: PraksisPlaceLimit[]) => void;
   // When set, the dialog edits this limit
   editingLimit?: PraksisPlaceLimit;
 }
 
-export function AddLimitModal({
-  place,
-  entity,
-  existingLimits,
-  fixedEmne,
-  studies,
-  onClose,
-  onSave,
-  editingLimit,
-}: AddLimitModalProps) {
-  const root = place?.organizationStructure;
-  const placeLimits = existingLimits.filter((l) => l.praksisPlaceId === place?.id);
-  const parent = root ? parentLimitOf(entity.id, placeLimits, root) : undefined;
+interface EmneRow {
+  study: Study;
+  program: StudyProgram;
+  emne: StudyEmne;
+  key: string;
+}
 
-  const [form, setForm] = useState<LimitForm>(() =>
-    editingLimit
-      ? {
-          limit: editingLimit.limit,
-          limitType: editingLimit.limitType,
-          periodStart: editingLimit.periodStart ?? '01/01',
-          shares: Object.fromEntries(editingLimit.emneShares.map((s) => [emneKey(s.programId, s.emneId), s.limit])),
-        }
-      : {
-          limit: 0,
-          // A limit under another one usually counts in the same period
-          limitType: parent?.limitType ?? 'yearly',
-          periodStart: parent?.periodStart ?? '01/01',
-          shares: fixedEmne ? { [emneKey(fixedEmne.programId, fixedEmne.emneId)]: 0 } : {},
-        }
+// One number per emne: how many students of that emne the unit takes per period. 0 = not taken.
+export function AddLimitModal({ place, entity, fixedEmne, studies, onClose, onSave, editingLimit }: AddLimitModalProps) {
+  const period = usePlacePeriod(place?.id);
+  const node = place?.organizationStructure ? findNode(place.organizationStructure, entity.id) : null;
+  const canHaveLimit = !node || isLowestUnit(node);
+
+  // emneKey → students
+  const [values, setValues] = useState<Record<string, number>>(() =>
+    Object.fromEntries((editingLimit?.emneShares ?? []).map((s) => [emneKey(s.programId, s.emneId), s.limit]))
   );
 
-  // emneKey → where the emne sits, for labels and for saving
-  const emneIndex = new Map<string, { study: Study; program: StudyProgram; emne: StudyEmne }>();
-  studies.forEach((study) =>
-    study.programs.forEach((program) =>
-      (program.emner ?? []).forEach((emne) => emneIndex.set(emneKey(program.id, emne.id), { study, program, emne }))
+  // Finding emner in a long list: search, narrow by study and program, or review what is set
+  const [query, setQuery] = useState('');
+  const [studyId, setStudyId] = useState('all');
+  const [programId, setProgramId] = useState('all');
+  const [view, setView] = useState<'all' | 'set'>('all');
+
+  const rows: EmneRow[] = studies.flatMap((study) =>
+    study.programs.flatMap((program) =>
+      (program.emner ?? []).map((emne) => ({ study, program, emne, key: emneKey(program.id, emne.id) }))
     )
   );
+  const knownKeys = new Set(rows.map((r) => r.key));
+  // Emner saved on the limit that are no longer in Settings stay listed so they can be set to 0
+  const orphaned = (editingLimit?.emneShares ?? []).filter((s) => !knownKeys.has(emneKey(s.programId, s.emneId)));
 
-  const update = (patch: Partial<LimitForm>) => setForm((prev) => withAutoShare({ ...prev, ...patch }));
+  const valueOf = (key: string) => values[key] ?? 0;
+  const total = Object.values(values).reduce((sum, n) => sum + n, 0);
+  const setCount = Object.values(values).filter((n) => n > 0).length;
+  const isValid = !!place && canHaveLimit && total > 0;
 
-  // Add or remove a set of emner (one emne, a whole program or a whole study)
-  const toggleEmner = (keys: string[]) => {
-    const allSelected = keys.every((k) => k in form.shares);
-    const shares = { ...form.shares };
-    keys.forEach((k) => {
-      if (allSelected) delete shares[k];
-      else if (!(k in shares)) shares[k] = 0;
+  const programOptions = studies
+    .filter((s) => studyId === 'all' || s.id === studyId)
+    .flatMap((study) => study.programs.filter((p) => (p.emner ?? []).length > 0).map((program) => ({ study, program })));
+
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter(
+    (r) =>
+      (studyId === 'all' || r.study.id === studyId) &&
+      (programId === 'all' || r.program.id === programId) &&
+      (view === 'all' || valueOf(r.key) > 0) &&
+      (!q || [r.emne.name, r.program.name, r.study.name].some((t) => t.toLowerCase().includes(q)))
+  );
+  const isFixed = (key: string) => !!fixedEmne && key === emneKey(fixedEmne.programId, fixedEmne.emneId);
+  const pinned = filtered.filter((r) => isFixed(r.key));
+  const filtering = studyId !== 'all' || programId !== 'all' || q !== '';
+  const shownOrphans = orphaned.filter(
+    (s) => !filtering && (view === 'all' || valueOf(emneKey(s.programId, s.emneId)) > 0)
+  );
+  // Emner with a number that the current filter hides
+  const hiddenSet = rows.filter((r) => valueOf(r.key) > 0 && !filtered.includes(r)).length;
+
+  // Program groups, in the order the studies list them
+  const groups: { program: StudyProgram; study: Study; items: EmneRow[] }[] = [];
+  filtered
+    .filter((r) => !isFixed(r.key))
+    .forEach((r) => {
+      const last = groups[groups.length - 1];
+      if (last && last.program.id === r.program.id) last.items.push(r);
+      else groups.push({ program: r.program, study: r.study, items: [r] });
     });
-    update({ shares });
+
+  const clearFilters = () => {
+    setQuery('');
+    setStudyId('all');
+    setProgramId('all');
+    setView('all');
   };
-
-  const splitEvenly = () => {
-    const keys = Object.keys(form.shares);
-    const base = Math.floor(form.limit / keys.length);
-    const extra = form.limit % keys.length;
-    update({ shares: Object.fromEntries(keys.map((k, i) => [k, base + (i < extra ? 1 : 0)])) });
-  };
-
-  const distributedTotal = Object.values(form.shares).reduce((sum, n) => sum + n, 0);
-
-  const problem = (() => {
-    const p: { limit?: string; emner?: string; distribution?: string; period?: string } = {};
-    if (!form.limit || form.limit <= 0) p.limit = 'Set a limit above 0';
-    if (Object.keys(form.shares).length === 0) p.emner = 'Select programs or emner';
-    else if (form.limit > 0) {
-      const left = form.limit - distributedTotal;
-      if (left > 0) p.distribution = `${left} of ${form.limit} students not distributed yet`;
-      if (left < 0) p.distribution = `${-left} more than the limit of ${form.limit} distributed`;
-    }
-    // Under another limit the period is the parent's, so only a top limit's own period is checked
-    if (!parent && form.limitType === 'yearly') {
-      if (!isValidMonthDay(form.periodStart)) p.period = 'Use MM/DD, e.g. 01/01';
-      else if (form.periodStart === '02/29') p.period = 'Pick a day that exists every year';
-    }
-    return p;
-  })();
-  const isValid = !!place && !problem.limit && !problem.emner && !problem.distribution && !problem.period;
-
-  const emneShares: LimitEmneShare[] = Object.entries(form.shares).flatMap(([k, limit]) => {
-    const info = emneIndex.get(k);
-    if (info) {
-      const { study, program, emne } = info;
-      return [{ studyId: study.id, programId: program.id, programName: program.name, emneId: emne.id, emneName: emne.name, limit }];
-    }
-    // Emne no longer in Settings: keep what was saved
-    const saved = editingLimit?.emneShares.find((s) => emneKey(s.programId, s.emneId) === k);
-    return saved ? [{ ...saved, limit }] : [];
-  });
-
-  // Under another limit, type and period are the parent's
-  const period = parent
-    ? { limitType: parent.limitType, periodStart: parent.periodStart }
-    : { limitType: form.limitType, periodStart: form.periodStart };
-
-  const draft: PraksisPlaceLimit = {
-    id: editingLimit?.id ?? `limit-${Date.now()}`,
-    praksisPlaceId: place?.id ?? '',
-    entityId: entity.id,
-    entityName: entity.name,
-    limit: form.limit,
-    limitType: period.limitType,
-    ...(period.limitType === 'yearly' && { periodStart: period.periodStart }),
-    emneShares,
-    createdAt: editingLimit?.createdAt ?? new Date().toISOString(),
-  };
-
-  const bounds = root ? limitBounds(draft, placeLimits, root) : undefined;
-  const ruleErrors = root ? validateLimit(draft, placeLimits, root) : [];
-  const boundsFor = (key: string) => bounds?.perEmne.find((e) => e.key === key.replace('::', '|'));
-
-  // Limits below follow this limit's type and period
-  const cascaded = root
-    ? limitsBelow(entity.id, placeLimits, root)
-        .filter((l) => l.id !== draft.id && !samePeriod(l, draft))
-        .map((l) => ({
-          ...l,
-          limitType: draft.limitType,
-          periodStart: draft.periodStart,
-          periodEnd: undefined,
-        }))
-    : [];
 
   const handleSave = () => {
-    if (!isValid || ruleErrors.length > 0) return;
-    onSave([draft, ...cascaded]);
+    if (!isValid) return;
+    const emneShares: LimitEmneShare[] = [
+      ...rows.flatMap(({ study, program, emne, key }) =>
+        valueOf(key) > 0
+          ? [{ studyId: study.id, programId: program.id, programName: program.name, emneId: emne.id, emneName: emne.name, limit: valueOf(key) }]
+          : []
+      ),
+      ...orphaned.flatMap((s) => {
+        const limit = valueOf(emneKey(s.programId, s.emneId));
+        return limit > 0 ? [{ ...s, limit }] : [];
+      }),
+    ];
+    onSave([
+      {
+        id: editingLimit?.id ?? `limit-${Date.now()}`,
+        praksisPlaceId: place!.id,
+        entityId: entity.id,
+        entityName: entity.name,
+        limit: emneShares.reduce((sum, s) => sum + s.limit, 0),
+        limitType: period.limitType,
+        ...(period.limitType === 'yearly' && { periodStart: period.periodStart }),
+        emneShares,
+        createdAt: editingLimit?.createdAt ?? new Date().toISOString(),
+      },
+    ]);
     onClose();
   };
 
-  // "Nursing (all emner)" when a whole program is picked, otherwise "Nursing: Kull 2024 Høst"
-  const describeSelection = () =>
-    studies
-      .flatMap((study) => study.programs)
-      .map((program) => {
-        const emner = program.emner ?? [];
-        const picked = emner.filter((e) => emneKey(program.id, e.id) in form.shares);
-        if (picked.length === 0) return null;
-        if (picked.length === emner.length) return `${program.name} (all emner)`;
-        return `${program.name}: ${picked.map((e) => e.name).join(', ')}`;
-      })
-      .filter(Boolean)
-      .join(' · ');
+  const emneRow = (key: string, label: React.ReactNode) => (
+    <div
+      key={key}
+      className={cn('flex items-center justify-between gap-3 px-3 py-1.5', valueOf(key) > 0 && 'bg-purple-50/40')}
+    >
+      <span className="truncate text-sm text-gray-800">{label}</span>
+      <Input
+        type="number"
+        min={0}
+        value={valueOf(key)}
+        // Typing replaces the 0 instead of appending to it
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => setValues((prev) => ({ ...prev, [key]: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+        className={cn('h-8 w-20 flex-shrink-0 text-center', valueOf(key) > 0 && 'border-purple-300 font-semibold')}
+      />
+    </div>
+  );
 
-  const renderEmnePicker = () => {
-    const summary = describeSelection();
-    const selectionMark = (keys: string[]) => {
-      const count = keys.filter((k) => k in form.shares).length;
-      if (count > 0 && count < keys.length) return <Minus className="h-4 w-4 flex-shrink-0 text-blue-600" />;
-      return <Check className={cn('h-4 w-4 flex-shrink-0', count > 0 ? 'opacity-100 text-blue-600' : 'opacity-0')} />;
-    };
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            title={summary || undefined}
-            className={cn(
-              'flex w-full items-center justify-between gap-2 rounded-md border bg-input-background px-3 py-1.5 text-left text-sm',
-              problem.emner ? 'border-red-500' : 'border-input'
-            )}
-          >
-            {summary ? (
-              <span className="block truncate font-medium text-gray-900">{summary}</span>
-            ) : (
-              <span className="text-muted-foreground">Select programs or emner</span>
-            )}
-            <ChevronDown className="h-4 w-4 flex-shrink-0 opacity-50" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-[260px]">
-          {studies.length === 0 && (
-            <div className="px-2 py-3 text-sm text-gray-500 text-center">No studies defined in Settings</div>
-          )}
-          {studies.map((study) => {
-            const studyKeys = study.programs.flatMap((p) => (p.emner ?? []).map((e) => emneKey(p.id, e.id)));
-            const hasSelection = studyKeys.some((k) => k in form.shares);
-            return (
-              <DropdownMenuSub key={study.id}>
-                <DropdownMenuSubTrigger className={hasSelection ? 'font-medium text-blue-600' : ''}>
-                  <span className="truncate">{study.name}</span>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-[260px] max-h-[360px] overflow-y-auto">
-                  {/* preventDefault keeps the menu open so several items can be picked */}
-                  <DropdownMenuItem
-                    disabled={studyKeys.length === 0}
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      toggleEmner(studyKeys);
-                    }}
-                    className="gap-2"
-                  >
-                    {selectionMark(studyKeys)}
-                    All programs in {study.name}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {study.programs.map((program) => {
-                    const emner = program.emner ?? [];
-                    const programKeys = emner.map((e) => emneKey(program.id, e.id));
-                    return (
-                      <div key={program.id}>
-                        <DropdownMenuItem
-                          disabled={emner.length === 0}
-                          onSelect={(e) => {
-                            e.preventDefault();
-                            toggleEmner(programKeys);
-                          }}
-                          className="gap-2 font-medium"
-                          title={emner.length === 0 ? 'This program has no emner' : `All emner in ${program.name}`}
-                        >
-                          {selectionMark(programKeys)}
-                          <span className="truncate">{program.name}</span>
-                          {emner.length === 0 && <span className="ml-auto text-xs font-normal text-gray-400">no emner</span>}
-                        </DropdownMenuItem>
-                        {emner.map((emne) => {
-                          const k = emneKey(program.id, emne.id);
-                          return (
-                            <DropdownMenuItem
-                              key={k}
-                              onSelect={(e) => {
-                                e.preventDefault();
-                                toggleEmner([k]);
-                              }}
-                              className="gap-2 pl-6"
-                            >
-                              {selectionMark([k])}
-                              <span className="truncate">{emne.name}</span>
-                            </DropdownMenuItem>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  };
-
-  const shareKeys = Object.keys(form.shares);
+  const groupHeader = (label: string, hint?: string) => (
+    <div className="sticky top-0 z-10 flex items-baseline gap-2 border-b border-gray-100 bg-gray-50 px-3 py-1.5">
+      <span className="text-xs font-semibold text-gray-700">{label}</span>
+      {hint && <span className="truncate text-[11px] text-gray-400">{hint}</span>}
+    </div>
+  );
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {editingLimit ? 'Edit limit' : 'Add limit'} · {entity.name}
           </DialogTitle>
           <DialogDescription>
-            {place?.name ? `${place.name}. ` : ''}The limit caps {entity.name} and every unit under it, per year or
-            semester, split between the emner that can use it.
+            {place?.name ? `${place.name}. ` : ''}How many students of each emne {entity.name} takes. Emnes left at 0 are
+            not taken.
           </DialogDescription>
         </DialogHeader>
 
@@ -320,229 +182,181 @@ export function AddLimitModal({
           <p className="text-sm text-gray-500 border border-dashed border-gray-200 rounded-lg p-6 text-center">
             Praksis place not found
           </p>
+        ) : !canHaveLimit ? (
+          <p className="text-sm text-gray-600 border border-dashed border-gray-200 rounded-lg p-6 text-center">
+            Limits are set on the lowest units. Set them on the units under {entity.name}.
+          </p>
         ) : (
-          <div className="space-y-5 py-1">
-            {parent && (
-              <div className="flex items-start gap-2 rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-600">
-                <CornerLeftUp className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-gray-400" />
-                <span>
-                  Within <span className="font-semibold text-gray-800">{parent.entityName}</span> ({limitPeriodLabel(parent)}):{' '}
-                  {parent.emneShares.map((s) => `${s.emneName} ${s.limit}`).join(' · ')}
-                  {bounds?.maxTotal !== undefined && (
-                    <span className="text-gray-800"> · {Math.max(0, bounds.maxTotal)} left for this unit</span>
-                  )}
-                </span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-[120px_1fr] gap-4">
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-gray-700">
-                  Limit <span className="text-red-500">*</span>
-                </label>
+          <div className="space-y-3 py-1">
+            {/* Filters */}
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <Input
-                  type="number"
-                  min={0}
-                  value={form.limit}
-                  onChange={(e) => update({ limit: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-                  className={cn('text-center', problem.limit && 'border-red-500')}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search emne, program or study…"
+                  className="h-9 pl-8 pr-8"
                 />
-                {problem.limit && <p className="text-xs text-red-600">{problem.limit}</p>}
-                {bounds && (bounds.minTotal > 0 || bounds.maxTotal !== undefined) && (
-                  <p
-                    className={cn(
-                      'text-xs',
-                      form.limit < bounds.minTotal || (bounds.maxTotal !== undefined && form.limit > bounds.maxTotal)
-                        ? 'text-red-600'
-                        : 'text-gray-500'
-                    )}
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                    title="Clear search"
                   >
-                    Allowed: {bounds.minTotal}
-                    {bounds.maxTotal !== undefined ? `–${Math.max(0, bounds.maxTotal)}` : '+'}
-                  </p>
+                    <X className="h-4 w-4" />
+                  </button>
                 )}
               </div>
-              <div className="space-y-1.5 min-w-0">
-                <label className="block text-xs font-semibold text-gray-700">
-                  Programs / Emner <span className="text-red-500">*</span>
-                </label>
-                {fixedEmne ? (
-                  // Placement page: the emne comes from the placement and can't be changed
-                  <div
-                    className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
-                    title="Set by the placement"
-                  >
-                    <Lock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-                    <span className="truncate">{describeSelection()}</span>
-                  </div>
-                ) : (
-                  renderEmnePicker()
-                )}
-                {problem.emner && <p className="text-xs text-red-600">{problem.emner}</p>}
+              <div className="grid grid-cols-2 gap-2">
+                <Select
+                  value={studyId}
+                  onValueChange={(v) => {
+                    setStudyId(v);
+                    setProgramId('all');
+                  }}
+                >
+                  <SelectTrigger className="h-9 border-gray-300 bg-white">
+                    <SelectValue placeholder="All studies" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All studies</SelectItem>
+                    {studies.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={programId} onValueChange={setProgramId}>
+                  <SelectTrigger className="h-9 border-gray-300 bg-white">
+                    <SelectValue placeholder="All programs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All programs</SelectItem>
+                    {programOptions.map(({ study, program }) => (
+                      <SelectItem key={program.id} value={program.id}>
+                        {studyId === 'all' ? `${program.name} · ${study.name}` : program.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-
-            {shareKeys.length > 0 && (
-              <div className={cn('rounded-md border p-3', problem.distribution ? 'border-red-300' : 'border-gray-200')}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-gray-700">
-                    Distribute the limit between emner
-                    <span className={cn('ml-2 font-normal', problem.distribution ? 'text-red-600' : 'text-green-700')}>
-                      {distributedTotal} / {form.limit} distributed
-                    </span>
-                  </span>
-                  {shareKeys.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={splitEvenly}
-                      disabled={form.limit <= 0}
-                      className="h-7 text-xs text-blue-600 hover:text-blue-700"
-                    >
-                      Split evenly
-                    </Button>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {shareKeys.map((k) => {
-                    const info = emneIndex.get(k);
-                    if (!info) return null;
-                    const eb = boundsFor(k);
-                    const share = form.shares[k] ?? 0;
-                    const outOfRange = !!eb && (share < eb.min || (eb.max !== undefined && share > eb.max) || (eb.missingInParent && share > 0));
-                    const hint = eb
-                      ? eb.missingInParent
-                        ? `not in ${parent?.entityName}`
-                        : [eb.min > 0 && `min ${eb.min}`, eb.max !== undefined && `max ${Math.max(0, eb.max)}`].filter(Boolean).join(' · ')
-                      : '';
-                    return (
-                      <div key={k} className="flex flex-col gap-0.5">
-                      <div
-                        className={cn(
-                          'flex items-center gap-2 rounded-md border bg-gray-50 pl-3 pr-1 py-1',
-                          outOfRange ? 'border-red-400' : 'border-gray-200'
-                        )}
-                      >
-                        <span className="text-sm text-gray-700">
-                          <span className="text-gray-500">{info.program.name} ·</span> {info.emne.name}
-                        </span>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={form.shares[k]}
-                          disabled={shareKeys.length === 1}
-                          title={shareKeys.length === 1 ? 'The only emne gets the whole limit' : undefined}
-                          onChange={(e) =>
-                            update({ shares: { ...form.shares, [k]: Math.max(0, parseInt(e.target.value, 10) || 0) } })
-                          }
-                          className="h-7 w-20 text-center bg-white"
-                        />
-                        {!fixedEmne && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleEmner([k])}
-                            className="h-7 w-7 p-0 text-gray-400 hover:text-red-600"
-                            title="Remove emne"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                      {hint && <span className={cn('px-1 text-[11px]', outOfRange ? 'text-red-600' : 'text-gray-500')}>{hint}</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-                {problem.distribution && <p className="text-xs text-red-600 mt-2">{problem.distribution}</p>}
-              </div>
-            )}
-
-            <div className="grid grid-cols-[auto_1fr] gap-6">
-              {parent ? (
-                // Under another limit, type and period are the parent's
-                <div className="col-span-2 space-y-1.5">
-                  <label className="block text-xs font-semibold text-gray-700">Limit type / Reset date</label>
-                  <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700 w-fit">
-                    <Lock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-                    {limitPeriodLabel(parent)}
-                    <span className="text-xs text-gray-500">· set by {parent.entityName}</span>
-                  </div>
-                </div>
-              ) : (
-              <>
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-gray-700">Limit type</label>
-                <div className="inline-flex rounded-md border border-gray-200 p-0.5 bg-gray-50">
-                  {(['yearly', 'semester'] as const).map((type) => (
+              <div className="flex items-center justify-between gap-2">
+                <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5">
+                  {(
+                    [
+                      ['all', 'All emner'],
+                      ['set', `With a limit (${setCount})`],
+                    ] as const
+                  ).map(([id, label]) => (
                     <button
-                      key={type}
+                      key={id}
                       type="button"
-                      onClick={() => update({ limitType: type })}
+                      onClick={() => setView(id)}
                       className={cn(
-                        'px-3 py-1 text-xs font-medium rounded transition-colors',
-                        form.limitType === type ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                        'rounded px-3 py-1 text-xs font-medium transition-colors',
+                        view === id ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
                       )}
                     >
-                      {type === 'yearly' ? 'Yearly' : 'Semester'}
+                      {label}
                     </button>
                   ))}
                 </div>
+                <p className="whitespace-nowrap text-xs text-gray-500">
+                  {filtered.length + shownOrphans.length} of {rows.length + orphaned.length} emner
+                  {(filtering || view === 'set') && (
+                    <button type="button" onClick={clearFilters} className="ml-2 text-blue-600 hover:underline">
+                      Clear filters
+                    </button>
+                  )}
+                </p>
               </div>
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-gray-700">Reset date (MM/DD)</label>
-                {form.limitType === 'semester' ? (
-                  <p className="text-sm text-gray-400 py-1">Not needed for semester</p>
-                ) : (
-                  <>
-                    <Input
-                      value={form.periodStart}
-                      onChange={(e) => update({ periodStart: e.target.value })}
-                      placeholder="01/01"
-                      maxLength={5}
-                      className={cn('w-20 text-center', problem.period && 'border-red-500')}
-                    />
-                    {problem.period ? (
-                      <p className="text-xs text-red-600">{problem.period}</p>
-                    ) : (
-                      <p className="text-xs text-gray-500">The limit starts over every year on this day</p>
-                    )}
-                  </>
-                )}
-              </div>
-              </>
-              )}
             </div>
 
-            {cascaded.length > 0 && !problem.period && (
-              <p className="text-xs text-blue-700">
-                Also updates {cascaded.length} limit{cascaded.length === 1 ? '' : 's'} below to {limitPeriodLabel(draft)}
+            {/* Emner */}
+            <div className="h-[300px] overflow-y-auto rounded-md border border-gray-200">
+              {rows.length === 0 && orphaned.length === 0 ? (
+                <p className="px-3 py-10 text-center text-sm text-gray-500">No emner defined in Settings</p>
+              ) : filtered.length === 0 && shownOrphans.length === 0 ? (
+                <div className="px-3 py-10 text-center text-sm text-gray-500">
+                  {view === 'set' && !filtering ? 'No emner have a limit yet' : 'No emner match the filter'}
+                  <div>
+                    <button type="button" onClick={clearFilters} className="mt-1 text-blue-600 hover:underline">
+                      Clear filters
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {pinned.length > 0 && (
+                    <div>
+                      {groupHeader('This placement')}
+                      <div className="divide-y divide-gray-100">
+                        {pinned.map((r) =>
+                          emneRow(
+                            r.key,
+                            <>
+                              <span className="text-gray-500">{r.program.name} ·</span> {r.emne.name}
+                            </>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {groups.map(({ program, study, items }) => (
+                    <div key={program.id}>
+                      {groupHeader(program.name, study.name)}
+                      <div className="divide-y divide-gray-100">{items.map((r) => emneRow(r.key, r.emne.name))}</div>
+                    </div>
+                  ))}
+                  {shownOrphans.length > 0 && (
+                    <div>
+                      {groupHeader('Removed from Settings')}
+                      <div className="divide-y divide-gray-100">
+                        {shownOrphans.map((s) =>
+                          emneRow(
+                            emneKey(s.programId, s.emneId),
+                            <span className="text-gray-500">
+                              {s.programName} · {s.emneName}
+                            </span>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            {hiddenSet > 0 && (
+              <p className="text-xs text-gray-500">
+                {hiddenSet} more emne{hiddenSet === 1 ? ' has' : 's have'} a limit outside this filter.
               </p>
             )}
 
-            {ruleErrors.length > 0 && form.limit > 0 && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 space-y-1">
-                {ruleErrors.map((w) => (
-                  <p key={w} className="flex items-start gap-1.5 text-xs text-red-700">
-                    <AlertOctagon className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                    {w}
-                  </p>
-                ))}
+            <div className="flex items-center justify-between">
+              <div
+                className="flex items-center gap-2 whitespace-nowrap rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
+                title={`Set for ${place.name}. Change it on the Limits page.`}
+              >
+                <Lock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+                {limitPeriodLabel(period)}
               </div>
-            )}
+              <p className="whitespace-nowrap text-sm text-gray-700">
+                {setCount} emne{setCount === 1 ? '' : 's'} · Total{' '}
+                <span className="font-semibold text-purple-600">{total}</span> students
+              </p>
+            </div>
+            {total === 0 && <p className="text-xs text-red-600">Set at least one emne above 0</p>}
           </div>
         )}
 
         <DialogFooter className="flex justify-end gap-2 pt-4 border-t">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={!isValid || ruleErrors.length > 0}
-            className="bg-purple-600 hover:bg-purple-700"
-          >
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={handleSave} disabled={!isValid} className="bg-purple-600 hover:bg-purple-700">
             {editingLimit ? 'Save changes' : 'Add limit'}
           </Button>
         </DialogFooter>

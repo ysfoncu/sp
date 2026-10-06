@@ -1,14 +1,14 @@
 // How placement tasks use Praksis place limits.
 //
-// Limits nest: a limit caps its entity and everything under it, per emne, in its own period.
+// Limits are set on the lowest units only (units with nothing under them) — that is where students
+// are placed. A limit is a number per emne; every unit stands alone, and the totals above the
+// lowest units are plain sums (see `limitsUnder`). There is nothing to keep consistent between levels.
 // Nothing is booked against a limit — a placed student only records the unit they go to
-// (`assignedPraksisPlace.placeId` + `entityId`/`departmentId`), and usage is worked out from that:
-// a student counts toward every limit on the path from the praksis place down to their unit.
-// - Where an emne may place: units with at least one limit on their path, where every limit on
-//   the path has a share for the emne (a limit's emne split is also who may use it)
-// - Places left at a unit: the smallest remainder over the limits on its path
-// - Periods: yearly limits count placements whose start date falls in the same MM/DD–MM/DD
-//   window, semester limits count placements in the same year and semester
+// (`assignedPraksisPlace.placeId` + `entityId`/`departmentId`), and usage is worked out from that.
+// - Where an emne may place: lowest units whose limit has a number above 0 for the emne
+// - Places left at a unit: its number for the emne − students placed there in the same period
+// - Periods: one per praksis place. Yearly limits count placements whose start date falls in the
+//   same MM/DD–MM/DD window, semester limits count placements in the same year and semester
 import { PraksisPlaceLimit } from "./praksisLimit";
 import { PraksisPlace } from "./praksisPlace";
 import { OrganizationNode } from "./organizationStructure";
@@ -104,7 +104,7 @@ export const periodKeyFor = (limit: PraksisPlaceLimit, ctx: LimitPlacementContex
   return `Y:${periodYear}-${pad(reset[0])}-${pad(reset[1])}`;
 };
 
-export const limitPeriodLabel = (limit: PraksisPlaceLimit) =>
+export const limitPeriodLabel = (limit: Pick<PraksisPlaceLimit, "limitType" | "periodStart">) =>
   limit.limitType === "yearly" ? `Yearly · resets ${limit.periodStart}` : "Semester";
 
 export const findNode = (node: OrganizationNode, id: string): OrganizationNode | null => {
@@ -126,14 +126,13 @@ export const pathToNode = (root: OrganizationNode, id: string): string[] => {
   return [];
 };
 
-const subtreeIds = (node: OrganizationNode): Set<string> => {
-  const ids = new Set<string>();
-  const walk = (n: OrganizationNode) => {
-    ids.add(n.id);
-    n.children.forEach(walk);
-  };
-  walk(node);
-  return ids;
+// A unit with nothing under it: where students are placed and limits are set
+export const isLowestUnit = (node: OrganizationNode) => node.children.length === 0;
+
+// The limits on the lowest units under (and including) a node, for totals
+export const limitsUnder = (node: OrganizationNode, placeLimits: PraksisPlaceLimit[]): PraksisPlaceLimit[] => {
+  if (isLowestUnit(node)) return placeLimits.filter((l) => l.entityId === node.id);
+  return node.children.flatMap((c) => limitsUnder(c, placeLimits));
 };
 
 export const emneShareFor = (limit: PraksisPlaceLimit, ctx: { programId?: string; emne?: string }) =>
@@ -156,230 +155,71 @@ export const limitTreeForPlacement = (
     const root = place.organizationStructure;
     const placeLimits = limits.filter((l) => l.praksisPlaceId === place.id);
     if (!root || placeLimits.length === 0) return [];
-    const limitAt = new Map(placeLimits.map((l) => [l.entityId, l]));
 
-    // Usage per limit, only for limits this emne can use in this period
-    const usage = new Map<string, { share: number; used: number; usedElsewhere: number; remaining: number }>();
-    placeLimits.forEach((limit) => {
-      const share = emneShareFor(limit, ctx);
-      const periodKey = periodKeyFor(limit, ctx);
-      const node = findNode(root, limit.entityId);
-      if (!share || !periodKey || !node) return;
-      const inside = subtreeIds(node);
-      const counts = (s: LimitStudent) => s.assignedPraksisPlace?.placeId === place.id && inside.has(studentUnit(s) ?? "");
-      const used = students.filter(counts).length;
+    const nodes: LimitNodeInfo[] = [];
+    const units: LimitUnitInfo[] = [];
+    const walk = (node: OrganizationNode) => {
+      if (!isLowestUnit(node)) {
+        node.children.forEach(walk);
+        return;
+      }
+      const limit = placeLimits.find((l) => l.entityId === node.id);
+      const share = limit && emneShareFor(limit, ctx);
+      const periodKey = limit && periodKeyFor(limit, ctx);
+      if (!limit || !share || share.limit <= 0 || !periodKey) return;
+
+      const atUnit = (s: LimitStudent) => s.assignedPraksisPlace?.placeId === place.id && studentUnit(s) === node.id;
+      const used = students.filter(atUnit).length;
       const usedElsewhere = sameEmne
         .filter(
           (p) =>
             periodKeyFor(limit, { year: p.year ?? ctx.year, semester: p.semester ?? "", startDate: p.startDate }) === periodKey,
         )
-        .reduce((sum, p) => sum + p.students.filter(counts).length, 0);
-      usage.set(limit.id, { share: share.limit, used, usedElsewhere, remaining: Math.max(0, share.limit - used - usedElsewhere) });
-    });
+        .reduce((sum, p) => sum + p.students.filter(atUnit).length, 0);
+      const remaining = Math.max(0, share.limit - used - usedElsewhere);
 
-    const nodes: LimitNodeInfo[] = [];
-    const units: LimitUnitInfo[] = [];
-    // `path` = the limits on the way down to (not including) `node`
-    const walk = (node: OrganizationNode, path: PraksisPlaceLimit[], topDepth: number | null, depth: number) => {
-      const own = limitAt.get(node.id);
-      const onPath = own ? [...path, own] : path;
-      // A limit on the path that isn't for this emne (or period) closes everything below it
-      if (onPath.some((l) => !usage.has(l.id))) return;
-      const top = onPath.length > 0 ? (topDepth ?? depth) : null;
-      if (onPath.length > 0) {
-        let limiting = onPath[0];
-        onPath.forEach((l) => {
-          if (usage.get(l.id)!.remaining < usage.get(limiting.id)!.remaining) limiting = l;
-        });
-        const effectiveRemaining = usage.get(limiting.id)!.remaining;
-        const governing = onPath[onPath.length - 1];
-        units.push({
-          id: node.id,
-          name: node.name,
-          depth: depth - (top ?? depth),
-          effectiveRemaining,
-          limitingName: limiting.entityName,
-          governingNodeId: governing.entityId,
-          governingName: governing.entityName,
-          governingLimitId: governing.id,
-          limitPath: onPath.map((l) => l.entityId),
-        });
-        if (own) {
-          nodes.push({
-            limit: own,
-            depth: path.length,
-            ...usage.get(own.id)!,
-            effectiveRemaining,
-            limitingName: limiting.entityName,
-            periodLabel: limitPeriodLabel(own),
-          });
-        }
-      }
-      node.children.forEach((c) => walk(c, onPath, top, depth + 1));
+      nodes.push({
+        limit,
+        depth: 0,
+        share: share.limit,
+        used,
+        usedElsewhere,
+        remaining,
+        effectiveRemaining: remaining,
+        limitingName: limit.entityName,
+        periodLabel: limitPeriodLabel(limit),
+      });
+      units.push({
+        id: node.id,
+        name: node.name,
+        depth: 0,
+        effectiveRemaining: remaining,
+        limitingName: limit.entityName,
+        governingNodeId: node.id,
+        governingName: node.name,
+        governingLimitId: limit.id,
+        limitPath: [node.id],
+      });
     };
-    walk(root, [], null, 0);
+    walk(root);
 
     return units.length > 0 ? [{ praksisPlaceId: place.id, praksisPlaceName: place.name, nodes, units }] : [];
   });
 };
 
-// Places the placement can use: every topmost limit's share minus what other placements used
+// Places the placement can use: every unit's number for the emne minus what other placements used
 export const totalPlacesForPlacement = (trees: PlaceLimitTree[]) =>
-  trees.reduce(
-    (sum, t) => sum + t.nodes.filter((n) => n.depth === 0).reduce((s, n) => s + Math.max(0, n.share - n.usedElsewhere), 0),
-    0,
-  );
+  trees.reduce((sum, t) => sum + t.nodes.reduce((s, n) => s + Math.max(0, n.share - n.usedElsewhere), 0), 0);
 
-// The nearest limit above an entity at the same praksis place, if any
-export const parentLimitOf = (
-  entityId: string,
-  placeLimits: PraksisPlaceLimit[],
-  root: OrganizationNode,
-): PraksisPlaceLimit | undefined => {
-  const ancestors = pathToNode(root, entityId).slice(0, -1).reverse();
-  for (const id of ancestors) {
-    const limit = placeLimits.find((l) => l.entityId === id);
-    if (limit) return limit;
-  }
-  return undefined;
-};
-
-// ── Nesting rules ─────────────────────────────────────────────────────────────
-// For every limit N: N's total and each emne share must be at least the sum over the limits
-// directly under it (C(N): the nearest limits below, not the ones nested inside those), and a
-// limit has the same type and period as the nearest limit above it (P(N)). "A limit can't exceed
-// its parent" follows from the parent's rule — a limit must fit in the room its siblings leave.
-
-type ShareRef = { programId: string; emneId: string };
-const shareKey = (s: ShareRef) => `${s.programId}|${s.emneId}`;
-const shareOf = (limit: PraksisPlaceLimit, key: string) =>
-  limit.emneShares.find((s) => shareKey(s) === key)?.limit ?? 0;
-const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
-
-// The nearest limits below an entity (whether or not the entity has a limit itself)
-export const childLimitsOf = (
-  entityId: string,
-  placeLimits: PraksisPlaceLimit[],
-  root: OrganizationNode,
-): PraksisPlaceLimit[] => {
-  const limited = new Set(placeLimits.map((l) => l.entityId));
-  return placeLimits.filter((l) => {
-    if (l.entityId === entityId) return false;
-    const path = pathToNode(root, l.entityId);
-    const at = path.indexOf(entityId);
-    return at >= 0 && path.slice(at + 1, -1).every((id) => !limited.has(id));
-  });
-};
-
-// Every limit anywhere below an entity
-export const limitsBelow = (
-  entityId: string,
-  placeLimits: PraksisPlaceLimit[],
-  root: OrganizationNode,
-): PraksisPlaceLimit[] =>
-  placeLimits.filter((l) => l.entityId !== entityId && pathToNode(root, l.entityId).includes(entityId));
-
-export const samePeriod = (
-  a: Pick<PraksisPlaceLimit, "limitType" | "periodStart">,
-  b: Pick<PraksisPlaceLimit, "limitType" | "periodStart">,
-) => a.limitType === b.limitType && (a.limitType === "semester" || a.periodStart === b.periodStart);
-
-export interface EmneBounds {
-  key: string;
-  emneName: string;
-  min: number; // sum of this emne over the limits directly below
-  max?: number; // room left for this emne in the parent limit
-  missingInParent: boolean;
-}
-
-export interface LimitBounds {
-  parent?: PraksisPlaceLimit;
-  children: PraksisPlaceLimit[];
-  siblingsTotal: number; // what the parent's other direct limits already use
-  minTotal: number;
-  maxTotal?: number;
-  perEmne: EmneBounds[];
-}
-
-// The allowed range for a (possibly unsaved) limit, worked out as if it were saved
-export const limitBounds = (
-  draft: PraksisPlaceLimit,
-  placeLimits: PraksisPlaceLimit[],
-  root: OrganizationNode,
-): LimitBounds => {
-  const all = [...placeLimits.filter((l) => l.id !== draft.id && l.entityId !== draft.entityId), draft];
-  const parent = parentLimitOf(draft.entityId, all, root);
-  const children = childLimitsOf(draft.entityId, all, root);
-  const siblings = parent ? childLimitsOf(parent.entityId, all, root).filter((l) => l.id !== draft.id) : [];
-
-  const names = new Map<string, string>();
-  [draft, ...children].forEach((l) => l.emneShares.forEach((s) => names.set(shareKey(s), s.emneName)));
-  const perEmne = [...names.entries()].map(([key, emneName]) => ({
-    key,
-    emneName,
-    min: sum(children.map((c) => shareOf(c, key))),
-    max: parent ? shareOf(parent, key) - sum(siblings.map((l) => shareOf(l, key))) : undefined,
-    missingInParent: !!parent && !parent.emneShares.some((s) => shareKey(s) === key),
-  }));
-
-  const siblingsTotal = sum(siblings.map((l) => l.limit));
-  return {
-    parent,
-    children,
-    siblingsTotal,
-    minTotal: sum(children.map((c) => c.limit)),
-    maxTotal: parent ? parent.limit - siblingsTotal : undefined,
-    perEmne,
-  };
-};
-
-// Why a (possibly unsaved) limit breaks the nesting rules; empty when it's fine
-export const validateLimit = (
-  draft: PraksisPlaceLimit,
-  placeLimits: PraksisPlaceLimit[],
-  root: OrganizationNode,
-): string[] => {
-  const b = limitBounds(draft, placeLimits, root);
-  const reasons: string[] = [];
-  const parentName = b.parent?.entityName;
-
-  if (draft.limit < b.minTotal) {
-    reasons.push(`Limit must be at least ${b.minTotal}: units under it have ${b.minTotal}`);
-  }
-  if (b.maxTotal !== undefined && draft.limit > b.maxTotal) {
-    reasons.push(
-      `Limit can be at most ${Math.max(0, b.maxTotal)}: room left in ${parentName}` +
-        (b.siblingsTotal > 0 ? ` (${b.parent!.limit} − ${b.siblingsTotal} on other units)` : ""),
-    );
-  }
-  b.perEmne.forEach((e) => {
-    const share = shareOf(draft, e.key);
-    const has = draft.emneShares.some((s) => shareKey(s) === e.key);
-    if (has && share > 0 && e.missingInParent) {
-      reasons.push(`${e.emneName} isn't in ${parentName}'s limit`);
-    } else if (e.max !== undefined && share > e.max) {
-      reasons.push(`${e.emneName} can be at most ${Math.max(0, e.max)}: room left in ${parentName}`);
-    }
-    if (share < e.min) {
-      reasons.push(
-        has
-          ? `${e.emneName} must be at least ${e.min}: units under it have ${e.min}`
-          : `${e.emneName} ${e.min} is set on units under it but missing here`,
-      );
-    }
-  });
-  if (b.parent && !samePeriod(draft, b.parent)) {
-    reasons.push(`Type/period must match ${parentName} (${limitPeriodLabel(b.parent)})`);
-  }
-  return reasons;
-};
-
-// Saved limits that break the rules (e.g. saved before the rules existed), with the reasons
+// Saved limits that break the one rule left: limits belong on the lowest units. Older limits on a
+// unit that has units under it are listed with the reason, to be deleted and set on the units below.
 export const limitViolations = (placeLimits: PraksisPlaceLimit[], root: OrganizationNode) => {
   const out = new Map<string, string[]>();
   placeLimits.forEach((l) => {
-    const reasons = validateLimit(l, placeLimits, root);
-    if (reasons.length) out.set(l.id, reasons);
+    const node = findNode(root, l.entityId);
+    if (node && !isLowestUnit(node)) {
+      out.set(l.id, ["Limits are set on the lowest units. Delete this one and set limits on the units below."]);
+    }
   });
   return out;
 };
