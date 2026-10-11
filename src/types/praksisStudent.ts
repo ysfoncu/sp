@@ -1,6 +1,6 @@
 import type { PriorityPlacementApplication } from "./priorityPlacement";
 import { useSyncExternalStore } from "react";
-import { ensureEmne, ensureProgram, ensureStudy } from "./studyCatalog";
+import { IMPORT_YEAR, ensureEmne, ensureProgram, ensureStudy, remapEmneId } from "./studyCatalog";
 import { ImportRow, UMEA_STUDENTS } from "../data/umeaStudents";
 
 // Students who are registered for a praksis before any placement exists.
@@ -350,7 +350,12 @@ const load = (): State => {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     if (parsed && Array.isArray(parsed.students)) {
       // The earlier generated demo students ("imp-…") gave way to the Umeå students
-      const students = parsed.students.filter((s: PraksisStudent) => !s.id.startsWith("imp-"));
+      // The imported students' praksis periods were dated 2022 and 2023; they are now in 2026, and their emne
+      // follows the catalog (see migrateCatalogV3)
+      const toImportYear = (date: string) => (/^20(22|23)-/.test(date) ? `${IMPORT_YEAR}${date.slice(4)}` : date);
+      const students = parsed.students
+        .filter((s: PraksisStudent) => !s.id.startsWith("imp-"))
+        .map((s: PraksisStudent) => ({ ...s, startDate: toImportYear(s.startDate), endDate: toImportYear(s.endDate), emneId: remapEmneId(s.emneId) }));
       const claims = Object.fromEntries(Object.entries((parsed.claims ?? {}) as Record<string, string>).filter(([id]) => !id.startsWith("imp-")));
       return { students, claims };
     }

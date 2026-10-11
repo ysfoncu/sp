@@ -4,7 +4,7 @@ Written after assigning 50 students in Safari and reviewing the result with thre
 
 ## 1. What was tested
 
-- Placement: Sjuksköterskeprogrammet, VFU HT 2022 (study "Hälso- och sjukvård samt social omsorg").
+- Placement: Sjuksköterskeprogrammet, VFU HT 2026 (study "Hälso- och sjukvård samt social omsorg").
 - 154 students waiting, 10 eligible entities with 53 places in total. The page shows "Not enough places: 154 students, 53 places, add 101 more".
 - Mock data: 3 praksis places, 40 entities (ten per program), 485 imported Umeå students.
 - 50 students were assigned through the Quick Assign dialog, one entity at a time: 10 entities took 10 rounds (open, tick N, confirm).

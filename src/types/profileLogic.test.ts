@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { PraksisPlace } from "./praksisPlace";
 import { isPeriodComplete, periodKeyFor } from "./placePeriod";
-import { addEmne, addProgram, addStudy, getStudies } from "./studyCatalog";
+import { addEmne, addProgram, addStudy, emneIdRemap, getStudies } from "./studyCatalog";
 import {
   ENTITY_TYPES,
   EntityContactLink,
@@ -14,7 +14,7 @@ import {
   entityMissing,
   entityTypeLabel,
   isPlaceable,
-  migrateProfilesV3,
+  migrateProfilesV3, migrateProfilesV5,
   validateName,
   profileAudienceLabel,
   profileMatches,
@@ -627,5 +627,16 @@ describe("incomplete entities", () => {
     expect(out[0].emneIds).toEqual([emne1, emne2]);
     expect(out[1].emneIds).toEqual([emne2]);
     expect(out[2].emneIds).toEqual([]);
+  });
+});
+
+describe("emner merged when the starting data moved to 2026", () => {
+  it("makes entities follow the id that was kept, without listing an emne twice", () => {
+    emneIdRemap.clear();
+    emneIdRemap.set("gone", "kept");
+    const out = migrateProfilesV5([profile({ id: "p", emneIds: ["kept", "gone", "other"] }), profile({ id: "q", emneIds: ["other"] })]);
+    expect(out[0].emneIds).toEqual(["kept", "other"]);
+    expect(out[1].emneIds).toEqual(["other"]);
+    emneIdRemap.clear();
   });
 });

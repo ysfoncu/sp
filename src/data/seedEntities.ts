@@ -8,10 +8,10 @@ import type { PlacementProfile } from "../types/placementProfile";
 
 const STUDY_ID = "study-seed-helse";
 const PROGRAMS: { id: string; name: string; code: string; terms: string[] }[] = [
-  { id: "program-seed-vysjs", name: "Sjuksköterskeprogrammet", code: "VYSJS", terms: ["HT 2022", "HT 2023", "VT 2023"] },
-  { id: "program-seed-vybar", name: "Barnmorskeprogrammet", code: "VYBAR", terms: ["HT 2022"] },
-  { id: "program-seed-vyfys", name: "Fysioterapeutprogrammet", code: "VYFYS", terms: ["HT 2022"] },
-  { id: "program-seed-mylog", name: "Logopedprogrammet", code: "MYLOG", terms: ["HT 2022"] },
+  { id: "program-seed-vysjs", name: "Sjuksköterskeprogrammet", code: "VYSJS", terms: ["HT 2026", "VT 2026"] },
+  { id: "program-seed-vybar", name: "Barnmorskeprogrammet", code: "VYBAR", terms: ["HT 2026"] },
+  { id: "program-seed-vyfys", name: "Fysioterapeutprogrammet", code: "VYFYS", terms: ["HT 2026"] },
+  { id: "program-seed-mylog", name: "Logopedprogrammet", code: "MYLOG", terms: ["HT 2026"] },
 ];
 const emneId = (programId: string, term: string) => `${programId.replace("program", "emne")}-${term.replace(" ", "").toLowerCase()}`;
 

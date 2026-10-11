@@ -71,11 +71,46 @@ export const migrateCatalogV2 = (studies: Study[]): Study[] =>
     })),
   }));
 
+// Version 3: the practice courses of the starting data ("VFU HT 2022", "VFU HT 2023", "VFU VT 2023") are dated in 2026.
+// Their names and start terms take the year; two of the same season in one program become one (the later id is
+// remembered in emneIdRemap, so entities and students that pointed at it follow). Other emner are left as they are.
+export const IMPORT_YEAR = "2026";
+export const emneIdRemap = new Map<string, string>();
+export const remapEmneId = (id: string) => emneIdRemap.get(id) ?? id;
+export const migrateCatalogV3 = (studies: Study[]): Study[] =>
+  studies.map((s) => ({
+    ...s,
+    programs: s.programs.map((p) => {
+      if (!p.emner) return p;
+      const kept: StudyEmne[] = [];
+      const byName = new Map<string, StudyEmne>();
+      p.emner.forEach((e) => {
+        const m = /^VFU (HT|VT) \d{4}$/.exec(e.name.trim());
+        if (!m) {
+          kept.push(e);
+          return;
+        }
+        const name = `VFU ${m[1]} ${IMPORT_YEAR}`;
+        const twin = byName.get(name);
+        if (twin) {
+          emneIdRemap.set(e.id, twin.id);
+          return;
+        }
+        const renamed = { ...e, name, startTerm: `${m[1]} ${IMPORT_YEAR}` };
+        byName.set(name, renamed);
+        kept.push(renamed);
+      });
+      return { ...p, emner: kept };
+    }),
+  }));
+
 const load = (): Study[] => {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     if (!Array.isArray(parsed?.studies)) return DEFAULT_CATALOG;
-    return (parsed.version ?? 1) < 2 ? migrateCatalogV2(parsed.studies) : parsed.studies;
+    const version = parsed.version ?? 1;
+    const v2 = version < 2 ? migrateCatalogV2(parsed.studies) : parsed.studies;
+    return version < 3 ? migrateCatalogV3(v2) : v2;
   } catch {
     return DEFAULT_CATALOG;
   }
@@ -87,7 +122,7 @@ const listeners = new Set<() => void>();
 const setCatalog = (next: Study[]) => {
   catalog = next;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, studies: next }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, studies: next }));
   } catch {
     // Storage unavailable (private mode etc.) — keep the in-memory copy
   }

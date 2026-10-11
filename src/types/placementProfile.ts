@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { findEmne, findEmneByName, findProgram } from "./studyCatalog";
+import { findEmne, findEmneByName, findProgram, remapEmneId } from "./studyCatalog";
 import { allMockContacts, allMockSupervisors } from "../data/mockContactsAndSupervisors";
 import { ContactType, PlaceContact, mergePlaceContacts, removePlaceContact } from "./placeContact";
 import { SEED_PROFILES } from "../data/seedEntities";
@@ -244,7 +244,11 @@ export const migrateProfilesV2 = (old: any[]): { profiles: PlacementProfile[]; c
   return { profiles, contacts };
 };
 
-const STORAGE_VERSION = 4;
+const STORAGE_VERSION = 5;
+
+// Version 5: emner that were merged when the starting data moved to 2026 (see migrateCatalogV3) are followed
+export const migrateProfilesV5 = (old: PlacementProfile[]): PlacementProfile[] =>
+  old.map((p) => ({ ...p, emneIds: [...new Set(p.emneIds.map(remapEmneId))] }));
 
 const save = (list: PlacementProfile[]) => {
   try {
@@ -257,11 +261,11 @@ const save = (list: PlacementProfile[]) => {
 const load = (): PlacementProfile[] => {
   // Moves saved data up to the current version; the people found on the way go to the place contacts
   const upgrade = (list: any[], version: number): PlacementProfile[] => {
-    if (version >= 3) return migrateProfilesV3(list);
+    if (version >= 3) return version >= 5 ? migrateProfilesV3(list) : migrateProfilesV5(migrateProfilesV3(list));
     const v2 = version >= 2 ? list : migrateProfilesV1(list);
     const { profiles: v3, contacts } = migrateProfilesV2(v2);
     mergePlaceContacts(contacts);
-    return migrateProfilesV3(v3);
+    return migrateProfilesV5(migrateProfilesV3(v3));
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);

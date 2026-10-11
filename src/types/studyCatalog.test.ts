@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Study, emneMeta, migrateCatalogV2, programLabel, validateEmne, validateProgram } from "./studyCatalog";
+import { Study, emneIdRemap, emneMeta, migrateCatalogV2, migrateCatalogV3, programLabel, remapEmneId, validateEmne, validateProgram } from "./studyCatalog";
 
 const study = (emner: Study["programs"][number]["emner"]): Study => ({
   id: "s1",
@@ -61,5 +61,33 @@ describe("emne and program rules", () => {
       "Term 3", "NSK201", "Medical ward", "Pair placement", "Start 2026 Høst",
     ]);
     expect(emneMeta({})).toEqual([]);
+  });
+});
+
+describe("study catalog v3", () => {
+  it("dates the VFU courses in 2026 and merges the same season of two years, remembering the id that went", () => {
+    emneIdRemap.clear();
+    const [s] = migrateCatalogV3([
+      study([
+        { id: "a", name: "VFU HT 2022", startTerm: "HT 2022" },
+        { id: "b", name: "VFU HT 2023", startTerm: "HT 2023" },
+        { id: "c", name: "VFU VT 2023", startTerm: "VT 2023" },
+        { id: "d", name: "Praksis 1" },
+      ]),
+    ]);
+    expect(s.programs[0].emner).toEqual([
+      { id: "a", name: "VFU HT 2026", startTerm: "HT 2026" },
+      { id: "c", name: "VFU VT 2026", startTerm: "VT 2026" },
+      { id: "d", name: "Praksis 1" },
+    ]);
+    expect(remapEmneId("b")).toBe("a");
+    expect(remapEmneId("a")).toBe("a");
+    expect(remapEmneId("zzz")).toBe("zzz");
+  });
+
+  it("leaves programs without emner, and a catalog that is already in 2026", () => {
+    expect(migrateCatalogV3([study(undefined)])[0].programs[0].emner).toBeUndefined();
+    const done = [study([{ id: "a", name: "VFU HT 2026", startTerm: "HT 2026" }])];
+    expect(migrateCatalogV3(done)).toEqual(done);
   });
 });

@@ -53,26 +53,27 @@ describe("generateImportStudents", () => {
     expect(IMPORT_TOTAL).toBe(485);
     expect(new Set(list.map((s) => s.id)).size).toBe(IMPORT_TOTAL);
     expect(new Set(list.map((s) => s.programId)).size).toBe(4);
-    expect(new Set(list.map((s) => s.emneId)).size).toBe(6);
-    expect(importSummary()).toEqual({ students: 485, studies: 1, programs: 4, emner: 6 });
+    expect(new Set(list.map((s) => s.emneId)).size).toBe(5);
+    expect(importSummary()).toEqual({ students: 485, studies: 1, programs: 4, emner: 5 });
   });
 
   it("carries what the sheets say about each student", () => {
     const s = list[0];
-    expect(s).toMatchObject({ name: "Samuel Andersson", personnummer: "1900151338D", studyLocation: "Umeå", startDate: "2022-09-01", priorityPoints: 0, registered: true });
+    expect(s).toMatchObject({ name: "Samuel Andersson", personnummer: "1900151338D", studyLocation: "Umeå", startDate: "2026-09-01", priorityPoints: 0, registered: true });
     expect(list.filter((x) => x.priorityPoints).length).toBe(17);
     expect(list.filter((x) => x.registered === false).length).toBe(49);
   });
 
   it("gives every student a 10-week period from the intake", () => {
     expect(list.every((s) => s.startDate < s.endDate)).toBe(true);
-    expect(list[0].endDate).toBe("2022-11-09");
+    expect(list[0].endDate).toBe("2026-11-09");
     expect(generateImportStudents(fake, "now")).toEqual(list);
   });
 
   it("names the intake term", () => {
-    expect(intakeTerm("2022-09-01")).toBe("HT 2022");
-    expect(intakeTerm("2023-01-01")).toBe("VT 2023");
+    expect(intakeTerm("2026-09-01")).toBe("HT 2026");
+    expect(intakeTerm("2026-01-01")).toBe("VT 2026");
+    expect(new Set(list.map((s) => s.startDate.slice(0, 4)))).toEqual(new Set(["2026"]));
   });
 });
 
@@ -168,8 +169,8 @@ describe("store", () => {
     expect(umea[0].programs.map((p) => p.name).sort()).toEqual(["Barnmorskeprogrammet", "Fysioterapeutprogrammet", "Logopedprogrammet", "Sjuksköterskeprogrammet"]);
     expect(umea[0].programs.map((p) => p.code).sort()).toEqual(["MYLOG", "VYBAR", "VYFYS", "VYSJS"]);
     const emner = umea.flatMap((s) => s.programs.flatMap((p) => p.emner ?? []));
-    expect(emner).toHaveLength(6);
-    expect(emner.map((e) => e.startTerm).sort()).toEqual(["HT 2022", "HT 2022", "HT 2022", "HT 2022", "HT 2023", "VT 2023"]);
+    expect(emner).toHaveLength(5);
+    expect(emner.map((e) => e.startTerm).sort()).toEqual(["HT 2026", "HT 2026", "HT 2026", "HT 2026", "VT 2026"]);
 
     const [first, second] = getPraksisState().students;
     expect(claimStudents([first.id, "nope"], "p1")).toEqual([first.id]);
