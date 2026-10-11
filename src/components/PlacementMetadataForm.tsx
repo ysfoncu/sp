@@ -1,4 +1,3 @@
-import { XCircle } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -8,7 +7,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Study } from "./SettingsView";
+import { Study, emneMeta, programLabel } from "../types/studyCatalog";
+
+// The title a placement gets when none is typed: study · program · emne
+export const placementTitleFor = (studies: Study[], f: { studyId: string; programId: string; subject: string }) => {
+  const study = studies.find((x) => x.id === f.studyId);
+  const program = study?.programs.find((p) => p.id === f.programId);
+  return [study?.name, program?.name, f.subject].filter(Boolean).join(" · ");
+};
 
 export interface MetadataFormData {
   title: string;
@@ -21,15 +27,14 @@ export interface MetadataFormData {
   studyId: string;
   programId: string;
   emne?: string;
+  emneId?: string; // the emne's id in the catalog; `subject` keeps its name as a label
   totalPraksisHours?: number;
 }
 
 interface PlacementMetadataFormProps {
   formData: MetadataFormData;
   studies: Study[];
-  dateValidationError: string;
-  startDateInputRef: React.RefObject<HTMLInputElement | null>;
-  endDateInputRef: React.RefObject<HTMLInputElement | null>;
+  waitingCount: number; // students waiting in Praksis-students for the chosen emne
   onChange: (data: MetadataFormData) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
@@ -38,9 +43,7 @@ interface PlacementMetadataFormProps {
 export function PlacementMetadataForm({
   formData,
   studies,
-  dateValidationError,
-  startDateInputRef,
-  endDateInputRef,
+  waitingCount,
   onChange,
   onSubmit,
   onCancel,
@@ -50,6 +53,7 @@ export function PlacementMetadataForm({
       .find((s) => s.id === formData.studyId)
       ?.programs.find((p) => p.id === formData.programId)?.emner ?? [];
   // Study, program and emne are mandatory (the selects aren't covered by native `required`)
+  const defaultTitle = placementTitleFor(studies, formData);
   const missingSelection = !formData.studyId || !formData.programId || !formData.subject;
 
   return (
@@ -60,8 +64,8 @@ export function PlacementMetadataForm({
             Placement Details
           </h2>
           <p className="text-sm text-gray-600">
-            Fill in the basic information to get started with your student
-            placement program.
+            Choose the study, program and emne. The students waiting for it come
+            from Praksis-students, with their own praksis dates.
           </p>
         </div>
 
@@ -73,7 +77,7 @@ export function PlacementMetadataForm({
             <Select
               value={formData.studyId}
               onValueChange={(value: string) =>
-                onChange({ ...formData, studyId: value, programId: "", subject: "" })
+                onChange({ ...formData, studyId: value, programId: "", subject: "", emneId: "" })
               }
             >
               <SelectTrigger className="h-10">
@@ -96,7 +100,7 @@ export function PlacementMetadataForm({
             <Select
               value={formData.programId}
               onValueChange={(value: string) =>
-                onChange({ ...formData, programId: value, subject: "" })
+                onChange({ ...formData, programId: value, subject: "", emneId: "" })
               }
               disabled={!formData.studyId}
             >
@@ -109,7 +113,7 @@ export function PlacementMetadataForm({
                     .find((s) => s.id === formData.studyId)
                     ?.programs.map((program) => (
                       <SelectItem key={program.id} value={program.id}>
-                        {program.name}
+                        {programLabel(program)}
                       </SelectItem>
                     ))}
               </SelectContent>
@@ -122,8 +126,14 @@ export function PlacementMetadataForm({
             </label>
             {/* Emne must be one of the program's emner defined in Settings */}
             <Select
-              value={formData.subject}
-              onValueChange={(value) => onChange({ ...formData, subject: value })}
+              value={formData.emneId || availableEmner.find((e) => e.name === formData.subject)?.id || ""}
+              onValueChange={(id) =>
+                onChange({
+                  ...formData,
+                  emneId: id,
+                  subject: availableEmner.find((e) => e.id === id)?.name ?? "",
+                })
+              }
               disabled={!formData.programId || availableEmner.length === 0}
             >
               <SelectTrigger className="h-10">
@@ -137,8 +147,9 @@ export function PlacementMetadataForm({
               </SelectTrigger>
               <SelectContent>
                 {availableEmner.map((e) => (
-                  <SelectItem key={e.id} value={e.name}>
+                  <SelectItem key={e.id} value={e.id}>
                     {e.name}
+                    {emneMeta(e).length > 0 && <span className="ml-2 text-xs text-gray-500">{emneMeta(e).join(" · ")}</span>}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -150,93 +161,25 @@ export function PlacementMetadataForm({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="font-medium text-gray-700 text-sm block">
-                Start Date *
-              </label>
-              <div className="relative">
-                <Input
-                  ref={startDateInputRef}
-                  type="date"
-                  value={formData.startDate}
-                  onChange={(e) => {
-                    const startDate = e.target.value;
-                    if (!startDate) {
-                      onChange({ ...formData, startDate });
-                      return;
-                    }
-                    const [yearStr, monthStr] = startDate.split("-");
-                    const year = yearStr || "";
-                    const month = parseInt(monthStr || "1", 10) - 1;
-                    const semester = month < 7 ? "Spring" : "Autumn";
-                    onChange({ ...formData, startDate, year, semester });
-                  }}
-                  className={`h-10 text-gray-900 [color-scheme:light] ${
-                    dateValidationError ? "border-red-500" : ""
-                  }`}
-                  required
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="font-medium text-gray-700 text-sm block">
-                End Date *
-              </label>
-              <div className="relative">
-                <Input
-                  ref={endDateInputRef}
-                  type="date"
-                  value={formData.endDate}
-                  onChange={(e) =>
-                    onChange({ ...formData, endDate: e.target.value })
-                  }
-                  className={`h-10 text-gray-900 [color-scheme:light] ${
-                    dateValidationError ? "border-red-500" : ""
-                  }`}
-                  required
-                />
-              </div>
-              {dateValidationError && (
-                <p className="text-sm text-red-600 flex items-center gap-1">
-                  <XCircle className="h-4 w-4" />
-                  {dateValidationError}
-                </p>
-              )}
-            </div>
-          </div>
+          {formData.emneId && (
+            <p className={`text-sm ${waitingCount > 0 ? "text-gray-700" : "text-amber-700"}`}>
+              {waitingCount > 0
+                ? `${waitingCount} student${waitingCount === 1 ? " is" : "s are"} waiting for this emne in Praksis-students. They are added to the placement automatically.`
+                : "No students are waiting for this emne. Import students in Praksis-students first."}
+            </p>
+          )}
 
           <div className="space-y-2">
             <label className="font-medium text-gray-700 text-sm block">
-              Total praksis hours <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <Input
-              type="number"
-              min={0}
-              value={formData.totalPraksisHours ?? ""}
-              onChange={(e) =>
-                onChange({
-                  ...formData,
-                  totalPraksisHours: e.target.value === "" ? undefined : Number(e.target.value),
-                })
-              }
-              placeholder="e.g., 120"
-              className="h-10 w-40"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="font-medium text-gray-700 text-sm block">
-              Placement title *
+              Placement title <span className="text-gray-400 font-normal">(optional)</span>
             </label>
             <Input
               value={formData.title}
               onChange={(e) =>
                 onChange({ ...formData, title: e.target.value })
               }
-              placeholder="e.g., Spring 2026 Nursing Placement"
+              placeholder={defaultTitle || "Built from the study, program and emne"}
               className="h-10"
-              required
             />
           </div>
 
@@ -251,11 +194,17 @@ export function PlacementMetadataForm({
             </Button>
             <Button
               type="submit"
-              disabled={missingSelection}
-              title={missingSelection ? "Select study, program and emne" : undefined}
+              disabled={missingSelection || waitingCount === 0}
+              title={
+                missingSelection
+                  ? "Select study, program and emne"
+                  : waitingCount === 0
+                    ? "No students are waiting for this emne"
+                    : undefined
+              }
               className="px-6 h-10 bg-blue-600 hover:bg-blue-700 text-white"
             >
-              Save and Continue
+              Continue
             </Button>
           </div>
         </form>

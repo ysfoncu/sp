@@ -7,7 +7,6 @@ import {
   Trash2,
   GraduationCap,
   BookOpen,
-  Layers,
   UserCog,
   Mail,
   Eye,
@@ -15,11 +14,21 @@ import {
   GitBranch,
   X,
   Lock,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import { Switch } from "./ui/switch";
+import {
+  CURRENT_UNIVERSITY,
+  addProgram,
+  addStudy,
+  setStudyArchived,
+  useStudyCatalog,
+} from "../types/studyCatalog";
+import { ProgramRow } from "./ProgramRow";
 import {
   Select,
   SelectContent,
@@ -28,25 +37,8 @@ import {
   SelectValue,
 } from "./ui/select";
 
-export interface StudyEmne {
-  id: string;
-  name: string;
-}
-
-export interface StudyProgram {
-  id: string;
-  name: string;
-  // Optional cohorts ("emne") attached to a program. A program may have none.
-  emner?: StudyEmne[];
-}
-
-export interface Study {
-  id: string;
-  name: string;
-  universityId: string;
-  universityName: string;
-  programs: StudyProgram[];
-}
+// The catalog types live in types/studyCatalog.ts; re-exported so older imports keep working
+export type { Study, StudyProgram, StudyEmne } from "../types/studyCatalog";
 
 export interface StudyAdmin {
   id: string;
@@ -59,7 +51,6 @@ export interface StudyAdmin {
 export interface DashboardSettings {
   praksisPlacesOverview: boolean;
   placementOverview: boolean;
-  quotaRequests: boolean;
   tasks: boolean;
   recentActivities: boolean;
   placementProgress: boolean;
@@ -69,8 +60,6 @@ export interface DashboardSettings {
 interface SettingsViewProps {
   dashboardSettings: DashboardSettings;
   onSave: (settings: DashboardSettings) => void;
-  studies: Study[];
-  onStudiesChange: (studies: Study[]) => void;
 }
 
 const dashboardItems = [
@@ -85,12 +74,6 @@ const dashboardItems = [
     label: "Placement Overview",
     description:
       "Track student placements by year, semester, and status",
-  },
-  {
-    id: "quotaRequests" as keyof DashboardSettings,
-    label: "Quota Requests",
-    description:
-      "Manage and review quota requests for praksis places",
   },
   {
     id: "tasks" as keyof DashboardSettings,
@@ -128,8 +111,8 @@ const workflowSteps: {
 }[] = [
   {
     n: 1,
-    name: "Quota management",
-    desc: "Manage / request quota for your placement.",
+    name: "Check entities",
+    desc: "Check that the entities for the emne have places for the students.",
     optional: false,
   },
   {
@@ -142,7 +125,7 @@ const workflowSteps: {
   {
     n: 3,
     name: "Assign students",
-    desc: "Coordinator assigns students to the approved quota slots.",
+    desc: "Coordinator places each student on an entity with places left.",
     optional: false,
   },
   {
@@ -154,7 +137,7 @@ const workflowSteps: {
   },
   {
     n: 5,
-    name: "Assign supervisors",
+    name: "Assign mentors",
     desc: "Select the supervisor of each student.",
     optional: true,
     key: "step5Enabled",
@@ -170,9 +153,14 @@ const workflowSteps: {
 export function SettingsView({
   dashboardSettings,
   onSave,
-  studies,
-  onStudiesChange: setStudies,
 }: SettingsViewProps) {
+  // The catalog is shared by the whole app; archived items only show here when asked for
+  const { all: allStudies, active: studies } = useStudyCatalog();
+  const [showArchived, setShowArchived] = useState(false);
+  // Settings edits the studies of the user's own university
+  const listedStudies = (showArchived ? allStudies : studies).filter(
+    (study) => study.universityId === CURRENT_UNIVERSITY.id,
+  );
   const [localSettings, setLocalSettings] =
     useState<DashboardSettings>(dashboardSettings);
   const [showError, setShowError] = useState(false);
@@ -180,7 +168,6 @@ export function SettingsView({
     "studies" | "admins" | "dashboard" | "workflows"
   >("studies");
 
-  // Studies are owned by App so they survive navigating away from Settings.
   const [newStudyName, setNewStudyName] = useState("");
   const [newProgramName, setNewProgramName] = useState<{
     [studyId: string]: string;
@@ -188,11 +175,9 @@ export function SettingsView({
   const [isAddingStudy, setIsAddingStudy] = useState(false);
   const [addingProgramForStudy, setAddingProgramForStudy] =
     useState<string | null>(null);
-  const [newEmneName, setNewEmneName] = useState<{
-    [programId: string]: string;
+  const [newProgramCode, setNewProgramCode] = useState<{
+    [studyId: string]: string;
   }>({});
-  const [addingEmneForProgram, setAddingEmneForProgram] =
-    useState<string | null>(null);
 
   // Study Admins state management — starts empty; admins are created here.
   const [studyAdmins, setStudyAdmins] = useState<StudyAdmin[]>([]);
@@ -299,125 +284,23 @@ export function SettingsView({
     );
   };
 
-  // Study management functions
+  // Study management functions — items are archived, not deleted, so data that refers to them keeps its names
   const handleAddStudy = () => {
     if (newStudyName.trim()) {
-      const newStudy: Study = {
-        id: Date.now().toString(),
-        name: newStudyName.trim(),
-        universityId: "U1",
-        universityName: "University of Oslo",
-        programs: [],
-      };
-      setStudies([...studies, newStudy]);
+      addStudy(newStudyName, CURRENT_UNIVERSITY);
       setNewStudyName("");
       setIsAddingStudy(false);
     }
   };
 
-  const handleRemoveStudy = (studyId: string) => {
-    setStudies(studies.filter((study) => study.id !== studyId));
-  };
-
   const handleAddProgram = (studyId: string) => {
     const programName = newProgramName[studyId]?.trim();
     if (programName) {
-      setStudies(
-        studies.map((study) => {
-          if (study.id === studyId) {
-            return {
-              ...study,
-              programs: [
-                ...study.programs,
-                {
-                  id: `${studyId}-${Date.now()}`,
-                  name: programName,
-                },
-              ],
-            };
-          }
-          return study;
-        }),
-      );
+      addProgram(studyId, programName, newProgramCode[studyId]);
       setNewProgramName({ ...newProgramName, [studyId]: "" });
+      setNewProgramCode({ ...newProgramCode, [studyId]: "" });
       setAddingProgramForStudy(null);
     }
-  };
-
-  const handleRemoveProgram = (
-    studyId: string,
-    programId: string,
-  ) => {
-    setStudies(
-      studies.map((study) => {
-        if (study.id === studyId) {
-          return {
-            ...study,
-            programs: study.programs.filter(
-              (program) => program.id !== programId,
-            ),
-          };
-        }
-        return study;
-      }),
-    );
-  };
-
-  // Emne (cohort) management functions — optional per program
-  const handleAddEmne = (
-    studyId: string,
-    programId: string,
-  ) => {
-    const emneName = newEmneName[programId]?.trim();
-    if (emneName) {
-      setStudies(
-        studies.map((study) => {
-          if (study.id !== studyId) return study;
-          return {
-            ...study,
-            programs: study.programs.map((program) => {
-              if (program.id !== programId) return program;
-              return {
-                ...program,
-                emner: [
-                  ...(program.emner ?? []),
-                  {
-                    id: `${programId}-emne-${Date.now()}`,
-                    name: emneName,
-                  },
-                ],
-              };
-            }),
-          };
-        }),
-      );
-      setNewEmneName({ ...newEmneName, [programId]: "" });
-      setAddingEmneForProgram(null);
-    }
-  };
-
-  const handleRemoveEmne = (
-    studyId: string,
-    programId: string,
-    emneId: string,
-  ) => {
-    setStudies(
-      studies.map((study) => {
-        if (study.id !== studyId) return study;
-        return {
-          ...study,
-          programs: study.programs.map((program) => {
-            if (program.id !== programId) return program;
-            return {
-              ...program,
-              emner: (program.emner ?? []).filter(
-                (emne) => emne.id !== emneId,
-              ),
-            };
-          }),
-        };
-      }),
-    );
   };
 
   const handleToggle = (itemId: keyof DashboardSettings) => {
@@ -553,20 +436,27 @@ export function SettingsView({
                         Studies and Programs
                       </h2>
                       <p className="text-sm text-gray-600 mt-1">
-                        Manage your academic studies and their
-                        associated programs
+                        Manage the studies, programs and emner of{" "}
+                        {CURRENT_UNIVERSITY.name}. They are shared with
+                        the whole app, so archive instead of deleting.
                       </p>
                     </div>
-                    {!isAddingStudy && (
-                      <Button
-                        onClick={() => setIsAddingStudy(true)}
-                        size="sm"
-                        className="bg-blue-600 hover:bg-blue-700 gap-2"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Add Study
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-2 whitespace-nowrap text-sm text-gray-600 cursor-pointer">
+                        <Switch checked={showArchived} onCheckedChange={setShowArchived} />
+                        Show archived
+                      </label>
+                      {!isAddingStudy && (
+                        <Button
+                          onClick={() => setIsAddingStudy(true)}
+                          size="sm"
+                          className="bg-blue-600 hover:bg-blue-700 gap-2"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add Study
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -615,11 +505,11 @@ export function SettingsView({
 
                 {/* Studies List */}
                 <div className="space-y-4">
-                  {studies.length > 0 ? (
-                    studies.map((study) => (
+                  {listedStudies.length > 0 ? (
+                    listedStudies.map((study) => (
                       <div
                         key={study.id}
-                        className="border border-gray-200 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
+                        className={`border border-gray-200 rounded-lg p-4 bg-gray-50 hover:bg-gray-100 transition-colors ${study.archived ? "opacity-60" : ""}`}
                       >
                         {/* Study Header */}
                         <div className="flex items-start justify-between mb-3">
@@ -634,17 +524,27 @@ export function SettingsView({
                                   ? "program"
                                   : "programs"}
                               </Badge>
+                              {study.archived && (
+                                <Badge variant="outline" className="text-xs text-gray-500">
+                                  Archived
+                                </Badge>
+                              )}
                             </div>
                           </div>
                           <Button
                             onClick={() =>
-                              handleRemoveStudy(study.id)
+                              setStudyArchived(study.id, !study.archived)
                             }
                             size="sm"
                             variant="ghost"
-                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                            className="text-gray-600 hover:bg-gray-200"
+                            title={study.archived ? "Restore study" : "Archive study"}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            {study.archived ? (
+                              <ArchiveRestore className="h-4 w-4" />
+                            ) : (
+                              <Archive className="h-4 w-4" />
+                            )}
                           </Button>
                         </div>
 
@@ -706,6 +606,21 @@ export function SettingsView({
                                   className="flex-1"
                                   autoFocus
                                 />
+                                <Input
+                                  placeholder="Code (e.g., SYK-B)"
+                                  aria-label="Program code"
+                                  value={newProgramCode[study.id] || ""}
+                                  onChange={(e) =>
+                                    setNewProgramCode({
+                                      ...newProgramCode,
+                                      [study.id]: e.target.value,
+                                    })
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleAddProgram(study.id);
+                                  }}
+                                  className="w-40"
+                                />
                                 <Button
                                   onClick={() =>
                                     handleAddProgram(study.id)
@@ -743,152 +658,7 @@ export function SettingsView({
                           {study.programs.length > 0 && (
                             <div className="space-y-2">
                               {study.programs.map((program) => (
-                                <div
-                                  key={program.id}
-                                  className="bg-white rounded border border-gray-200 hover:border-gray-300 transition-colors p-2"
-                                >
-                                  {/* Program header row */}
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <BookOpen className="h-4 w-4 text-gray-400" />
-                                      <span className="text-sm text-gray-700">
-                                        {program.name}
-                                      </span>
-                                    </div>
-                                    <Button
-                                      onClick={() =>
-                                        handleRemoveProgram(
-                                          study.id,
-                                          program.id,
-                                        )
-                                      }
-                                      size="sm"
-                                      variant="ghost"
-                                      className="text-red-600 hover:bg-red-50 hover:text-red-700 h-7 w-7 p-0"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-
-                                  {/* Emne (cohort) chips + Add Emne action — below the program, optional */}
-                                  <div className="mt-2 ml-6 flex flex-wrap items-center gap-2">
-                                    {(program.emner ?? []).map(
-                                      (emne) => (
-                                        <span
-                                          key={emne.id}
-                                          className="inline-flex items-center gap-1 rounded-full bg-violet-100 text-violet-700 border border-violet-200 pl-2 pr-1 py-0.5 text-xs"
-                                        >
-                                          <Layers className="h-3 w-3" />
-                                          {emne.name}
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleRemoveEmne(
-                                                study.id,
-                                                program.id,
-                                                emne.id,
-                                              )
-                                            }
-                                            className="ml-0.5 rounded-full p-0.5 hover:bg-violet-200 transition-colors"
-                                            aria-label={`Remove ${emne.name}`}
-                                          >
-                                            <X className="h-3 w-3" />
-                                          </button>
-                                        </span>
-                                      ),
-                                    )}
-
-                                    {addingEmneForProgram ===
-                                    program.id ? (
-                                      <div className="flex items-center gap-2">
-                                        <Input
-                                          placeholder="Emne / cohort name (e.g., Kull 2024 Høst)"
-                                          value={
-                                            newEmneName[
-                                              program.id
-                                            ] || ""
-                                          }
-                                          onChange={(e) =>
-                                            setNewEmneName({
-                                              ...newEmneName,
-                                              [program.id]:
-                                                e.target.value,
-                                            })
-                                          }
-                                          onKeyDown={(e) => {
-                                            if (
-                                              e.key === "Enter"
-                                            ) {
-                                              handleAddEmne(
-                                                study.id,
-                                                program.id,
-                                              );
-                                            } else if (
-                                              e.key === "Escape"
-                                            ) {
-                                              setAddingEmneForProgram(
-                                                null,
-                                              );
-                                              setNewEmneName({
-                                                ...newEmneName,
-                                                [program.id]: "",
-                                              });
-                                            }
-                                          }}
-                                          className="h-8 w-64"
-                                          autoFocus
-                                        />
-                                        <Button
-                                          onClick={() =>
-                                            handleAddEmne(
-                                              study.id,
-                                              program.id,
-                                            )
-                                          }
-                                          size="sm"
-                                          className="bg-violet-600 hover:bg-violet-700 h-8"
-                                          disabled={
-                                            !newEmneName[
-                                              program.id
-                                            ]?.trim()
-                                          }
-                                        >
-                                          Add
-                                        </Button>
-                                        <Button
-                                          onClick={() => {
-                                            setAddingEmneForProgram(
-                                              null,
-                                            );
-                                            setNewEmneName({
-                                              ...newEmneName,
-                                              [program.id]: "",
-                                            });
-                                          }}
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-8"
-                                        >
-                                          Cancel
-                                        </Button>
-                                      </div>
-                                    ) : (
-                                      <Button
-                                        onClick={() =>
-                                          setAddingEmneForProgram(
-                                            program.id,
-                                          )
-                                        }
-                                        size="sm"
-                                        variant="outline"
-                                        className="text-violet-600 border-violet-300 hover:bg-violet-50 gap-1 h-7"
-                                      >
-                                        <Plus className="h-3 w-3" />
-                                        Add Emne
-                                      </Button>
-                                    )}
-                                  </div>
-                                </div>
+                                <ProgramRow key={program.id} study={study} program={program} />
                               ))}
                             </div>
                           )}

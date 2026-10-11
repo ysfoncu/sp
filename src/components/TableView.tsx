@@ -1,7 +1,7 @@
 import { Badge } from "./ui/badge";
 import { placementTasks } from "../types/placementTask";
 import { FileText } from "lucide-react";
-import { Study } from "./SettingsView";
+import { Study } from "../types/studyCatalog";
 
 interface StudentPlacement {
   id: string;
@@ -26,9 +26,6 @@ interface PlacementTaskState {
   placementId: string;
   studentsImported: boolean;
   students: any[];
-  quotasSelected: boolean;
-  quotas: any[];
-  firstPublished: boolean;
   studentsAssigned: boolean;
   documentsAttached: boolean;
   finalPublished: boolean;
@@ -93,19 +90,17 @@ export function TableView({
   };
 
   const getTaskStatusColor = (step: string) => {
-    // Extract the step number (e.g., "1/6" -> 1)
+    // Extract the step number (e.g., "1/5" -> 1)
     const stepNumber = parseInt(step.split("/")[0]);
 
     switch (stepNumber) {
       case 1:
         return "bg-orange-50 text-orange-600 border-orange-200";
       case 2:
-        return "bg-red-50 text-red-600 border-red-200";
-      case 3:
         return "bg-blue-50 text-blue-600 border-blue-200";
+      case 3:
       case 4:
       case 5:
-      case 6:
         return "bg-purple-50 text-purple-600 border-purple-200";
       default:
         return "bg-gray-50 text-gray-600 border-gray-200";

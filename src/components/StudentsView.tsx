@@ -45,7 +45,7 @@ import {
   PRIORITY_REASON_POINTS,
 } from "../types/priorityPlacement";
 import { PlacementTaskState, StudentPlacement } from "../types/studentPlacement";
-import { Study } from "./SettingsView";
+import { Study } from "../types/studyCatalog";
 import {
   getStudentPlacements,
   getStudentPriorityRequests,

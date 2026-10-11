@@ -68,7 +68,7 @@ export function getStudentPlacements(
       supervisors,
       startDate: ap?.startDate ?? placement?.startDate,
       endDate: ap?.endDate ?? placement?.endDate,
-      status: placement?.status ?? ap?.approvalStatus,
+      status: placement?.status ?? ap?.status,
     });
 
     // Merge in the student's self-contained placement history

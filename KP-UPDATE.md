@@ -97,3 +97,62 @@ This is the most curicial logic
 check all variations and create proper logic.
 
 Items violates logic should be displayed as danger icon and violation reason should be displayed 
+
+very nice.
+Now we will fix another big logical problem
+Student management
+Sytem will receive students before placement.
+Students are being imported to the system before placement. And when they are imported, they are already registered to a praksis with a study, program, emne, start and end dates. 
+Main purpose in the app finding praksis place to the student. 
+Imagine like this user is having 100 students from one study/program and from one emne. Its already decided and defined that students will have the praxsis, and user is trying to find praksis places to the students using profiles and place them to praksis places
+
+tasks
+Add new side item as Praksis-students
+Add a button as import students.
+When pressed imports 100 students belongs to 2 different studies, 4 different programs, and 8 different emnes. 
+In this state we know which praksis, student will have but place is not decided. So add necessary columns to student item
+Check related parts of referance document if you need help 
+https://www.umu.se/globalassets/organisation/fakulteter/medfak/medicinska-fakulteten/utbildning/vfuvil/vfu-samordnare.pdf?e=J3h7fJ
+Use proper filters in this page to filter students
+This page will display students who are waiting for placement
+
+When creating a new placement no need to select start and end date of the placement.
+User will select 
+study/program/emne/Placement title optional and pres continue. if title is empty selected attributes will be used
+In the next screen students will be displayed automatically, from Praksis-students page and profiles who are accepting this emne students
+
+Students will stay in Praksis-students page until placement is completed for the student. and this data should be displayed.
+
+Now use your group of experts analyse the change and create your detailed plan. After plan continue with implementing, test it, refine it and let me know when completed.
+
+If you will have questions after planning just ask.
+
+4. Draft placement proposal: three tiers, reasons per student, an unplaced list and manual override. Nothing is assigned until the coordinator approves.
+
+https://www.umu.se/globalassets/organisation/fakulteter/medfak/medicinska-fakulteten/utbildning/vfuvil/vfu-samordnare.pdf?e=J3h7fJ
+
+Check this again and identify difference in organisations and profiles
+Should we remove childentities in praksis places.
+Still I could not clearly understand how organisations and profiles are build in reference and what is different in our implementation?
+Check with your experts
+
+The earlier answer that "slot" appears nowhere in the UMU manual was wrong. The word is in a screenshot on printed page 11, and my text search couldn't see inside images. It reads "Placement Slot" and is described under "Hantera platser". It is one student's booking on a profile, with dates, a shift type, a status (such as Committed) and a mentor. It is not a capacity number. I should have looked at the images then, as I did now.
+
+I want to make another structural change.
+I want to change existing hyererchical structure of praksis places.
+There will be only main parent praksis place.
+User should be able to add entity to main praksis place.
+structure of the entity is same as profile.
+So exsisting hyerarchical structure will be removed and profiles will become entities.
+While creating entities as profiles user wont select the unit, but have to write profile name and this will be used as entity name
+
+user will add contacts manually using contacts to the entity.
+Now use your experts plan the changes and implement them
+
+when an entity is added it should be displayed under main praksis place expanded/collapsed view. smilar to previous view but one level only.
+When top praksis place is clicked, it should display 3 tabs, contacts, entities and place info.
+Entities tab should display all registered entities and when card is clicked its details should be displayed in page, and it should be selected on left menu automatically.
+When an entity is clicked in left panel details should be displayed. 
+A contact can be added to multiple entities so user should be able to create contact rhen add it to enttities. contacts canbe supervisor or entity contact
+
+when placing students using student placemen details screen, if places for the entity is 0 

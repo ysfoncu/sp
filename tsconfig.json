@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": [
+    "src/types/placementProfile.ts",
+    "src/types/profileUsage.ts",
+    "src/types/profileRules.ts",
+    "src/types/studentView.ts",
+    "src/types/praksisStudent.ts",
+    "src/types/placePeriod.ts",
+    "src/types/studyCatalog.ts",
+    "src/types/placesRoute.ts",
+    "src/types/entityDirty.ts",
+    "src/types/quickAssign.ts",
+    "src/types/entityPicker.ts",
+    "src/types/**/*.test.ts"
+  ]
+}

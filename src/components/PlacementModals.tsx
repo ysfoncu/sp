@@ -16,10 +16,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { PlacementTasksModal } from "./PlacementTasksModal";
-import { QuickAssignStudentsModal } from "./QuickAssignStudentsModal";
-import { SlideOverManageQuota, QuotaSelection } from "./SlideOverManageQuota";
 import { AISupportSidebar } from "./AISupportSidebar";
-import { FirstPublishModal } from "./FirstPublishModal";
 import { PlacementNetworkDiagramModal } from "./PlacementNetworkDiagramModal";
 import { PlacementTaskHelpOverlay } from "./PlacementTaskHelpOverlay";
 import { Student, PlacementTask } from "../types/placementTask";
@@ -42,22 +39,21 @@ export interface QuotaRequestOption {
   programId: string;
   assignedCount: number;
   availableCount: number;
-  _quotaRequestId: string;
+  _profileId: string;
   _entityId?: string;
   // Limits: the units a student can be placed in, with the places left there (smallest remainder
-  // over the limits on the unit's path) and the limit that sets it
-  units?: Array<{ id: string; name: string; depth: number; remaining?: number; limitingName?: string }>;
+  // over the limits on the unit's path) and the entity that sets it
+  units?: Array<{
+    id: string;
+    name: string;
+    depth: number;
+    remaining?: number;
+    over?: number; // students already placed beyond the places
+    limitingName?: string;
+    profileId?: string;
+    profileName?: string;
+  }>;
   periodLabel?: string;
-}
-
-interface SelectedQuotaForAssignment {
-  requestId: string;
-  praksisPlaceId: string;
-  praksisPlaceName: string;
-  departmentId: string;
-  departmentName: string;
-  availableCapacity: number;
-  entityId?: string;
 }
 
 interface NetworkDiagramStudent {
@@ -68,7 +64,7 @@ interface NetworkDiagramStudent {
     placeName: string;
     departmentId: string;
     departmentName: string;
-    quotaRequestId?: string;
+    profileId?: string;
     entityId?: string;
   };
 }
@@ -95,14 +91,11 @@ interface PlacementModalsProps {
   isPublishConfirmOpen: boolean;
   onClosePublishConfirm: () => void;
   onPublishConfirm: () => void;
-
-  // Quick assign modal (from quota table)
-  isQuickAssignModalOpen: boolean;
-  selectedQuotaForAssignment: SelectedQuotaForAssignment | null;
-  unassignedStudents: Student[];
-  priorityApplications?: PriorityPlacementApplication[];
-  onCloseQuickAssign: () => void;
-  onQuickAssignConfirm: (studentIds: string[]) => void;
+  // Students placed without a mentor, and the contacts who would be told (nothing is sent in this prototype)
+  needsMentorCount?: number;
+  notifyList?: { key: string; profileName: string; name: string }[];
+  // Profile information that is still empty (a warning, publishing is still allowed)
+  infoWarnings?: string[];
 
   // Quota selection dialog (assign single student)
   isQuotaSelectionDialogOpen: boolean;
@@ -117,13 +110,6 @@ interface PlacementModalsProps {
     entityId?: string,
   ) => void;
 
-  // Manage quota slide-over
-  isManageQuotaModalOpen: boolean;
-  praksisPlaces: PraksisPlace[];
-  existingQuotas: QuotaSelection[];
-  onCloseManageQuota: () => void;
-  onSaveQuotas: (quotas: QuotaSelection[]) => void;
-
   // AI support sidebar
   isAISidebarOpen: boolean;
   onCloseAISidebar: () => void;
@@ -132,15 +118,6 @@ interface PlacementModalsProps {
   aiStudents: Student[];
   aiTasks: Array<{ id: string; title: string; completed: boolean }>;
   aiCurrentTaskIndex: number;
-
-  // First publish modal
-  isFirstPublishModalOpen: boolean;
-  onCloseFirstPublish: () => void;
-  onFirstPublish: (deadline: string, message: string) => void;
-
-  // Publish warning dialog
-  showPublishWarning: boolean;
-  onClosePublishWarning: () => void;
 
   // Network diagram modal
   isNetworkDiagramOpen: boolean;
@@ -154,7 +131,7 @@ interface PlacementModalsProps {
     departmentId: string,
     placeName: string,
     departmentName: string,
-    quotaRequestId?: string,
+    profileId?: string,
   ) => void;
   onNetworkUnassignStudent: (studentId: string) => void;
 
@@ -171,22 +148,14 @@ export function PlacementModals({
   isPublishConfirmOpen,
   onClosePublishConfirm,
   onPublishConfirm,
-  isQuickAssignModalOpen,
-  selectedQuotaForAssignment,
-  unassignedStudents,
-  priorityApplications,
-  onCloseQuickAssign,
-  onQuickAssignConfirm,
+  needsMentorCount = 0,
+  notifyList = [],
+  infoWarnings = [],
   isQuotaSelectionDialogOpen,
   selectedStudent,
   availableQuotaRequests,
   onCloseQuotaSelection,
   onAssignStudentToQuota,
-  isManageQuotaModalOpen,
-  praksisPlaces,
-  existingQuotas,
-  onCloseManageQuota,
-  onSaveQuotas,
   isAISidebarOpen,
   onCloseAISidebar,
   onAIAction,
@@ -194,11 +163,6 @@ export function PlacementModals({
   aiStudents,
   aiTasks,
   aiCurrentTaskIndex,
-  isFirstPublishModalOpen,
-  onCloseFirstPublish,
-  onFirstPublish,
-  showPublishWarning,
-  onClosePublishWarning,
   isNetworkDiagramOpen,
   onCloseNetworkDiagram,
   networkDiagramStudents,
@@ -225,10 +189,38 @@ export function PlacementModals({
             <DialogTitle>Publish assignments?</DialogTitle>
             <DialogDescription>
               Publishing will lock all student assignments. Detach and reassign
-              actions will be disabled and quota request actions will be
-              read-only. This cannot be undone.
+              actions will be disabled. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
+          {needsMentorCount > 0 && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {needsMentorCount} student{needsMentorCount === 1 ? " has" : "s have"} no mentor yet. You can publish anyway
+              and assign mentors later.
+            </p>
+          )}
+          {infoWarnings.length > 0 && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-xs font-semibold text-amber-900">Information students will not get</p>
+              <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto text-xs text-amber-800">
+                {infoWarnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {notifyList.length > 0 && (
+            <div className="rounded-md border border-gray-200 px-3 py-2">
+              <p className="text-xs font-semibold text-gray-700">Will be notified</p>
+              <p className="text-[11px] text-gray-500">Marked "told on placement" on the entities. Nothing is sent in this prototype.</p>
+              <ul className="mt-1 max-h-28 space-y-0.5 overflow-y-auto text-sm text-gray-700">
+                {notifyList.map((n) => (
+                  <li key={n.key}>
+                    {n.name} <span className="text-xs text-gray-500">· {n.profileName}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={onClosePublishConfirm}>
               Cancel
@@ -244,20 +236,6 @@ export function PlacementModals({
         </DialogContent>
       </Dialog>
 
-      {/* Quick assign modal — from Available Quotas Table */}
-      {selectedQuotaForAssignment && (
-        <QuickAssignStudentsModal
-          isOpen={isQuickAssignModalOpen}
-          onClose={onCloseQuickAssign}
-          praksisPlaceName={selectedQuotaForAssignment.praksisPlaceName}
-          departmentName={selectedQuotaForAssignment.departmentName}
-          availableCapacity={selectedQuotaForAssignment.availableCapacity}
-          unassignedStudents={unassignedStudents}
-          priorityApplications={priorityApplications}
-          onAssign={onQuickAssignConfirm}
-        />
-      )}
-
       {/* Quota selection dialog — assign a single student */}
       <Dialog
         open={isQuotaSelectionDialogOpen}
@@ -267,7 +245,7 @@ export function PlacementModals({
           <DialogHeader>
             <DialogTitle>Select Praksis Place</DialogTitle>
             <DialogDescription>
-              Choose a unit with capacity for this emne for{" "}
+              Choose an entity for this emne for{" "}
               <span className="font-semibold">{selectedStudent?.name}</span>
             </DialogDescription>
           </DialogHeader>
@@ -275,9 +253,9 @@ export function PlacementModals({
             {availableQuotaRequests.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <ClipboardCheck className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                <p className="text-sm">No capacity with free places for this emne</p>
+                <p className="text-sm">No entity with free places for this emne</p>
                 <p className="text-xs mt-1">
-                  Add or raise capacity for this emne under Praksis places → Capacity
+                  Add a profile or raise its places under Praksis places → Profiles
                 </p>
               </div>
             ) : (
@@ -329,24 +307,24 @@ export function PlacementModals({
                         const full = unit.remaining === 0;
                         return (
                           <button
-                            key={unit.id}
-                            disabled={full}
+                            key={unit.profileId ?? unit.id}
                             onClick={() => {
                               if (!selectedStudent) return;
+                              // Places never block a placement: a full entity can still take the student
                               toast.success(
-                                `Assigned ${selectedStudent.name} to ${request.praksisPlaceName} - ${unit.name}`,
+                                `Assigned ${selectedStudent.name} to ${unit.profileName ?? unit.name}${full ? ` (over by ${(unit.over ?? 0) + 1})` : ""}`,
                               );
                               onAssignStudentToQuota(
                                 selectedStudent.id,
                                 request.praksisPlaceId,
                                 unit.id,
-                                request._quotaRequestId,
+                                unit.profileId ?? request._profileId,
                                 unit.id,
                               );
                             }}
                             className={`w-full text-left py-2 pr-4 text-sm transition-colors ${
                               full
-                                ? "cursor-not-allowed opacity-50"
+                                ? "bg-gray-50 hover:bg-amber-50"
                                 : history.length > 0
                                   ? "bg-amber-50 hover:bg-amber-100"
                                   : "hover:bg-blue-50"
@@ -354,7 +332,7 @@ export function PlacementModals({
                             style={{ paddingLeft: `${16 + unit.depth * 20}px` }}
                             title={
                               full
-                                ? `Full: ${unit.limitingName ?? "the"} capacity reached`
+                                ? `Full: no places left on ${unit.limitingName ?? "the entity"}. The student can still be placed here (over by ${(unit.over ?? 0) + 1}).`
                                 : history.length > 0
                                   ? `${selectedStudent?.name} was placed here before`
                                   : undefined
@@ -365,11 +343,14 @@ export function PlacementModals({
                                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
                               )}
                               <span className={unit.depth === 0 ? "font-medium text-gray-900" : "text-gray-700"}>
-                                {unit.name}
+                                {unit.profileName ?? unit.name}
                               </span>
+                              {unit.profileName && !unit.profileName.includes(unit.name) && (
+                                <span className="text-xs text-gray-500">{unit.name}</span>
+                              )}
                               {unit.remaining !== undefined && (
-                                <span className={`ml-auto flex-shrink-0 text-xs ${full ? "text-gray-400" : "text-green-700"}`}>
-                                  {full ? "Full" : `${unit.remaining} left`}
+                                <span className={`ml-auto flex-shrink-0 text-xs ${full ? "text-amber-700" : "text-green-700"}`}>
+                                  {full ? ((unit.over ?? 0) > 0 ? `Full · ${unit.over} over` : "Full") : `${unit.remaining} left`}
                                 </span>
                               )}
                             </span>
@@ -392,14 +373,6 @@ export function PlacementModals({
         </DialogContent>
       </Dialog>
 
-      <SlideOverManageQuota
-        isOpen={isManageQuotaModalOpen}
-        onClose={onCloseManageQuota}
-        praksisPlaces={praksisPlaces}
-        onSaveQuotas={onSaveQuotas}
-        existingQuotas={existingQuotas}
-      />
-
       <AISupportSidebar
         isOpen={isAISidebarOpen}
         onClose={onCloseAISidebar}
@@ -409,37 +382,6 @@ export function PlacementModals({
         tasks={aiTasks}
         currentTaskIndex={aiCurrentTaskIndex}
       />
-
-      <FirstPublishModal
-        isOpen={isFirstPublishModalOpen}
-        onClose={onCloseFirstPublish}
-        onPublish={onFirstPublish}
-      />
-
-      {/* Publish warning — shown when trying to assign before first publish */}
-      <Dialog open={showPublishWarning} onOpenChange={(open) => !open && onClosePublishWarning()}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Publish Placement First</DialogTitle>
-            <DialogDescription className="text-base pt-2">
-              You should publish placement to collect custom requests from
-              students. Use publish button located above.
-              <br />
-              <br />
-              <strong>Note:</strong> This is the default workflow for demo. In
-              real app you will be able to change the workflow.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              onClick={onClosePublishWarning}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              Got it
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <PlacementNetworkDiagramModal
         isOpen={isNetworkDiagramOpen}

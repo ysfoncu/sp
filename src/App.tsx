@@ -47,39 +47,34 @@ import { CapacityPlanningReportView } from "./components/CapacityPlanningReportV
 import { InvoiceReportView } from "./components/InvoiceReportView";
 import { Dashboard } from "./components/Dashboard";
 import { PraksisPlacesView } from "./components/PraksisPlacesView";
-import { PraksisPlaceDetailModal } from "./components/PraksisPlaceDetailModal";
-import { PraksisPlaceDetailView } from "./components/PraksisPlaceDetailView";
 import { CreatePraksisPlaceView } from "./components/CreatePraksisPlaceView";
-import { AddDepartmentMemberModal } from "./components/AddDepartmentMemberModal";
 import { UnderConstruction } from "./components/UnderConstruction";
 import { AnalyticsAI } from "./components/AnalyticsAI";
 import { PlacementTaskView } from "./components/PlacementTaskView";
 import { LoginScreen } from "./components/LoginScreen";
+import { Study, StudyProgram, useStudyCatalog } from "./types/studyCatalog";
+import { PraksisStudentsView } from "./components/PraksisStudentsView";
+import { LeaveDialog } from "./components/LeaveDialog";
+import { goView, installHistory } from "./navigation";
+import { parsePlacesHash } from "./types/placesRoute";
 import {
-  SettingsView,
-  DashboardSettings,
-  Study,
-  StudyProgram,
-} from "./components/SettingsView";
+  clearPraksisStudents,
+  deriveRows,
+  pruneClaims,
+  releasePlacement,
+  usePraksisStudents,
+} from "./types/praksisStudent";
+import { ProfileUsageProvider } from "./components/ProfileUsageContext";
+import { findEmne, findProgram } from "./types/studyCatalog";
+import { usePlacementProfiles } from "./types/placementProfile";
+import { OtherPlacementUsage } from "./types/profileUsage";
+import { SettingsView, DashboardSettings } from "./components/SettingsView";
 import { toast } from "sonner@2.0.3";
 import { Toaster } from "./components/ui/sonner";
 import {
   mockPraksisPlaces,
   PraksisPlace,
-  mockQuotaRequests,
-  QuotaRequest,
-  Department,
 } from "./types/praksisPlace";
-import {
-  mockQuotaOfferings,
-  QuotaOffering,
-} from "./types/quotaOffering";
-import {
-  CoordinatorQuotaRequest,
-  deriveRequestApproval,
-  mockCoordinatorQuotaRequests,
-} from "./types/coordinatorQuotaRequest";
-import { CoordinatorQuotasView } from "./components/CoordinatorQuotasView";
 import { PrioritiesView } from "./components/PrioritiesView";
 import { PriorityItemDetailView } from "./components/PriorityItemDetailView";
 import {
@@ -173,11 +168,6 @@ export default function App() {
       );
     });
 
-  // Quota Requests State
-  const [quotaRequests, setQuotaRequests] = useState<
-    QuotaRequest[]
-  >(mockQuotaRequests);
-
   // Student Placements State
   const [studentPlacements, setStudentPlacements] = useState<
     StudentPlacement[]
@@ -192,83 +182,21 @@ export default function App() {
   const [placementTaskStates, setPlacementTaskStates] =
     useState<PlacementTaskState[]>(mockPlacementTaskStates);
 
-  // Quota Request Prefill Data - stores data from quota request to prefill placement form
-  const [quotaRequestPrefillData, setQuotaRequestPrefillData] =
-    useState<{
-      studyId: string;
-      programId: string;
-      subject: string;
-      startDate: string;
-      endDate: string;
-    } | null>(null);
-
   // Dashboard Settings State - controls which dashboard sections are visible
   const [dashboardSettings, setDashboardSettings] =
     useState<DashboardSettings>({
       praksisPlacesOverview: false,
       placementOverview: true,
-      quotaRequests: true,
       tasks: true,
       recentActivities: true,
       placementProgress: true,
       yearlyPlacements: true,
     });
 
-  // Studies State - for managing academic studies and programs
-  const [studies, setStudies] = useState<Study[]>([
-    {
-      id: "1",
-      name: "Helse-, sosial og idrettsfag",
-      universityId: "U1",
-      universityName: "University of Oslo",
-      programs: [
-        {
-          id: "1-1",
-          name: "Nursing",
-          emner: [
-            { id: "1-1-e1", name: "Kull 2024 Høst" },
-            { id: "1-1-e2", name: "Kull 2025 Vår" },
-          ],
-        },
-        {
-          id: "1-2",
-          name: "Physiotherapy",
-          emner: [{ id: "1-2-e1", name: "Kull 2024 Høst" }],
-        },
-      ],
-    },
-    {
-      id: "2",
-      name: "Engineering",
-      universityId: "U1",
-      universityName: "University of Oslo",
-      programs: [
-        {
-          id: "2-1",
-          name: "Software Engineering",
-          emner: [
-            { id: "2-1-e1", name: "Kull 2024 Høst" },
-            { id: "2-1-e2", name: "Kull 2025 Vår" },
-          ],
-        },
-        { id: "2-2", name: "Electrical Engineering" },
-      ],
-    },
-  ]);
+  // Studies, programs and emner come from the shared catalog (Settings edits it; archived items left out)
+  const { active: studies } = useStudyCatalog();
+  const allProfiles = usePlacementProfiles();
 
-  // Quota Offerings State - SK person offering capacity to universities/programs
-  const [quotaOfferings, setQuotaOfferings] = useState<
-    QuotaOffering[]
-  >(mockQuotaOfferings);
-
-  // Node Slots State - stores student capacity per organization node, keyed by praksisPlaceId
-  const [nodeSlots, setNodeSlots] = useState<Record<string, Record<string, number>>>({});
-
-  // Coordinator Quota Requests State - PK person requesting capacity from praksis places
-  const [
-    coordinatorQuotaRequests,
-    setCoordinatorQuotaRequests,
-  ] = useState<CoordinatorQuotaRequest[]>(mockCoordinatorQuotaRequests);
 
   // Priority placement state
   const [priorityPeriods, setPriorityPeriods] = useState<PriorityPlacementPeriod[]>(mockPriorityPeriods);
@@ -280,7 +208,7 @@ export default function App() {
     | "dashboard"
     | "placements"
     | "praksisplaces"
-    | "quotas"
+    | "praksisstudents"
     | "priorities"
     | "priorityitem"
     | "students"
@@ -291,11 +219,14 @@ export default function App() {
     | "analytics"
     | "placementtask"
     | "onboarding-comments"
-  >("dashboard");
+  >(() => (parsePlacesHash(window.location.hash) ? "praksisplaces" : "dashboard")); // a places link opens the places page
+
+  // Back, Forward and the unsaved-edit guard for the places page (see navigation.ts)
+  useEffect(() => installHistory(currentView, setCurrentView), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Praksis Places Sub-view State
   const [praksisPlacesSubView, setPraksisPlacesSubView] =
-    useState<"list" | "detail" | "create">("list");
+    useState<"list" | "create">("list");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStudy, setSelectedStudy] = useState("all");
@@ -317,11 +248,10 @@ export default function App() {
     selectedStudentPlacement,
     setSelectedStudentPlacement,
   ] = useState<StudentPlacement | null>(null);
+  // Set when an entity is opened from a placement: Praksis places then shows it (and edits it)
   const [selectedPraksisPlace, setSelectedPraksisPlace] =
     useState<PraksisPlace | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] =
-    useState(false);
-  const [isPraksisPlaceModalOpen, setIsPraksisPlaceModalOpen] =
     useState(false);
 
   // AI Support sidebar state
@@ -355,8 +285,6 @@ export default function App() {
     switch (view) {
       case "dashboard":
         return 2; // Dashboard Overview
-      case "quotas":
-        return 3; // Capacity Planning
       case "placements":
         return 4; // Student Placements
       case "praksisplaces":
@@ -366,16 +294,10 @@ export default function App() {
     }
   };
 
-  // Add Department Member Modal State
-  const [showAddDepartmentModal, setShowAddDepartmentModal] =
-    useState(false);
-  const [newlyCreatedPlace, setNewlyCreatedPlace] =
-    useState<PraksisPlace | null>(null);
-
   const handleCreatePlacement = () => {
     // Create a draft placement with empty fields
     const placement: StudentPlacement = {
-      id: (studentPlacements.length + 1).toString(),
+      id: `pl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
       title: "",
       year: "",
       semester: "",
@@ -394,9 +316,6 @@ export default function App() {
       placementId: placement.id,
       studentsImported: false,
       students: [],
-      quotasSelected: false,
-      quotas: [],
-      firstPublished: false,
       studentsAssigned: false,
       documentsAttached: false,
       finalPublished: false,
@@ -424,6 +343,7 @@ export default function App() {
       students: number;
       studyId: string;
       programId: string;
+      emneId?: string;
       totalPraksisHours?: number;
     },
   ) => {
@@ -464,47 +384,6 @@ export default function App() {
     setCurrentView("placementtask");
   };
 
-  const handlePraksisPlaceClick = (place: PraksisPlace) => {
-    setSelectedPraksisPlace(place);
-    setPraksisPlacesSubView("detail");
-  };
-
-  const handlePraksisPlaceUpdate = (
-    updatedPlace: PraksisPlace,
-  ) => {
-    // Calculate total capacity from departments
-    const totalCapacity = updatedPlace.departments.reduce(
-      (sum, dept) => sum + dept.capacity,
-      0,
-    );
-    const placeWithCalculatedCapacity = {
-      ...updatedPlace,
-      totalCapacity,
-    };
-
-    setPraksisPlaces((prev) =>
-      prev.map((p) =>
-        p.id === placeWithCalculatedCapacity.id
-          ? placeWithCalculatedCapacity
-          : p,
-      ),
-    );
-
-    // Update the selected place to reflect the changes
-    if (
-      selectedPraksisPlace &&
-      selectedPraksisPlace.id === placeWithCalculatedCapacity.id
-    ) {
-      setSelectedPraksisPlace(placeWithCalculatedCapacity);
-    }
-  };
-
-  const handlePraksisPlacesUpdate = (
-    updatedPlaces: PraksisPlace[],
-  ) => {
-    setPraksisPlaces(updatedPlaces);
-  };
-
   const handleCreatePraksisPlace = () => {
     setPraksisPlacesSubView("create");
   };
@@ -518,274 +397,12 @@ export default function App() {
     };
     setPraksisPlaces([...praksisPlaces, place]);
     setSelectedPraksisPlace(place);
-    setPraksisPlacesSubView("detail");
+    setPraksisPlacesSubView("list");
   };
 
   const handleBackToPraksisPlacesList = () => {
     setPraksisPlacesSubView("list");
     setSelectedPraksisPlace(null);
-  };
-
-  // Quota Offering Handlers
-  const handleQuotaOfferingCreate = (
-    offering: Omit<
-      QuotaOffering,
-      "id" | "createdDate" | "updatedDate"
-    >,
-  ) => {
-    const now = new Date().toISOString();
-    const newOffering: QuotaOffering = {
-      ...offering,
-      id: `qo-${Date.now()}`,
-      createdDate: now,
-      updatedDate: now,
-    };
-    setQuotaOfferings([...quotaOfferings, newOffering]);
-    toast.success("Quota offering created successfully");
-  };
-
-  const handleQuotaOfferingUpdate = (
-    id: string,
-    offering: Omit<
-      QuotaOffering,
-      "id" | "createdDate" | "updatedDate"
-    >,
-  ) => {
-    setQuotaOfferings((prev) =>
-      prev.map((qo) =>
-        qo.id === id
-          ? {
-              ...offering,
-              id: qo.id,
-              createdDate: qo.createdDate,
-              updatedDate: new Date().toISOString(),
-            }
-          : qo,
-      ),
-    );
-    toast.success("Quota offering updated successfully");
-  };
-
-  const handleQuotaOfferingDelete = (id: string) => {
-    setQuotaOfferings((prev) =>
-      prev.filter((qo) => qo.id !== id),
-    );
-    toast.success("Quota offering deleted successfully");
-  };
-
-  const handleQuotaOfferingStatusToggle = (id: string) => {
-    setQuotaOfferings((prev) =>
-      prev.map((qo) =>
-        qo.id === id
-          ? {
-              ...qo,
-              status:
-                qo.status === "active" ? "inactive" : "active",
-              updatedDate: new Date().toISOString(),
-            }
-          : qo,
-      ),
-    );
-  };
-
-  // Coordinator Quota Request Handlers
-  // Builds a stored request; entities that don't require praksis-place approval arrive already approved
-  const buildCoordinatorQuotaRequest = (
-    request: Omit<
-      CoordinatorQuotaRequest,
-      "id" | "requestedDate" | "status"
-    >,
-    id: string,
-  ): CoordinatorQuotaRequest => {
-    const { status, approvedCapacity, allApproved } = deriveRequestApproval(
-      request.entityDistributions ?? [],
-    );
-    return {
-      ...request,
-      id,
-      requestedDate: new Date().toISOString(),
-      status,
-      ...(approvedCapacity !== undefined && { approvedCapacity }),
-      ...(allApproved && {
-        approvedDate: new Date().toISOString(),
-        approvedBy: request.requestedBy,
-      }),
-    };
-  };
-
-  const handleCoordinatorQuotaRequestCreate = (
-    request: Omit<
-      CoordinatorQuotaRequest,
-      "id" | "requestedDate" | "status"
-    >,
-  ) => {
-    const newRequest = buildCoordinatorQuotaRequest(
-      request,
-      `cqr-${Date.now()}`,
-    );
-    setCoordinatorQuotaRequests((prev) => [...prev, newRequest]);
-    toast.success(
-      newRequest.status === "approved"
-        ? "Quota reserved successfully"
-        : "Quota request submitted successfully",
-    );
-  };
-
-  // Capacity planning adds one request per emne × praksis place/entity in one go
-  const handleCoordinatorQuotaRequestsCreate = (
-    requests: Omit<
-      CoordinatorQuotaRequest,
-      "id" | "requestedDate" | "status"
-    >[],
-  ) => {
-    const stamp = Date.now();
-    const newRequests = requests.map((r, i) =>
-      buildCoordinatorQuotaRequest(r, `cqr-${stamp}-${i}`),
-    );
-    setCoordinatorQuotaRequests((prev) => [...prev, ...newRequests]);
-    toast.success(
-      `${newRequests.length} quota item${newRequests.length === 1 ? "" : "s"} added`,
-    );
-  };
-
-  const handleCoordinatorQuotaRequestUpdate = (
-    id: string,
-    updates: Partial<CoordinatorQuotaRequest>,
-  ) => {
-    setCoordinatorQuotaRequests((prev) =>
-      prev.map((req) =>
-        req.id === id ? { ...req, ...updates } : req,
-      ),
-    );
-    toast.success("Quota request updated");
-  };
-
-  const handleCoordinatorQuotaRequestDelete = (id: string) => {
-    setCoordinatorQuotaRequests((prev) =>
-      prev.filter((req) => req.id !== id),
-    );
-    toast.success("Quota request deleted");
-  };
-
-  // Navigate from quota request to placement
-  const handleNavigateToPlacementFromQuota = (
-    request: CoordinatorQuotaRequest,
-  ) => {
-    // Create a new placement with metadata from the quota request
-    const placement: StudentPlacement = {
-      id: `placement-${Date.now()}`,
-      title: "",
-      year: "",
-      semester: "",
-      subject: request.emne || "",
-      startDate: request.startDate,
-      endDate: request.endDate,
-      students: 50,
-      status: "draft" as const,
-      studyId: request.studyId,
-      programId: request.programId,
-    };
-    setStudentPlacements([...studentPlacements, placement]);
-
-    // Create empty placement task state for this new placement
-    const newTaskState: PlacementTaskState = {
-      placementId: placement.id,
-      studentsImported: false,
-      students: [],
-      quotasSelected: false,
-      quotas: [],
-      firstPublished: false,
-      studentsAssigned: false,
-      documentsAttached: false,
-      finalPublished: false,
-      completedTasks: [],
-    };
-    setPlacementTaskStates([
-      ...placementTaskStates,
-      newTaskState,
-    ]);
-
-    // Set prefill data from quota request
-    setQuotaRequestPrefillData({
-      studyId: request.studyId,
-      programId: request.programId,
-      subject: request.emne || "",
-      startDate: request.startDate,
-      endDate: request.endDate,
-    });
-
-    // Navigate to the placement task view
-    setSelectedStudentPlacement(placement);
-    setCurrentView("placementtask");
-  };
-
-  // SK Person: Approve quota request
-  const handleCoordinatorQuotaRequestApprove = (
-    id: string,
-    responseNotes?: string,
-    selectedDepartmentId?: string,
-    approvedCapacity?: number,
-  ) => {
-    setCoordinatorQuotaRequests((prev) =>
-      prev.map((req) => {
-        if (req.id === id) {
-          // If department was selected during approval, update it
-          const updatedReq = { ...req };
-          if (selectedDepartmentId) {
-            const praksisPlace = praksisPlaces.find(
-              (p) => p.id === req.praksisPlaceId,
-            );
-            const selectedDept = praksisPlace?.departments.find(
-              (d) => d.id === selectedDepartmentId,
-            );
-            if (selectedDept) {
-              updatedReq.departmentId = selectedDept.id;
-              updatedReq.departmentName = selectedDept.name;
-            }
-          }
-
-          // Use the approved capacity if provided, otherwise use the requested capacity
-          const finalCapacity =
-            approvedCapacity !== undefined
-              ? approvedCapacity
-              : req.requestedCapacity;
-
-          return {
-            ...updatedReq,
-            approvedCapacity: finalCapacity, // Set the approved capacity
-            status: "approved" as const,
-            approvedDate: new Date().toISOString(),
-            approvedBy: "Sarah Contact", // SK person name (hardcoded for prototype)
-            responseNotes,
-          };
-        }
-        return req;
-      }),
-    );
-    toast.success("Quota request approved successfully");
-  };
-
-  // SK Person: Reject quota request
-  const handleCoordinatorQuotaRequestReject = (
-    id: string,
-    reason: string,
-    responseNotes?: string,
-  ) => {
-    setCoordinatorQuotaRequests((prev) =>
-      prev.map((req) =>
-        req.id === id
-          ? {
-              ...req,
-              status: "rejected" as const,
-              rejectedDate: new Date().toISOString(),
-              rejectedBy: "Sarah Contact", // SK person name (hardcoded for prototype)
-              rejectionReason: reason,
-              responseNotes,
-            }
-          : req,
-      ),
-    );
-    toast.success("Quota request rejected");
   };
 
   // Reset to page 1 when filters or items per page change
@@ -982,7 +599,7 @@ export default function App() {
       noticeSentAt: period.firstNoticeSentAt ?? period.firstNoticeDate,
     }));
     setPriorityApplications((prev) => [...prev, ...newApps]);
-    toast.success("5 students imported");
+    toast.success(`${first5.length} students imported`);
   };
 
   const handleSendFirstNotice = (periodId: string, deadline: string, message: string) => {
@@ -1130,10 +747,8 @@ export default function App() {
   const handleClearData = () => {
     // Reset all state to initial mock data except praksis places
     setStudentPlacements(mockStudentPlacements);
-    setQuotaRequests(mockQuotaRequests);
     setPlacementTaskStates(mockPlacementTaskStates);
-    setCoordinatorQuotaRequests([]);
-    setQuotaOfferings(mockQuotaOfferings);
+    clearPraksisStudents();
     setPriorityPeriods(mockPriorityPeriods);
     setPriorityApplications(mockPriorityApplications);
     setSelectedPriorityPeriod(null);
@@ -1154,8 +769,6 @@ export default function App() {
     setSelectedStudentPlacement(null);
     setSelectedPraksisPlace(null);
     setIsDetailModalOpen(false);
-    setIsPraksisPlaceModalOpen(false);
-    setQuotaRequestPrefillData(null);
 
     toast.success("Local data cleared", {
       description:
@@ -1164,129 +777,123 @@ export default function App() {
   };
 
   // Generate Mock Placement with students for testing SK person view
+
+
+
+
   const generateMockPlacement = () => {
-    if (praksisPlaces.length === 0) {
-      toast.error("No Praksis Places Available", {
-        description: "Please generate praksis places first",
+    // The placement is made on a real entity: its program, emne and name
+    const profile = allProfiles.find(
+      (p) => p.status === "active" && praksisPlaces.some((pl) => pl.id === p.praksisPlaceId),
+    );
+    const place = profile && praksisPlaces.find((pl) => pl.id === profile.praksisPlaceId);
+    const program = profile ? findProgram(profile.programId) : undefined;
+    if (!profile || !place || !program) {
+      toast.error("No entity to place students on", {
+        description: "Add an entity under Praksis places first",
       });
       return;
     }
+    const emne =
+      (profile.emneIds[0] && findEmne(profile.programId, profile.emneIds[0])?.emne) || program.program.emner?.[0];
 
-    const firstPlace = praksisPlaces[0];
-    const firstDepartment = firstPlace.departments[0];
-
-    if (!firstDepartment) {
-      toast.error("No Departments Available", {
-        description:
-          "The first praksis place has no departments",
-      });
-      return;
-    }
-
-    // Generate unique IDs
     const placementId = `placement-${Date.now()}`;
+    const startDate = new Date(2026, 1, 2).toISOString();
+    const endDate = new Date(2026, 5, 12).toISOString();
+    const title = `${program.program.name} placement – ${profile.name}`;
 
-    // Use mockStudents so student IDs match priority application references
-    const assignedPlace = {
-      placeId: firstPlace.id,
-      placeName: firstPlace.name,
-      departmentId: firstDepartment.id,
-      departmentName: firstDepartment.name,
-      placementTaskId: placementId,
-      startDate: new Date(2026, 1, 2).toISOString(),
-      endDate: new Date(2026, 5, 12).toISOString(),
-      placementTitle: "Spring 2026 Nursing Placement",
-      assignedDate: new Date().toISOString(),
-    };
-    const mockPlacementStudents = mockStudents.map((s) => ({
+    // Use mockStudents so student IDs match priority application references; never more than the profile has places
+    const count = Math.max(1, Math.min(mockStudents.length, profile.places));
+    const mockPlacementStudents = mockStudents.slice(0, count).map((s) => ({
       ...s,
-      assignedPraksisPlace: assignedPlace,
+      assignedPraksisPlace: {
+        placeId: place.id,
+        placeName: place.name,
+        departmentId: profile.id,
+        departmentName: profile.name,
+        entityId: profile.id,
+        placementTaskId: placementId,
+        profileId: profile.id,
+        emneId: emne?.id,
+        status: "booked" as const,
+        startDate,
+        endDate,
+        placementTitle: title,
+        assignedDate: new Date().toISOString(),
+      },
     }));
 
-    // Create placement — matches pp-1 (year 2026, VT, studyId "1", programId "1-1")
     const newPlacement: StudentPlacement = {
       id: placementId,
-      title: "Spring 2026 Nursing Placement",
+      title,
       year: "2026",
       semester: "Spring",
-      subject: "Clinical Nursing Practice",
-      startDate: new Date(2026, 1, 2).toISOString(),
-      endDate: new Date(2026, 5, 12).toISOString(),
-      students: 5,
+      subject: emne?.name ?? "",
+      emneId: emne?.id,
+      startDate,
+      endDate,
+      students: count,
       status: "completed",
-      studyId: "1",
-      programId: "1-1",
+      studyId: profile.studyId,
+      programId: profile.programId,
     };
 
-    // Create placement task state
     const newPlacementTaskState: PlacementTaskState = {
       placementId,
       studentsImported: true,
       students: mockPlacementStudents,
-      quotasSelected: true,
-      quotas: [
-        {
-          placeId: firstPlace.id,
-          placeName: firstPlace.name,
-          departmentId: firstDepartment.id,
-          departmentName: firstDepartment.name,
-          fixedQuota: 5,
-          requestQuota: 0,
-        },
-      ],
-      firstPublished: true,
       studentsAssigned: true,
       documentsAttached: true,
       finalPublished: true,
       completedTasks: ["1", "2", "3", "4", "5", "6", "7"],
     };
 
-    const nowTs = Date.now();
-    // Create quota request
-    const newQuotaRequest: QuotaRequest = {
-      id: `quota-${nowTs}`,
-      placementId,
-      praksisPlaceId: firstPlace.id,
-      praksisPlaceName: firstPlace.name,
-      departmentId: firstDepartment.id,
-      departmentName: firstDepartment.name,
-      fixedQuota: 5,
-      requestQuota: 0,
-      studyProgram: "Clinical Nursing Practice",
-      studyYear: "3",
-      placementTitle: "Spring 2026 Nursing Placement",
-      requestedBy: "John Coordinator",
-      startDate: new Date(2026, 1, 2).toISOString(),
-      endDate: new Date(2026, 5, 12).toISOString(),
-      status: "approved",
-      placementStatus: "completed",
-      history: [
-        {
-          id: `history-${nowTs}`,
-          timestamp: new Date().toISOString(),
-          action: "created",
-          performedBy: "System",
-          performedByRole: "system",
-          status: "approved",
-          notes: "Mock placement generated for testing",
-        },
-      ],
-    };
-
-    // Update state
     setStudentPlacements([...studentPlacements, newPlacement]);
-    setPlacementTaskStates([
-      ...placementTaskStates,
-      newPlacementTaskState,
-    ]);
-    setQuotaRequests([...quotaRequests, newQuotaRequest]);
+    setPlacementTaskStates([...placementTaskStates, newPlacementTaskState]);
 
-    // Show success message
     toast.success("Mock Placement Generated", {
-      description: `Created placement with 5 students assigned to ${firstPlace.name}`,
+      description: `Created placement with ${count} student${count === 1 ? "" : "s"} on ${profile.name}`,
       duration: 4000,
     });
   };
+
+  // Every placement with its students, so any screen can tell how many students sit on a profile
+  const usagePlacements = useMemo<OtherPlacementUsage[]>(
+    () =>
+      placementTaskStates.map((ts) => {
+        const p = studentPlacements.find((sp) => sp.id === ts.placementId);
+        return {
+          placementId: ts.placementId,
+          title: p?.title,
+          year: p?.year,
+          semester: p?.semester,
+          startDate: p?.startDate,
+          programId: p?.programId,
+          emne: p?.subject,
+          emneId: p?.emneId,
+          students: ts.students,
+        };
+      }),
+    [placementTaskStates, studentPlacements],
+  );
+
+  // The Praksis-students registry with each student's state, worked out from the placements
+  const { students: registryStudents, claims: registryClaims } = usePraksisStudents();
+  const registryRows = useMemo(
+    () =>
+      deriveRows(
+        registryStudents,
+        registryClaims,
+        studentPlacements,
+        new Map(placementTaskStates.map((ts) => [ts.placementId, ts.students])),
+      ),
+    [registryStudents, registryClaims, studentPlacements, placementTaskStates],
+  );
+
+  // Placements are not saved across a reload, so claims by placements that are gone are dropped
+  useEffect(() => {
+    pruneClaims(new Set(studentPlacements.map((p) => p.id)));
+  }, [studentPlacements]);
 
   // Show login screen if not authenticated
   if (!isAuthenticated) {
@@ -1298,6 +905,8 @@ export default function App() {
   }
 
   return (
+    <ProfileUsageProvider value={usagePlacements}>
+      <LeaveDialog />
     <div className="bg-white flex flex-col h-screen">
       <Navbar
         onGenerateMockPlacement={generateMockPlacement}
@@ -1309,28 +918,23 @@ export default function App() {
           <div className="hidden lg:block fixed left-0 top-[57px] bottom-0 z-40 w-60">
             <EnhancedSidebar
               currentView={currentView}
-              onViewChange={(view) => {
-                setCurrentView(view);
-                // Progress onboarding if step 1 and clicking on placements
-                if (
-                  onboardingStep === 1 &&
-                  view === "placements"
-                ) {
-                  setOnboardingStep(2);
-                }
-                // Reset praksis places sub-view when navigating away
-                if (view !== "praksisplaces") {
-                  setPraksisPlacesSubView("list");
-                  setSelectedPraksisPlace(null);
-                }
-              }}
-              onSettingsClick={() => setCurrentView("settings")}
-              onAnalyticsClick={() =>
-                setCurrentView("analytics")
+              onViewChange={(view) =>
+                goView(view, currentView, (v) => {
+                  setCurrentView(v);
+                  // Progress onboarding if step 1 and clicking on placements
+                  if (onboardingStep === 1 && view === "placements") {
+                    setOnboardingStep(2);
+                  }
+                  // Reset praksis places sub-view when navigating away
+                  if (view !== "praksisplaces") {
+                    setPraksisPlacesSubView("list");
+                    setSelectedPraksisPlace(null);
+                  }
+                })
               }
-              onCommentsClick={() =>
-                setCurrentView("onboarding-comments")
-              }
+              onSettingsClick={() => goView("settings", currentView, setCurrentView)}
+              onAnalyticsClick={() => goView("analytics", currentView, setCurrentView)}
+              onCommentsClick={() => goView("onboarding-comments", currentView, setCurrentView)}
               onClearData={handleClearData}
             />
           </div>
@@ -1351,20 +955,19 @@ export default function App() {
                   <PlacementTaskView
                     placement={selectedStudentPlacement}
                     praksisPlaces={praksisPlaces}
-                    quotaRequests={quotaRequests}
-                    nodeSlots={nodeSlots}
                     priorityApplications={priorityApplications}
                     priorityPeriods={priorityPeriods}
                     allPlacementsData={placementTaskStates
                       .filter((ts) => ts.placementId !== selectedStudentPlacement.id)
                       .map((ts) => ({
                         placementId: ts.placementId,
-                        placementTitle: studentPlacements.find((p) => p.id === ts.placementId)?.title ?? ts.placementId,
+                        title: studentPlacements.find((p) => p.id === ts.placementId)?.title ?? ts.placementId,
                         year: studentPlacements.find((p) => p.id === ts.placementId)?.year,
                         semester: studentPlacements.find((p) => p.id === ts.placementId)?.semester,
                         startDate: studentPlacements.find((p) => p.id === ts.placementId)?.startDate,
                         programId: studentPlacements.find((p) => p.id === ts.placementId)?.programId,
                         emne: studentPlacements.find((p) => p.id === ts.placementId)?.subject,
+                        emneId: studentPlacements.find((p) => p.id === ts.placementId)?.emneId,
                         students: ts.students,
                       }))}
                     initialTaskState={placementTaskStates.find(
@@ -1392,27 +995,13 @@ export default function App() {
                           prev ? { ...prev, status } : prev,
                         );
                       }
-                      // Update quotaRequest.placementStatus when placement status changes to "publish" or "completed"
-                      if (
-                        status === "publish" ||
-                        status === "completed"
-                      ) {
-                        setQuotaRequests((prev) =>
-                          prev.map((req) =>
-                            req.placementId === placementId
-                              ? {
-                                  ...req,
-                                  placementStatus: status,
-                                }
-                              : req,
-                          ),
-                        );
-                      }
                     }}
                     onPlacementMetadataUpdate={
                       handlePlacementMetadataUpdate
                     }
+                    registryRows={registryRows}
                     onPlacementDelete={(placementId) => {
+                      releasePlacement(placementId);
                       setStudentPlacements((prev) =>
                         prev.filter(
                           (p) => p.id !== placementId,
@@ -1426,7 +1015,7 @@ export default function App() {
                       );
                       setSelectedStudentPlacement(null);
                     }}
-                    onRequestQuota={() => setCurrentView("praksisplaces")}
+                    onOpenPraksisPlaces={() => goView("praksisplaces", currentView, setCurrentView)}
                     onTaskStateUpdate={(updatedState) => {
                       setPlacementTaskStates((prev) =>
                         prev.map((ts) =>
@@ -1451,53 +1040,26 @@ export default function App() {
                     }}
                     onBack={() => {
                       setCurrentView("placements");
-                      setQuotaRequestPrefillData(null);
-                    }}
+                                      }}
                     isAISidebarOpen={isAISidebarOpen}
                     onAISidebarChange={setIsAISidebarOpen}
                     onboardingStep={onboardingStep}
                     onboardingData={onboardingData}
                     setOnboardingStep={setOnboardingStep}
-                    onQuotaRequestCreate={(requests) =>
-                      setQuotaRequests((prev) => {
-                        const updatedRequests = [...prev];
-
-                        requests.forEach((newReq: any) => {
-                          // Find existing quota request for same placement/place/department (no assignmentType check)
-                          const existingIndex =
-                            updatedRequests.findIndex(
-                              (qr) =>
-                                qr.placementId ===
-                                  newReq.placementId &&
-                                qr.praksisPlaceId ===
-                                  newReq.praksisPlaceId &&
-                                qr.departmentId ===
-                                  newReq.departmentId,
-                            );
-
-                          if (existingIndex >= 0) {
-                            // Replace existing request with the new one
-                            // The new request already has proper history from handleSaveQuotas
-                            updatedRequests[existingIndex] =
-                              newReq;
-                          } else {
-                            // Add new request
-                            updatedRequests.push(newReq);
-                          }
-                        });
-
-                        return updatedRequests;
-                      })
-                    }
                     studies={studies}
-                    currentUserName="John Coordinator"
-                    prefillData={
-                      quotaRequestPrefillData || undefined
-                    }
                   />
                 ) : (
                   <div className="flex flex-col gap-5 items-center justify-start h-full w-full">
-                    {currentView === "dashboard" ? (
+                    {currentView === "praksisstudents" ? (
+                      <PraksisStudentsView
+                        rows={registryRows}
+                        priorityApplications={priorityApplications}
+                        onOpenPlacement={(placementId) => {
+                          const target = studentPlacements.find((p) => p.id === placementId);
+                          if (target) handleStudentPlacementClick(target);
+                        }}
+                      />
+                    ) : currentView === "dashboard" ? (
                       <Dashboard
                         placements={studentPlacements}
                         placementTaskStates={
@@ -1505,15 +1067,12 @@ export default function App() {
                         }
                         praksisPlaces={praksisPlaces}
                         studies={studies}
-                        coordinatorQuotaRequests={
-                          coordinatorQuotaRequests
-                        }
                         onPlacementClick={
                           handleStudentPlacementClick
                         }
                         onPraksisPlaceClick={(place) => {
                           setSelectedPraksisPlace(place);
-                          setPraksisPlacesSubView("detail");
+                          setPraksisPlacesSubView("list");
                           setCurrentView("praksisplaces");
                         }}
                         onViewAllClick={() =>
@@ -1522,17 +1081,10 @@ export default function App() {
                         onViewAllPraksisPlacesClick={() =>
                           setCurrentView("praksisplaces")
                         }
-                        onViewAllQuotaRequestsClick={() =>
-                          setCurrentView("quotas")
-                        }
-                        onQuotaRequestNavigate={
-                          handleNavigateToPlacementFromQuota
-                        }
                         onStartOnboarding={() =>
                           setOnboardingStep(1)
                         }
-                        // Capacity planning is retired, so its quota-request widget stays hidden
-                        dashboardSettings={{ ...dashboardSettings, quotaRequests: false }}
+                        dashboardSettings={dashboardSettings}
                       />
                     ) : currentView === "settings" ? (
                       <SettingsView
@@ -1541,8 +1093,6 @@ export default function App() {
                           setDashboardSettings(settings);
                           // Optionally show a success message
                         }}
-                        studies={studies}
-                        onStudiesChange={setStudies}
                       />
                     ) : currentView === "analytics" ? (
                       <AnalyticsAI />
@@ -1558,7 +1108,7 @@ export default function App() {
                       <PlacementReportView
                         placements={studentPlacements}
                         placementTaskStates={placementTaskStates}
-                        coordinatorQuotaRequests={coordinatorQuotaRequests}
+                        praksisPlaces={praksisPlaces}
                         studies={studies}
                       />
                     ) : currentView === "capacityreport" ? (
@@ -1601,30 +1151,6 @@ export default function App() {
                           </div>
                         );
                       })()
-                    ) : currentView === "quotas" ? (
-                      <CoordinatorQuotasView
-                        quotaOfferings={quotaOfferings}
-                        quotaRequests={coordinatorQuotaRequests}
-                        praksisPlaces={praksisPlaces}
-                        studies={studies}
-                        currentUserName="John Coordinator"
-                        placementTaskStates={
-                          placementTaskStates
-                        }
-                        nodeSlots={nodeSlots}
-                        onRequestsCreate={
-                          handleCoordinatorQuotaRequestsCreate
-                        }
-                        onRequestUpdate={
-                          handleCoordinatorQuotaRequestUpdate
-                        }
-                        onRequestDelete={
-                          handleCoordinatorQuotaRequestDelete
-                        }
-                        onNavigateToPlacement={
-                          handleNavigateToPlacementFromQuota
-                        }
-                      />
                     ) : currentView === "priorities" ? (
                       <PrioritiesView
                         periods={priorityPeriods}
@@ -1673,34 +1199,11 @@ export default function App() {
                         {praksisPlacesSubView === "list" && (
                           <PraksisPlacesView
                             places={praksisPlaces}
-                            onPlaceClick={
-                              handlePraksisPlaceClick
-                            }
                             onCreatePlace={
                               handleCreatePraksisPlace
                             }
-                            onPlacesUpdate={
-                              handlePraksisPlacesUpdate
-                            }
-                            nodeSlots={nodeSlots}
-                            studies={studies}
-                            onNodeSlotsChange={(placeId, slots) =>
-                              setNodeSlots((prev) => ({ ...prev, [placeId]: slots }))
-                            }
                           />
                         )}
-                        {praksisPlacesSubView === "detail" &&
-                          selectedPraksisPlace && (
-                            <PraksisPlaceDetailView
-                              place={selectedPraksisPlace}
-                              onUpdate={
-                                handlePraksisPlaceUpdate
-                              }
-                              onBack={
-                                handleBackToPraksisPlacesList
-                              }
-                            />
-                          )}
                         {praksisPlacesSubView === "create" && (
                           <CreatePraksisPlaceView
                             onBack={
@@ -1919,52 +1422,6 @@ export default function App() {
           </div>
         </div>
       </div>
-
-      {/* Praksis Place Detail Modal */}
-      <PraksisPlaceDetailModal
-        place={selectedPraksisPlace}
-        isOpen={isPraksisPlaceModalOpen}
-        onClose={() => setIsPraksisPlaceModalOpen(false)}
-        onUpdate={handlePraksisPlaceUpdate}
-      />
-
-      {/* Add Department Member Modal */}
-      <AddDepartmentMemberModal
-        isOpen={showAddDepartmentModal}
-        onClose={() => setShowAddDepartmentModal(false)}
-        praksisPlaceName={newlyCreatedPlace?.name || ""}
-        onSave={(departments) => {
-          if (newlyCreatedPlace) {
-            // Generate IDs for new departments
-            const departmentsWithIds: Department[] =
-              departments.map((dept, index) => ({
-                ...dept,
-                id: `dept-${newlyCreatedPlace.id}-${Date.now()}-${index}`,
-              }));
-
-            const updatedPlace: PraksisPlace = {
-              ...newlyCreatedPlace,
-              departments: departmentsWithIds,
-              totalCapacity: departmentsWithIds.reduce(
-                (sum, dept) => sum + dept.capacity,
-                0,
-              ),
-            };
-
-            // Update the place in the list
-            setPraksisPlaces((prev) =>
-              prev.map((p) =>
-                p.id === updatedPlace.id ? updatedPlace : p,
-              ),
-            );
-
-            // Update selected place
-            setSelectedPraksisPlace(updatedPlace);
-          }
-
-          setShowAddDepartmentModal(false);
-        }}
-      />
 
       {/* Onboarding Overlay System - Cutout Approach */}
       {onboardingStep > 0 && (
@@ -2220,5 +1677,6 @@ export default function App() {
 
       <Toaster />
     </div>
+    </ProfileUsageProvider>
   );
 }

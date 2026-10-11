@@ -143,3 +143,9 @@ Students who have a placement history at the same praksis place or department be
 4. Click **Cancel Edit** — the locked state is restored without re-publishing.
 
 
+HF
+Hospital
+University
+HF
+
+Told on placement change text as "Notified when a student is placed to this entity."

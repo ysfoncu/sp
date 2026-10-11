@@ -8,7 +8,6 @@ import {
   SelectValue,
 } from "./ui/select";
 import {
-  AlertOctagon,
   BookOpen,
   ChevronDown,
   ChevronRight,
@@ -20,15 +19,10 @@ import {
 import { Student } from "../types/placementTask";
 import { PlacementTaskState, StudentPlacement } from "../types/studentPlacement";
 import { PraksisPlace } from "../types/praksisPlace";
-import { usePraksisLimits } from "../types/praksisLimit";
-import {
-  LimitOtherPlacement,
-  PlaceLimitTree,
-  limitTreeForPlacement,
-  limitViolations,
-  periodKeyFor,
-} from "../types/limitUsage";
-import { Study, StudyEmne, StudyProgram } from "./SettingsView";
+import { PlacementProfile, placementEmneId, profileMatches, usePlacementProfiles } from "../types/placementProfile";
+import { OtherPlacementUsage, profileTreeForPlacement } from "../types/profileUsage";
+import { periodKeyFor, placePeriodOf } from "../types/placePeriod";
+import { Study, StudyEmne, StudyProgram } from "../types/studyCatalog";
 
 interface CapacityPlanningReportViewProps {
   placements: StudentPlacement[];
@@ -44,18 +38,18 @@ type Selection =
 
 type Semester = "Spring" | "Autumn";
 
-// A day inside the semester, so yearly limit windows can be matched to it
+// A day inside the semester, so yearly periods can be matched to it
 const semesterDate = (year: number, semester: Semester) => `${year}-${semester === "Spring" ? "03" : "10"}-01`;
 
-// Capacity planning report: the Praksis place limits of each study → program → emne, and how
-// much of them placements use in the chosen semester
+// Capacity planning report: the places that profiles offer for each study → program → emne, and how
+// many of them placements use in the chosen semester
 export function CapacityPlanningReportView({
   placements,
   placementTaskStates,
   praksisPlaces,
   studies,
 }: CapacityPlanningReportViewProps) {
-  const allLimits = usePraksisLimits();
+  const allProfiles = usePlacementProfiles();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [semester, setSemester] = useState<Semester>(today.getMonth() < 7 ? "Spring" : "Autumn");
@@ -69,10 +63,10 @@ export function CapacityPlanningReportView({
     return [...set].sort();
   }, [placements]);
 
-  // Number of limits that give the emne a share
-  const limitCount = (programId: string, emneName?: string) =>
-    allLimits.filter((l) =>
-      l.emneShares.some((s) => s.programId === programId && (!emneName || s.emneName === emneName)),
+  // Number of active profiles that take the program (and emne)
+  const profileCount = (programId: string, emneId?: string) =>
+    allProfiles.filter(
+      (p) => p.status === "active" && (emneId ? profileMatches(p, { programId, emneId }) : p.programId === programId),
     ).length;
 
   // ── Tree (left) ──────────────────────────────────────────────────────────
@@ -151,54 +145,42 @@ export function CapacityPlanningReportView({
 
   const reportCtx = { year, semester, startDate: semesterDate(year, semester) };
 
-  // Limits of one emne with their usage in the chosen semester
+  // Every placement, so a profile counts students from any placement it covers
+  const everyPlacement: OtherPlacementUsage[] = placements.map((p) => ({
+    placementId: p.id,
+    year: p.year,
+    semester: p.semester,
+    startDate: p.startDate,
+    programId: p.programId,
+    emne: p.subject,
+    students: studentsByPlacement.get(p.id) ?? [],
+  }));
+
+  // The profiles that take one emne, with their usage in the chosen semester
   const emneReport = (program: StudyProgram, emne: StudyEmne) => {
     const ctx = { ...reportCtx, programId: program.id, emne: emne.name };
     const emnePlacements = placements.filter((p) => p.programId === program.id && p.subject === emne.name);
-    const others: LimitOtherPlacement[] = emnePlacements.map((p) => ({
-      placementId: p.id,
-      year: p.year,
-      semester: p.semester,
-      startDate: p.startDate,
-      programId: p.programId,
-      emne: p.subject,
-      students: studentsByPlacement.get(p.id) ?? [],
-    }));
-    const trees = limitTreeForPlacement(allLimits, praksisPlaces, ctx, [], others);
+    const trees = profileTreeForPlacement(allProfiles, praksisPlaces, ctx, [], everyPlacement);
     return { trees, emnePlacements };
   };
 
-  // Placements (in the limit's period) with students inside the limit's subtree, and how many
-  const placementsUsing = (
-    tree: PlaceLimitTree,
-    limitEntityId: string,
-    limit: Parameters<typeof periodKeyFor>[0],
-    emnePlacements: StudentPlacement[],
-  ) => {
-    const key = periodKeyFor(limit, reportCtx);
-    return emnePlacements.flatMap((p) => {
-      if (periodKeyFor(limit, { year: p.year, semester: p.semester, startDate: p.startDate }) !== key) return [];
+  // Placements (in the profile's period) that placed students on the entity, and how many
+  const placementsUsing = (profile: PlacementProfile) => {
+    const period = placePeriodOf(profile.praksisPlaceId);
+    const key = periodKeyFor(period, reportCtx);
+    return placements.flatMap((p) => {
+      if (
+        !profileMatches(profile, { programId: p.programId, emneId: placementEmneId({ programId: p.programId, subject: p.subject }) }) ||
+        periodKeyFor(period, { year: p.year, semester: p.semester, startDate: p.startDate }) !== key
+      )
+        return [];
       const n = (studentsByPlacement.get(p.id) ?? []).filter((s) => {
         const a = s.assignedPraksisPlace;
-        if (a?.placeId !== tree.praksisPlaceId) return false;
-        const unit = tree.units.find((u) => u.id === (a.entityId ?? a.departmentId));
-        return !!unit && unit.limitPath.includes(limitEntityId);
+        return a?.placeId === profile.praksisPlaceId && (a.profileId ?? a.entityId ?? a.departmentId) === profile.id;
       }).length;
       return n > 0 ? [{ title: p.title || `${p.semester} ${p.year}`, n }] : [];
     });
   };
-
-  const violationsByPlace = useMemo(() => {
-    const m = new Map<string, string[]>();
-    praksisPlaces.forEach((place) => {
-      if (!place.organizationStructure) return;
-      limitViolations(
-        allLimits.filter((l) => l.praksisPlaceId === place.id),
-        place.organizationStructure,
-      ).forEach((v, k) => m.set(k, v));
-    });
-    return m;
-  }, [allLimits, praksisPlaces]);
 
   return (
     <div className="flex flex-col w-full">
@@ -280,7 +262,7 @@ export function CapacityPlanningReportView({
                             (sel) => <BookOpen className={`h-4 w-4 flex-shrink-0 ${sel ? "text-white" : "text-blue-600"}`} />,
                             () => setSelection({ kind: "program", studyId: study.id, programId: program.id }),
                             (program.emner ?? []).length > 0,
-                            limitCount(program.id),
+                            profileCount(program.id),
                           )}
                           {isOpen(`p:${program.id}`) &&
                             (program.emner ?? [])
@@ -295,7 +277,7 @@ export function CapacityPlanningReportView({
                                     () =>
                                       setSelection({ kind: "emne", studyId: study.id, programId: program.id, emneId: emne.id }),
                                     false,
-                                    limitCount(program.id, emne.name),
+                                    profileCount(program.id, emne.id),
                                   )}
                                 </div>
                               ))}
@@ -312,14 +294,14 @@ export function CapacityPlanningReportView({
           </div>
         </div>
 
-        {/* Right: limits of the selected emner */}
+        {/* Right: profiles of the selected emner */}
         <div className="flex-1 min-w-0 space-y-6 mb-[50px]">
           {!selection || !selectedStudy ? (
             <div className="flex items-center justify-center bg-gray-50 rounded-lg border border-gray-200 min-h-[400px]">
               <div className="text-center">
                 <ClipboardList className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                 <p className="text-gray-600 font-medium">Select a study, program or emne</p>
-                <p className="text-sm text-gray-400 mt-1">Its praksis place capacity and its usage are shown here</p>
+                <p className="text-sm text-gray-400 mt-1">The entities that take it and their usage are shown here</p>
               </div>
             </div>
           ) : selectedEmner.length === 0 ? (
@@ -329,8 +311,8 @@ export function CapacityPlanningReportView({
           ) : (
             selectedEmner.map(({ program, emne }) => {
               const { trees, emnePlacements } = emneReport(program, emne);
-              const tops = trees.flatMap((t) => t.nodes.filter((n) => n.depth === 0));
-              const total = tops.reduce((s, n) => s + n.share, 0);
+              const tops = trees.flatMap((t) => t.nodes);
+              const total = tops.reduce((s, n) => s + n.places, 0);
               const used = tops.reduce((s, n) => s + n.usedElsewhere, 0);
               return (
                 <div key={`${program.id}-${emne.id}`} className="border border-gray-200 rounded-lg bg-white overflow-hidden">
@@ -360,14 +342,14 @@ export function CapacityPlanningReportView({
 
                   {trees.length === 0 ? (
                     <p className="text-sm text-gray-500 px-4 py-6">
-                      No capacity includes {emne.name} for {semester} {year}. Add it under Praksis places → Capacity.
+                      No profile takes {emne.name} for {semester} {year}. Add one under Praksis places → Profiles.
                     </p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b bg-gray-50/50 text-left">
-                            {["Praksis place / Entity", "Type / Period", "Capacity", "Used", "Left", "Used by placements"].map((h) => (
+                            {["Praksis place / Entity", "Period", "Places", "Used", "Left", "Used by placements"].map((h) => (
                               <th key={h} className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">
                                 {h}
                               </th>
@@ -383,38 +365,22 @@ export function CapacityPlanningReportView({
                                 </td>
                               </tr>
                               {tree.nodes.map((node) => {
-                                const reasons = violationsByPlace.get(node.limit.id) ?? [];
-                                const users = placementsUsing(tree, node.limit.entityId, node.limit, emnePlacements);
-                                const capped = node.effectiveRemaining < node.remaining;
+                                const users = placementsUsing(node.profile);
                                 return (
-                                  <tr key={node.limit.id} className={reasons.length ? "bg-red-50/40" : "hover:bg-gray-50"}>
+                                  <tr key={node.profile.id} className="hover:bg-gray-50">
                                     <td className="px-4 py-3">
-                                      <div className="flex items-center gap-1.5" style={{ paddingLeft: `${16 + node.depth * 24}px` }}>
-                                        <span className="font-medium text-gray-800">{node.limit.entityName}</span>
-                                        {reasons.length > 0 && (
-                                          <span title={reasons.join("\n")} className="flex-shrink-0">
-                                            <AlertOctagon className="h-4 w-4 text-red-600" />
-                                          </span>
-                                        )}
+                                      <div className="pl-4">
+                                        <span className="font-medium text-gray-800">{node.profile.name}</span>
+                                        
                                       </div>
-                                      {reasons.map((r) => (
-                                        <p key={r} className="text-xs text-red-600" style={{ paddingLeft: `${16 + node.depth * 24}px` }}>
-                                          {r}
-                                        </p>
-                                      ))}
                                     </td>
                                     <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{node.periodLabel}</td>
-                                    <td className="px-4 py-3 font-semibold text-purple-600">{node.share}</td>
+                                    <td className="px-4 py-3 font-semibold text-purple-600">{node.places}</td>
                                     <td className="px-4 py-3 text-gray-700">{node.usedElsewhere}</td>
                                     <td className="px-4 py-3">
                                       <span className={`font-medium ${node.remaining > 0 ? "text-green-600" : "text-gray-400"}`}>
                                         {node.remaining}
                                       </span>
-                                      {capped && (
-                                        <span className="block text-[11px] text-amber-700">
-                                          capped by {node.limitingName}: {node.effectiveRemaining}
-                                        </span>
-                                      )}
                                     </td>
                                     <td className="px-4 py-3 text-gray-700">
                                       {users.length === 0 ? (

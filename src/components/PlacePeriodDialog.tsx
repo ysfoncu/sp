@@ -3,17 +3,19 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { cn } from './ui/utils';
-import { PlacePeriod, isValidMonthDay } from '../types/praksisLimit';
+import { PlacePeriod, isValidMonthDay } from '../types/placePeriod';
 
 interface PlacePeriodDialogProps {
   placeName: string;
   period: PlacePeriod;
+  // Students already placed on this place's profiles; a new period counts them again
+  placed?: number;
   onClose: () => void;
   onSave: (period: PlacePeriod) => void;
 }
 
 // The period every limit of a praksis place counts in
-export function PlacePeriodDialog({ placeName, period, onClose, onSave }: PlacePeriodDialogProps) {
+export function PlacePeriodDialog({ placeName, period, placed = 0, onClose, onSave }: PlacePeriodDialogProps) {
   const [limitType, setLimitType] = useState(period.limitType);
   const [periodStart, setPeriodStart] = useState(period.periodStart ?? '01/01');
 
@@ -76,6 +78,12 @@ export function PlacePeriodDialog({ placeName, period, onClose, onSave }: PlaceP
             )}
           </div>
         </div>
+        {placed > 0 && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {placed} student{placed === 1 ? " is" : "s are"} already placed on profiles here. Changing the period counts
+            them again, so places left can change.
+          </p>
+        )}
         <DialogFooter className="flex justify-end gap-2 pt-4 border-t">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button

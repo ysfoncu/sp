@@ -21,10 +21,10 @@ interface EnhancedSidebarProps {
     | "dashboard"
     | "placements"
     | "praksisplaces"
-    | "quotas"
     | "priorities"
     | "priorityitem"
     | "students"
+    | "praksisstudents"
     | "placementreport"
     | "invoicereport"
     | string;
@@ -33,8 +33,8 @@ interface EnhancedSidebarProps {
       | "dashboard"
       | "placements"
       | "praksisplaces"
-      | "quotas"
-      | "priorities"
+      | "praksisstudents"
+        | "priorities"
       | "students"
       | "placementreport"
       | "capacityreport"
@@ -51,7 +51,7 @@ interface NavItem {
     | "dashboard"
     | "placements"
     | "praksisplaces"
-    | "quotas"
+    | "praksisstudents"
     | "priorities"
     | "students";
   // "priorityitem" maps to "priorities" for active state
@@ -83,6 +83,12 @@ export function EnhancedSidebar({
       active: currentView === "dashboard",
     },
     {
+      id: "praksisstudents",
+      label: "Praksis-students",
+      icon: GraduationCap,
+      active: currentView === "praksisstudents",
+    },
+    {
       id: "placements",
       label: "Student placement",
       icon: BookOpen,
@@ -107,8 +113,8 @@ export function EnhancedSidebar({
       | "dashboard"
       | "placements"
       | "praksisplaces"
-      | "quotas"
-      | "priorities"
+      | "praksisstudents"
+        | "priorities"
       | "students",
   ) => {
     onViewChange(itemId);

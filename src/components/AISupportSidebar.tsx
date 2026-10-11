@@ -9,7 +9,7 @@ interface Message {
   content: string;
   timestamp: Date;
   actions?: {
-    type: 'display_departments' | 'add_quota' | 'assign_student' | 'confirmation';
+    type: 'display_departments' | 'assign_student' | 'confirmation';
     data?: any;
   };
 }
@@ -51,7 +51,7 @@ export function AISupportSidebar({
     const totalStudents = students.length;
     const assignedStudents = students.filter(s => s.assignedPraksisPlace).length;
     const unassignedStudents = totalStudents - assignedStudents;
-    const totalQuotas = availableDepartments.reduce((sum, d) => sum + (d.fixedQuota || 0), 0);
+    const totalPlaces = availableDepartments.reduce((sum, d) => sum + (d.availableCount || 0), 0);
 
     let content = "👋 Hello! I'm your AI assistant for placement management.\n\n";
     
@@ -62,7 +62,7 @@ export function AISupportSidebar({
       content += `• Students assigned: ${assignedStudents}/${totalStudents}\n`;
     }
     if (availableDepartments.length > 0) {
-      content += `• Total quotas available: ${totalQuotas}\n`;
+      content += `• Places left on entities: ${totalPlaces}\n`;
     }
     
     content += "\n";
@@ -92,23 +92,20 @@ export function AISupportSidebar({
         content += "• Import student list from file\n";
         content += "• Review imported students\n";
         content += "• Add students manually\n";
-      } else if (taskTitle.includes('quota') || taskTitle.includes('select')) {
-        content += "• Show available departments and quotas\n";
-        content += "• Add quotas to specific departments (e.g., 'Add 3 quotas to Cardiology')\n";
-        content += "• Request pending quotas\n";
-        content += "• View quota summary\n";
+      } else if (taskTitle.includes('select')) {
+        content += "• Show the available entities and their places\n";
+        content += "• View a summary of places left\n";
       } else if (taskTitle.includes('assign')) {
-        content += "• Assign students to available quotas\n";
+        content += "• Place students on entities with places left\n";
         content += "• Show unassigned students\n";
-        content += "• Auto-assign students to departments\n";
+        content += "• Auto-assign students to entities\n";
         content += "• View assignment status\n";
       } else if (taskTitle.includes('publish') || taskTitle.includes('email')) {
         content += "• Preview placement assignments\n";
         content += "• Send notifications to students\n";
         content += "• Generate placement reports\n";
       } else {
-        content += "• View available departments\n";
-        content += "• Add quotas to departments\n";
+        content += "• View available entities\n";
         content += "• Assign students to praksis places\n";
         content += "• Check placement status\n";
       }
@@ -238,6 +235,7 @@ export function AISupportSidebar({
     ) {
       if (
         input.includes('department') ||
+        input.includes('entit') ||
         input.includes('quota') ||
         input.includes('available')
       ) {
@@ -245,36 +243,11 @@ export function AISupportSidebar({
           id: Date.now().toString(),
           role: 'assistant',
           content:
-            "Here are the available departments with their current quota status:",
+            "Here are the available entities with the places left on them:",
           timestamp: new Date(),
           actions: {
             type: 'display_departments',
             data: availableDepartments,
-          },
-        };
-      }
-    }
-
-    // Add quota to department
-    if (input.includes('add') && input.includes('quota')) {
-      const numberMatch = input.match(/(\d+)/);
-      const number = numberMatch ? parseInt(numberMatch[1]) : 2;
-
-      let departmentName = '';
-      if (input.includes('cardiology')) departmentName = 'Cardiology';
-      else if (input.includes('emergency')) departmentName = 'Emergency';
-      else if (input.includes('pediatric')) departmentName = 'Pediatrics';
-      else if (input.includes('surgery')) departmentName = 'Surgery';
-
-      if (departmentName) {
-        return {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: `I'll add ${number} quota${number !== 1 ? 's' : ''} to the ${departmentName} department. Would you like me to proceed?`,
-          timestamp: new Date(),
-          actions: {
-            type: 'add_quota',
-            data: { department: departmentName, count: number },
           },
         };
       }
@@ -323,20 +296,18 @@ export function AISupportSidebar({
       content += `Since you're currently working on "${currentTask.title}", here are some suggestions:\n\n`;
       
       const taskTitle = currentTask.title.toLowerCase();
-      if (taskTitle.includes('quota')) {
-        content += "• 'Show available departments'\n";
-        content += "• 'Add 2 quotas to Cardiology'\n";
+      if (taskTitle.includes('select')) {
+        content += "• 'Show available entities'\n";
       } else if (taskTitle.includes('assign')) {
         content += "• 'Show unassigned students'\n";
         content += "• 'Assign student to Emergency'\n";
       } else {
-        content += "• 'Show available departments'\n";
+        content += "• 'Show available entities'\n";
         content += "• 'Check progress status'\n";
       }
     } else {
       content += "Here are some things I can help with:\n\n";
-      content += "• 'Show available departments'\n";
-      content += "• 'Add 2 quotas to Cardiology'\n";
+      content += "• 'Show available entities'\n";
       content += "• 'Assign student to Emergency department'\n";
       content += "• 'Show unassigned students'\n";
     }
@@ -379,19 +350,17 @@ export function AISupportSidebar({
     const currentTask = tasks[currentTaskIndex];
     if (!currentTask) {
       return [
-        { label: 'Show departments', value: 'Show available departments' },
-        { label: 'Add quota', value: 'Add 2 quotas to Cardiology' },
+        { label: 'Show entities', value: 'Show available entities' },
         { label: 'Check status', value: 'Show progress status' },
       ];
     }
 
     const taskTitle = currentTask.title.toLowerCase();
     
-    if (taskTitle.includes('quota') || taskTitle.includes('select')) {
+    if (taskTitle.includes('select')) {
       return [
-        { label: 'Show departments', value: 'Show available departments' },
-        { label: 'Add quota', value: 'Add 2 quotas to Cardiology' },
-        { label: 'Check quotas', value: 'Show available quotas' },
+        { label: 'Show entities', value: 'Show available entities' },
+        { label: 'Check places', value: 'Show available entities' },
       ];
     } else if (taskTitle.includes('assign')) {
       return [
@@ -401,8 +370,7 @@ export function AISupportSidebar({
       ];
     } else {
       return [
-        { label: 'Show departments', value: 'Show available departments' },
-        { label: 'Add quota', value: 'Add 2 quotas to Cardiology' },
+        { label: 'Show entities', value: 'Show available entities' },
         { label: 'Check status', value: 'Show progress status' },
       ];
     }
@@ -478,36 +446,14 @@ export function AISupportSidebar({
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-xs text-gray-500">Quota</div>
+                          <div className="text-xs text-gray-500">Left</div>
                           <div className="font-semibold text-sm text-gray-800">
-                            {dept.fixedQuota || 0}
+                            {dept.availableCount ?? 0} / {dept.fixedQuota || 0}
                           </div>
                         </div>
                       </div>
                     </div>
                   ))}
-                </div>
-              )}
-
-              {/* Add Quota Action */}
-              {message.actions?.type === 'add_quota' && (
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => handleExecuteAction(message)}
-                    className="bg-green-600 hover:bg-green-700 text-white text-xs"
-                  >
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    Yes, proceed
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleCancelAction}
-                    className="text-xs"
-                  >
-                    Cancel
-                  </Button>
                 </div>
               )}
 

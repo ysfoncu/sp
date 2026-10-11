@@ -1,9 +1,30 @@
+// Where a student's assignment stands: planned (picked), booked (assignments published),
+// completed (placement finished), cancelled (taken back, kept for the record)
+export type AssignmentStatus = "planned" | "booked" | "completed" | "cancelled";
+
+import type { PublishedSnapshot } from "./studentView";
+
+// The person who mentors a student during the placement: one of the profile's contacts
+export interface Mentor {
+  personType: "contact" | "supervisor";
+  personId: string;
+  name: string;
+}
+
 export interface Student {
   id: string;
   name: string;
   personnummer?: string;
   email: string;
   year: string;
+  // From the Praksis-students registry: the student's own praksis period
+  praksisStartDate?: string;
+  praksisEndDate?: string;
+  expectedHours?: number;
+  studyLocation?: string;
+  address?: string; // home address from the import, free text; for the coordinator only, never shown to students
+  priorityPoints?: number; // points the student came with in the import
+  registered?: boolean; // false: not registered for the course in the import
   assignedPraksisPlace?: {
     placeId: string;
     placeName: string;
@@ -11,9 +32,12 @@ export interface Student {
     departmentName: string;
     entityId?: string; // For multi-entity requests - specific entity (department/unit) ID
     placementTaskId?: string; // Link to specific placement task
-    quotaRequestId?: string; // Link to specific coordinator quota request
-    approvalRequested?: boolean;
-    approvalStatus?: "pending" | "approved" | "rejected";
+    profileId?: string; // The placement profile the student is placed on
+    emneId?: string; // The emne the placement is for
+    status?: AssignmentStatus;
+    mentor?: Mentor;
+    // What the student was told, frozen when the assignments were published
+    snapshot?: PublishedSnapshot;
     startDate?: string;
     endDate?: string;
     placementTitle?: string;
@@ -65,32 +89,21 @@ export interface PlacementTask {
 export const placementTasks: PlacementTask[] = [
   {
     id: "1",
-    step: "1/6",
-    title: "Setup Students & Quotas",
+    step: "1/5",
+    title: "Students from Praksis-students",
     description:
-      "Select/request quotas from praksis places, then import students",
+      "The students waiting for this emne come in automatically. The entities for this emne must have places for them",
     status: "mandatory",
     completed: false,
     actionType: "auto",
     actionLabel: "Auto-completes",
   },
   {
-    id: "3",
-    step: "2/6",
-    title: "First publish",
-    description:
-      "Students will be able to submit their custom requests",
-    status: "mandatory",
-    completed: false,
-    actionType: "publish",
-    actionLabel: "Publish",
-  },
-  {
     id: "4",
-    step: "3/6",
+    step: "2/5",
     title: "Attach praksis places to the students",
     description:
-      "Use students tab or praksis places tab to assign praksis places to the students",
+      "Place each student on an entity, from the Available entities panel or the Students tab",
     status: "mandatory",
     completed: false,
     actionType: "auto",
@@ -98,10 +111,10 @@ export const placementTasks: PlacementTask[] = [
   },
   {
     id: "5",
-    step: "4/6",
+    step: "3/5",
     title: "Attach required documents",
     description:
-      "Use praksis places tab to send documents to praksis places",
+      "Send the required documents to the praksis places",
     status: "optional",
     completed: false,
     actionType: "mark",
@@ -109,10 +122,10 @@ export const placementTasks: PlacementTask[] = [
   },
   {
     id: "6",
-    step: "5/6",
-    title: "Assign supervisors to the students",
+    step: "4/5",
+    title: "Assign mentors to the students",
     description:
-      "Use students tab to assign supervisors to the students",
+      "Assign a mentor to each student",
     status: "optional",
     completed: false,
     actionType: "mark",
@@ -120,8 +133,8 @@ export const placementTasks: PlacementTask[] = [
   },
   {
     id: "7",
-    step: "6/6",
-    title: "Second publish",
+    step: "5/5",
+    title: "Publish",
     description: "Finalise and publish the placement",
     status: "mandatory",
     completed: false,

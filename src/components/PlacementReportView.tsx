@@ -33,9 +33,11 @@ import {
 } from "lucide-react";
 import { Student } from "../types/placementTask";
 import { PlacementTaskState, StudentPlacement } from "../types/studentPlacement";
-import { CoordinatorQuotaRequest } from "../types/coordinatorQuotaRequest";
-import { QuotaSelection } from "./SlideOverManageQuota";
-import { Study } from "./SettingsView";
+import { PraksisPlace } from "../types/praksisPlace";
+import { PlacementProfile, placementEmneId, resolveAssignmentProfile, usePlacementProfiles } from "../types/placementProfile";
+import { OtherPlacementUsage, profileTreeForPlacement } from "../types/profileUsage";
+import { useUsagePlacements } from "./ProfileUsageContext";
+import { Study } from "../types/studyCatalog";
 import { PeriodFilterButton } from "./PeriodFilterButton";
 import {
   PeriodOption,
@@ -48,7 +50,7 @@ import {
 interface PlacementReportViewProps {
   placements: StudentPlacement[];
   placementTaskStates: PlacementTaskState[];
-  coordinatorQuotaRequests: CoordinatorQuotaRequest[];
+  praksisPlaces: PraksisPlace[];
   studies: Study[];
 }
 
@@ -76,27 +78,25 @@ function placementStatusClass(status?: string): string {
   }
 }
 
-function quotaStatusClass(status?: string): string {
+function profileStatusClass(status?: string): string {
   switch (status) {
-    case "approved":
-    case "fulfilled":
-    case "fixed":
+    case "active":
       return "bg-green-100 text-green-700 border border-green-200";
-    case "rejected":
-      return "bg-red-100 text-red-700 border border-red-200";
-    case "pending":
-      return "bg-yellow-100 text-yellow-700 border border-yellow-200";
-    default:
+    case "archived":
       return "bg-gray-100 text-gray-500 border border-gray-200";
+    default:
+      return "bg-yellow-100 text-yellow-700 border border-yellow-200";
   }
 }
 
 export function PlacementReportView({
   placements,
   placementTaskStates,
-  coordinatorQuotaRequests,
+  praksisPlaces,
   studies,
 }: PlacementReportViewProps) {
+  const allProfiles = usePlacementProfiles();
+  const everyPlacement = useUsagePlacements();
   const [searchTerm, setSearchTerm] = useState("");
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [filterStudy, setFilterStudy] = useState("all");
@@ -118,14 +118,6 @@ export function PlacementReportView({
     const m = new Map<string, Student[]>();
     placementTaskStates.forEach((ts) =>
       m.set(ts.placementId, (ts.students as Student[]) ?? []),
-    );
-    return m;
-  }, [placementTaskStates]);
-
-  const quotasByPlacement = useMemo(() => {
-    const m = new Map<string, QuotaSelection[]>();
-    placementTaskStates.forEach((ts) =>
-      m.set(ts.placementId, (ts.quotas as QuotaSelection[]) ?? []),
     );
     return m;
   }, [placementTaskStates]);
@@ -538,10 +530,9 @@ export function PlacementReportView({
                   key={p.id}
                   placement={p}
                   students={studentsByPlacement.get(p.id) ?? []}
-                  quotas={quotasByPlacement.get(p.id) ?? []}
-                  requests={coordinatorQuotaRequests.filter(
-                    (r) => r.placementId === p.id,
-                  )}
+                  praksisPlaces={praksisPlaces}
+                  profiles={allProfiles}
+                  others={everyPlacement.filter((o) => o.placementId !== p.id)}
                 />
               ))}
             </div>
@@ -555,126 +546,95 @@ export function PlacementReportView({
 function PlacementSection({
   placement,
   students,
-  quotas,
-  requests,
+  praksisPlaces,
+  profiles,
+  others,
 }: {
   placement: StudentPlacement;
   students: Student[];
-  quotas: QuotaSelection[];
-  requests: CoordinatorQuotaRequest[];
+  praksisPlaces: PraksisPlace[];
+  profiles: PlacementProfile[];
+  others: OtherPlacementUsage[];
 }) {
   const totalImported = students.length;
   const notAttached = students.filter((s) => !s.assignedPraksisPlace).length;
 
-  // One row per connected entity (department) — keyed by place + entity.
-  interface PlaceRow {
+  // One row per entity: the entities that take this placement, plus any entity (archived) that this
+  // placement's students sit on.
+  interface ProfileRow {
     key: string;
-    placeId: string;
-    organisationName: string; // praksis place / health trust
-    placeName: string; // entity / department
-    requested: number;
-    approved: number;
-    assigned: number;
-    quotaStatus?: string;
+    organisationName: string;
+    profileName: string;
+    status: "active" | "archived" | "unlinked";
+    places: number;
+    placed: number; // this placement's students
+    elsewhere: number; // students of other placements in the same period
   }
-  const rowMap = new Map<string, PlaceRow>();
-  const ensure = (placeId: string, org: string, entId: string, entName: string) => {
-    const key = `${placeId}|${entId}`;
+  const rowMap = new Map<string, ProfileRow>();
+  const ctx = {
+    programId: placement.programId,
+    emne: placement.subject,
+    emneId: placement.emneId,
+    year: placement.year,
+    semester: placement.semester,
+    startDate: placement.startDate,
+  };
+  profileTreeForPlacement(profiles, praksisPlaces, ctx, students, others).forEach((t) =>
+    t.nodes.forEach((n) =>
+      rowMap.set(n.profile.id, {
+        key: n.profile.id,
+        organisationName: t.praksisPlaceName,
+        profileName: n.profile.name,
+        status: "active",
+        places: n.places,
+        placed: n.used,
+        elsewhere: n.usedElsewhere,
+      }),
+    ),
+  );
+
+  // Students on a profile that no longer takes new students, or on no profile at all
+  const target = {
+    programId: placement.programId,
+    emneId: placementEmneId({ programId: placement.programId, subject: placement.subject, emneId: placement.emneId }),
+  };
+  students.forEach((s) => {
+    const a = s.assignedPraksisPlace;
+    if (!a?.placeId || a.status === "cancelled") return;
+    const unitId = a.entityId ?? a.departmentId ?? "";
+    const owner = resolveAssignmentProfile(profiles, { placeId: a.placeId, unitId, profileId: a.profileId }, target);
+    if (owner && rowMap.has(owner.id)) return; // already counted above
+    const key = owner ? owner.id : `${a.placeId}|${unitId}`;
     let row = rowMap.get(key);
     if (!row) {
       row = {
         key,
-        placeId,
-        organisationName: org,
-        placeName: entName,
-        requested: 0,
-        approved: 0,
-        assigned: 0,
+        organisationName: a.placeName,
+        profileName: owner?.name ?? a.departmentName ?? "No entity",
+        status: owner ? "archived" : "unlinked",
+        places: owner?.places ?? 0,
+        placed: 0,
+        elsewhere: 0,
       };
       rowMap.set(key, row);
     }
-    return row;
-  };
-
-  // Capacity from coordinator quota requests (requested / approved / status)
-  requests.forEach((r) => {
-    const ents =
-      r.entityDistributions && r.entityDistributions.length > 0
-        ? r.entityDistributions
-        : [
-            {
-              entityId: r.departmentId,
-              entityName: r.departmentName,
-              requestedQuota: r.requestedCapacity,
-              approvedQuota: r.approvedCapacity,
-              status: r.status,
-            },
-          ];
-    ents.forEach((e) => {
-      const row = ensure(
-        r.praksisPlaceId,
-        r.praksisPlaceName,
-        e.entityId || r.departmentId,
-        e.entityName || r.departmentName,
-      );
-      row.requested += e.requestedQuota ?? 0;
-      row.approved += e.approvedQuota ?? 0;
-      row.quotaStatus = e.status ?? r.status ?? row.quotaStatus;
-    });
-  });
-
-  // Capacity from fixed quotas selected for the placement
-  quotas.forEach((q) => {
-    const row = ensure(q.placeId, q.placeName, q.departmentId, q.departmentName);
-    row.requested += q.requestQuota ?? 0;
-    row.approved += q.fixedQuota ?? 0;
-    if (!row.quotaStatus && (q.fixedQuota ?? 0) > 0) row.quotaStatus = "fixed";
-  });
-
-  // Students assigned to each entity (consumed capacity)
-  students.forEach((s) => {
-    const ap = s.assignedPraksisPlace;
-    if (!ap?.placeId) return;
-    const entId = ap.entityId ?? ap.departmentId ?? "";
-    const row = ensure(ap.placeId, ap.placeName, entId, ap.departmentName);
-    row.assigned += 1;
+    row.placed += 1;
   });
 
   const rows = [...rowMap.values()].sort(
-    (a, b) =>
-      a.organisationName.localeCompare(b.organisationName) ||
-      a.placeName.localeCompare(b.placeName),
+    (a, b) => a.organisationName.localeCompare(b.organisationName) || a.profileName.localeCompare(b.profileName),
   );
+  const leftOf = (r: ProfileRow) => r.places - r.placed - r.elsewhere;
 
-  const placementCols = [
-    "Year",
-    "Semester",
-    "Emne",
-    "Start date",
-    "End date",
-    "Imported students",
-    "Not attached",
-  ];
-  const placeCols = [
-    "Organisation",
-    "Praksis place",
-    "Quota status",
-    "Requested",
-    "Approved",
-    "Consumed",
-    "Available",
-  ];
+  const placementCols = ["Year", "Semester", "Emne", "Start date", "End date", "Imported students", "Not attached"];
+  const profileCols = ["Organisation", "Entity", "Status", "Places", "Placed here", "Used elsewhere", "Left"];
 
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
       {/* Placement task header */}
       <div className="px-4 py-3 border-b border-gray-200 bg-gray-50/50 flex items-center gap-2 flex-wrap">
-        <h3 className="font-semibold text-gray-800">
-          {placement.title || termLabel(placement)}
-        </h3>
-        <Badge className={`${placementStatusClass(placement.status)} text-xs`}>
-          {placement.status}
-        </Badge>
+        <h3 className="font-semibold text-gray-800">{placement.title || termLabel(placement)}</h3>
+        <Badge className={`${placementStatusClass(placement.status)} text-xs`}>{placement.status}</Badge>
       </div>
 
       {/* Placement task — one row */}
@@ -683,10 +643,7 @@ function PlacementSection({
           <thead>
             <tr className="border-b bg-gray-50/50 text-left">
               {placementCols.map((h) => (
-                <th
-                  key={h}
-                  className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap"
-                >
+                <th key={h} className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">
                   {h}
                 </th>
               ))}
@@ -706,20 +663,17 @@ function PlacementSection({
         </table>
       </div>
 
-      {/* Praksis places — one row per connected entity */}
+      {/* Profiles — one row per profile the placement uses or could use */}
       <div className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-        Praksis places ({rows.length})
+        Profiles ({rows.length})
       </div>
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50/50 text-left">
-                {placeCols.map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap"
-                  >
+                {profileCols.map((h) => (
+                  <th key={h} className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">
                     {h}
                   </th>
                 ))}
@@ -727,8 +681,7 @@ function PlacementSection({
             </thead>
             <tbody className="divide-y">
               {rows.map((row) => {
-                const consumed = row.assigned;
-                const available = row.approved - consumed;
+                const left = leftOf(row);
                 return (
                   <tr key={row.key} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-gray-700">
@@ -737,52 +690,44 @@ function PlacementSection({
                         {row.organisationName}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{row.placeName || "—"}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.profileName}</td>
                     <td className="px-4 py-3">
-                      <Badge
-                        className={`${quotaStatusClass(row.quotaStatus)} text-xs capitalize`}
-                      >
-                        {row.quotaStatus ?? "—"}
-                      </Badge>
+                      <Badge className={`${profileStatusClass(row.status)} text-xs capitalize`}>{row.status}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{row.requested}</td>
-                    <td className="px-4 py-3 text-gray-700">{row.approved}</td>
-                    <td className="px-4 py-3 text-gray-700">{consumed}</td>
-                    <td
-                      className={`px-4 py-3 font-medium ${
-                        available < 0 ? "text-red-600" : "text-gray-700"
-                      }`}
-                    >
-                      {available}
+                    <td className="px-4 py-3 text-gray-700">{row.status === "unlinked" ? "—" : row.places}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.placed}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.elsewhere}</td>
+                    <td className={`px-4 py-3 font-medium ${left < 0 ? "text-red-600" : "text-gray-700"}`}>
+                      {row.status === "unlinked" ? "—" : left}
                     </td>
                   </tr>
                 );
               })}
               {(() => {
-                  const tReq = rows.reduce((s, r) => s + r.requested, 0);
-                  const tApp = rows.reduce((s, r) => s + r.approved, 0);
-                  const tCon = rows.reduce((s, r) => s + r.assigned, 0);
-                  const tAvail = tApp - tCon;
-                  return (
-                    <tr className="border-t-2 border-gray-300 bg-gray-50/70 font-semibold text-gray-800">
-                      <td className="px-4 py-3">Total</td>
-                      <td className="px-4 py-3" />
-                      <td className="px-4 py-3" />
-                      <td className="px-4 py-3">{tReq}</td>
-                      <td className="px-4 py-3">{tApp}</td>
-                      <td className="px-4 py-3">{tCon}</td>
-                      <td className={`px-4 py-3 ${tAvail < 0 ? "text-red-600" : ""}`}>
-                        {tAvail}
-                      </td>
-                    </tr>
-                  );
-                })()}
+                const counted = rows.filter((r) => r.status !== "unlinked");
+                const tPlaces = counted.reduce((s, r) => s + r.places, 0);
+                const tPlaced = rows.reduce((s, r) => s + r.placed, 0);
+                const tElse = counted.reduce((s, r) => s + r.elsewhere, 0);
+                const tLeft = tPlaces - counted.reduce((s, r) => s + r.placed, 0) - tElse;
+                return (
+                  <tr className="border-t-2 border-gray-300 bg-gray-50/70 font-semibold text-gray-800">
+                    <td className="px-4 py-3">Total</td>
+                    <td className="px-4 py-3" />
+                    <td className="px-4 py-3" />
+                    <td className="px-4 py-3" />
+                    <td className="px-4 py-3">{tPlaces}</td>
+                    <td className="px-4 py-3">{tPlaced}</td>
+                    <td className="px-4 py-3">{tElse}</td>
+                    <td className={`px-4 py-3 ${tLeft < 0 ? "text-red-600" : ""}`}>{tLeft}</td>
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
         </div>
       ) : (
         <p className="text-sm text-gray-400 italic px-4 py-6">
-          No praksis places connected to this placement yet.
+          No profile takes this placement yet. Add one under Praksis places → Profiles.
         </p>
       )}
     </div>

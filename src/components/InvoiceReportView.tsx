@@ -33,8 +33,8 @@ import { EnrolledStudent } from "../types/priorityPlacement";
 import { Student } from "../types/placementTask";
 import { PlacementTaskState, StudentPlacement } from "../types/studentPlacement";
 import { PraksisPlace } from "../types/praksisPlace";
-import { OrganizationNode } from "../types/organizationStructure";
-import { Study } from "./SettingsView";
+import { profilesOfPlace, usePlacementProfiles } from "../types/placementProfile";
+import { Study } from "../types/studyCatalog";
 import { PeriodFilterButton } from "./PeriodFilterButton";
 import {
   PeriodOption,
@@ -78,21 +78,6 @@ function isoWeek(d: Date): number {
         7,
     )
   );
-}
-
-// Find the ancestor path (root → node) for a node id within an org tree.
-function findOrgPath(
-  node: OrganizationNode,
-  id: string,
-  trail: OrganizationNode[] = [],
-): OrganizationNode[] | null {
-  const next = [...trail, node];
-  if (node.id === id) return next;
-  for (const child of node.children) {
-    const found = findOrgPath(child, id, next);
-    if (found) return found;
-  }
-  return null;
 }
 
 interface InvoiceRow {
@@ -141,6 +126,7 @@ export function InvoiceReportView({
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterPlaceId, setFilterPlaceId] = useState("all");
   const [filterDeptId, setFilterDeptId] = useState("all");
+  const entities = usePlacementProfiles();
   const [selectedPeriods, setSelectedPeriods] = useState<Set<PeriodOption>>(
     new Set<PeriodOption>(),
   );
@@ -192,14 +178,9 @@ export function InvoiceReportView({
             ? "ongoing"
             : "completed";
 
-        // Full hierarchy for the entity, including parent(s), separated by " / ".
-        const fallbackPath =
+        // The praksis place and the entity, separated by " / ".
+        const entityPath =
           [ap.placeName, ap.departmentName].filter(Boolean).join(" / ") || "—";
-        let entityPath = fallbackPath;
-        if (place?.organizationStructure && ap.entityId) {
-          const p = findOrgPath(place.organizationStructure, ap.entityId);
-          if (p) entityPath = p.map((n) => n.name).join(" / ");
-        }
 
         rows.push({
           key: `${ts.placementId}:${st.id}`,
@@ -343,9 +324,9 @@ export function InvoiceReportView({
     const place = praksisPlaces.find((p) => p.id === filterPlaceId);
     if (!place) return "Praksis place";
     if (filterDeptId === "all") return place.name;
-    const dept = place.departments.find((d) => d.id === filterDeptId);
+    const dept = profilesOfPlace(entities, place.id).find((d) => d.id === filterDeptId);
     return dept ? `${place.name} / ${dept.name}` : place.name;
-  }, [filterPlaceId, filterDeptId, praksisPlaces]);
+  }, [filterPlaceId, filterDeptId, praksisPlaces, entities]);
 
   const activeFilterCount =
     selectedPrograms.size +
@@ -602,8 +583,8 @@ export function InvoiceReportView({
                       >
                         All entities
                       </DropdownMenuItem>
-                      {pl.departments.length > 0 && <DropdownMenuSeparator />}
-                      {pl.departments.map((d) => (
+                      {profilesOfPlace(entities, pl.id).length > 0 && <DropdownMenuSeparator />}
+                      {profilesOfPlace(entities, pl.id).map((d) => (
                         <DropdownMenuItem
                           key={d.id}
                           onSelect={() => {

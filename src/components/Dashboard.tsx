@@ -19,11 +19,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { PraksisPlace } from "../types/praksisPlace";
-import { DashboardSettings, Study } from "./SettingsView";
-import {
-  CoordinatorQuotaRequest,
-  PERMANENT_END_DATE,
-} from "../types/coordinatorQuotaRequest";
+import { Study } from "../types/studyCatalog";
+import { profilesOfPlace, usePlacementProfiles } from "../types/placementProfile";
+import { DashboardSettings } from "./SettingsView";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,9 +50,7 @@ interface StudentPlacement {
 interface PlacementTaskState {
   placementId: string;
   students: any[];
-  quotas: any[];
   studentsImported: boolean;
-  firstPublished: boolean;
   documentsAttached: boolean;
   finalPublished: boolean;
   completedTasks: string[];
@@ -89,14 +85,11 @@ interface DashboardProps {
   placementTaskStates?: PlacementTaskState[];
   praksisPlaces?: PraksisPlace[];
   studies?: Study[];
-  coordinatorQuotaRequests?: CoordinatorQuotaRequest[];
   onStartOnboarding?: () => void;
   onPlacementClick?: (placement: StudentPlacement) => void;
   onPraksisPlaceClick?: (place: PraksisPlace) => void;
   onViewAllClick?: () => void;
   onViewAllPraksisPlacesClick?: () => void;
-  onViewAllQuotaRequestsClick?: () => void;
-  onQuotaRequestNavigate?: (request: CoordinatorQuotaRequest) => void;
   dashboardSettings?: DashboardSettings;
 }
 
@@ -104,23 +97,15 @@ interface DashboardProps {
 const placementTasksDefinition = [
   {
     id: "1",
-    step: "1/6",
-    title: "Setup Students & Quotas",
+    step: "1/5",
+    title: "Import students",
     description:
-      "Select/request quotas from praksis places, then import students",
+      "Import the students. The entities for this emne must have places for them",
     status: "mandatory",
   },
   {
-    id: "3",
-    step: "2/6",
-    title: "First publish",
-    description:
-      "Students will be able to submit their custom requests",
-    status: "optional",
-  },
-  {
     id: "4",
-    step: "3/6",
+    step: "2/5",
     title: "Attach praksis places to the students",
     description:
       "Use students tab or praksis places tab to assign praksis places to the students",
@@ -128,16 +113,16 @@ const placementTasksDefinition = [
   },
   {
     id: "6",
-    step: "5/6",
-    title: "Assign supervisors to the students",
+    step: "4/5",
+    title: "Assign mentors to the students",
     description:
       "Use students tab to assign supervisors to the students",
     status: "optional",
   },
   {
     id: "7",
-    step: "6/6",
-    title: "Second publish",
+    step: "5/5",
+    title: "Publish",
     description: "Finalise and publish the placement",
     status: "mandatory",
   },
@@ -148,24 +133,21 @@ export function Dashboard({
   placementTaskStates = [],
   praksisPlaces = [],
   studies = [],
-  coordinatorQuotaRequests = [],
   onPlacementClick,
   onPraksisPlaceClick,
   onViewAllClick,
   onViewAllPraksisPlacesClick,
-  onViewAllQuotaRequestsClick,
-  onQuotaRequestNavigate,
   onStartOnboarding,
   dashboardSettings = {
     praksisPlacesOverview: false,
     placementOverview: true,
-    quotaRequests: true,
     tasks: true,
     recentActivities: true,
     placementProgress: true,
     yearlyPlacements: true,
   },
 }: DashboardProps) {
+  const entities = usePlacementProfiles();
   const [tasksPage, setTasksPage] = useState(1);
   const [activitiesPage, setActivitiesPage] = useState(1);
   const itemsPerPage = 5;
@@ -196,19 +178,6 @@ export function Dashboard({
     });
   const [praksisPlaceItemsToShow, setPraksisPlaceItemsToShow] =
     useState("3");
-
-  // Quota Requests Settings
-  const [quotaRequestsItemsToShow, setQuotaRequestsItemsToShow] =
-    useState("3");
-  const [quotaRequestsColumns, setQuotaRequestsColumns] = useState({
-    place: true,
-    study: true,
-    requested: true,
-    approved: true,
-    period: true,
-    status: true,
-    actions: true,
-  });
 
   // Tasks Settings
   const [tasksToShow, setTasksToShow] = useState(5);
@@ -285,31 +254,6 @@ export function Dashboard({
     return { studentsPlaced, studentsNotPlaced };
   };
 
-  // Helper function to get status badge class for quota requests
-  const getQuotaStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case "pending":
-        return "bg-yellow-50 text-yellow-700 border-yellow-300";
-      case "approved":
-        return "bg-green-50 text-green-700 border-green-300";
-      case "rejected":
-        return "bg-red-50 text-red-700 border-red-300";
-      case "fulfilled":
-        return "bg-blue-50 text-blue-700 border-blue-300";
-      default:
-        return "";
-    }
-  };
-
-  // Helper function to format date range for quota requests
-  const formatQuotaDateRange = (startDate: string, endDate: string) => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const formatDate = (date: Date) =>
-      `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear().toString().slice(-2)}`;
-    return `${formatDate(start)} - ${formatDate(end)}`;
-  };
-
   // Generate tasks (show only the current incomplete task for each active placement)
   const generateTasks = (): DashboardTask[] => {
     const tasks: DashboardTask[] = [];
@@ -326,8 +270,8 @@ export function Dashboard({
       if (currentTask) {
         // Determine priority based on task step
         let priority: "high" | "medium" | "low" = "medium";
-        if (currentTask.step === "6/6") priority = "high";
-        else if (currentTask.step === "1/6")
+        if (currentTask.step === "5/5") priority = "high";
+        else if (currentTask.step === "1/5")
           priority = "high";
         else if (currentTask.status === "mandatory")
           priority = "medium";
@@ -649,7 +593,7 @@ export function Dashboard({
                     })
                   }
                 >
-                  Departments
+                  Entities
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={praksisPlaceColumns.capacity}
@@ -660,7 +604,7 @@ export function Dashboard({
                     })
                   }
                 >
-                  Capacity
+                  Places
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={praksisPlaceColumns.currentStudents}
@@ -671,7 +615,7 @@ export function Dashboard({
                     })
                   }
                 >
-                  Current Students
+                  Placed students
                 </DropdownMenuCheckboxItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -735,17 +679,17 @@ export function Dashboard({
                   )}
                   {praksisPlaceColumns.departments && (
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Departments
+                      Entities
                     </th>
                   )}
                   {praksisPlaceColumns.capacity && (
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Capacity
+                      Places
                     </th>
                   )}
                   {praksisPlaceColumns.currentStudents && (
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Current Students
+                      Placed students
                     </th>
                   )}
                 </tr>
@@ -755,6 +699,16 @@ export function Dashboard({
                   praksisPlaces
                     .slice(0, parseInt(praksisPlaceItemsToShow))
                     .map((place) => {
+                      const placeEntities = profilesOfPlace(entities, place.id).filter((e) => e.status === "active");
+                      const placeCapacity = placeEntities.reduce((sum, e) => sum + e.places, 0);
+                      const placedHere = placementTaskStates.reduce(
+                        (sum, ts) =>
+                          sum +
+                          ts.students.filter(
+                            (st) => st.assignedPraksisPlace?.placeId === place.id && st.assignedPraksisPlace.status !== "cancelled",
+                          ).length,
+                        0,
+                      );
                       return (
                         <tr
                           key={place.id}
@@ -780,32 +734,31 @@ export function Dashboard({
                           )}
                           {praksisPlaceColumns.departments && (
                             <td className="px-6 py-4 text-sm text-center text-gray-600">
-                              {place.departments?.length || 0}
+                              {placeEntities.length}
                             </td>
                           )}
                           {praksisPlaceColumns.capacity && (
                             <td className="px-6 py-4 text-sm text-center text-gray-600">
-                              {place.totalCapacity}
+                              {placeCapacity}
                             </td>
                           )}
                           {praksisPlaceColumns.currentStudents && (
                             <td className="px-6 py-4 text-sm text-center">
                               <span
                                 className={`font-semibold ${
-                                  place.currentStudents >=
-                                  place.totalCapacity
+                                  placedHere >= placeCapacity && placeCapacity > 0
                                     ? "text-red-600"
-                                    : place.currentStudents >
-                                        place.totalCapacity *
+                                    : placedHere >
+                                        placeCapacity *
                                           0.7
                                       ? "text-orange-600"
                                       : "text-green-600"
                                 }`}
                               >
-                                {place.currentStudents}
+                                {placedHere}
                               </span>
                               <span className="text-gray-400 ml-1">
-                                / {place.totalCapacity}
+                                / {placeCapacity}
                               </span>
                             </td>
                           )}
@@ -1119,301 +1072,6 @@ export function Dashboard({
                       colSpan={7}
                       className="px-6 py-8 text-center text-gray-500"
                     >No active placements found</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
-      )}
-
-      {/* Quota Requests */}
-      {dashboardSettings.quotaRequests && (
-      <div>
-        <div className="mb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <h2 className="text-lg font-semibold text-gray-800">
-                Quota Requests
-              </h2>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="ml-5 text-gray-500 hover:text-gray-700 transition-colors">
-                    <Settings className="h-5 w-5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>
-                    Display Settings
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <div className="px-2 py-1.5">
-                    <div className="text-xs font-medium text-gray-700 mb-2">
-                      Rows to display
-                    </div>
-                    <DropdownMenuRadioGroup
-                      value={quotaRequestsItemsToShow}
-                      onValueChange={setQuotaRequestsItemsToShow}
-                    >
-                      <DropdownMenuRadioItem value="3">
-                        3 rows
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="5">
-                        5 rows
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="10">
-                        10 rows
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </div>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>
-                    Visible Columns
-                  </DropdownMenuLabel>
-                  <DropdownMenuCheckboxItem
-                    checked={quotaRequestsColumns.place}
-                    onCheckedChange={(checked) =>
-                      setQuotaRequestsColumns({
-                        ...quotaRequestsColumns,
-                        place: checked,
-                      })
-                    }
-                  >
-                    Praksis Place
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={quotaRequestsColumns.study}
-                    onCheckedChange={(checked) =>
-                      setQuotaRequestsColumns({
-                        ...quotaRequestsColumns,
-                        study: checked,
-                      })
-                    }
-                  >
-                    Study / Program
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={quotaRequestsColumns.requested}
-                    onCheckedChange={(checked) =>
-                      setQuotaRequestsColumns({
-                        ...quotaRequestsColumns,
-                        requested: checked,
-                      })
-                    }
-                  >
-                    Requested
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={quotaRequestsColumns.approved}
-                    onCheckedChange={(checked) =>
-                      setQuotaRequestsColumns({
-                        ...quotaRequestsColumns,
-                        approved: checked,
-                      })
-                    }
-                  >
-                    Approved
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={quotaRequestsColumns.period}
-                    onCheckedChange={(checked) =>
-                      setQuotaRequestsColumns({
-                        ...quotaRequestsColumns,
-                        period: checked,
-                      })
-                    }
-                  >
-                    Period
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={quotaRequestsColumns.status}
-                    onCheckedChange={(checked) =>
-                      setQuotaRequestsColumns({
-                        ...quotaRequestsColumns,
-                        status: checked,
-                      })
-                    }
-                  >
-                    Status
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={quotaRequestsColumns.actions}
-                    onCheckedChange={(checked) =>
-                      setQuotaRequestsColumns({
-                        ...quotaRequestsColumns,
-                        actions: checked,
-                      })
-                    }
-                  >
-                    Actions
-                  </DropdownMenuCheckboxItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            {onViewAllQuotaRequestsClick && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onViewAllQuotaRequestsClick}
-                className="gap-2"
-              >
-                View All
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-          <p className="text-sm text-gray-600 mt-1">
-            Track your quota requests and their approval status
-          </p>
-        </div>
-
-        <Card className="p-0 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  {quotaRequestsColumns.place && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Praksis Place / Department
-                    </th>
-                  )}
-                  {quotaRequestsColumns.study && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Study / Program
-                    </th>
-                  )}
-                  {quotaRequestsColumns.requested && (
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Requested
-                    </th>
-                  )}
-                  {quotaRequestsColumns.approved && (
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Approved
-                    </th>
-                  )}
-                  {quotaRequestsColumns.period && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Period
-                    </th>
-                  )}
-                  {quotaRequestsColumns.status && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Status
-                    </th>
-                  )}
-                  {quotaRequestsColumns.actions && (
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-100">
-                {coordinatorQuotaRequests.length > 0 ? (
-                  coordinatorQuotaRequests
-                    .slice(0, parseInt(quotaRequestsItemsToShow))
-                    .map((request) => (
-                      <tr
-                        key={request.id}
-                        className="hover:bg-gray-50 transition-colors"
-                      >
-                        {quotaRequestsColumns.place && (
-                          <td className="px-6 py-4">
-                            <div className="text-sm font-medium text-gray-800">
-                              {request.praksisPlaceName}
-                            </div>
-                            <div className="text-xs text-gray-600">
-                              {request.departmentName}
-                            </div>
-                          </td>
-                        )}
-                        {quotaRequestsColumns.study && (
-                          <td className="px-6 py-4">
-                            <div className="text-sm font-medium text-gray-800">
-                              {request.studyName}
-                            </div>
-                            <div className="text-xs text-gray-600">
-                              {request.programName}
-                            </div>
-                          </td>
-                        )}
-                        {quotaRequestsColumns.requested && (
-                          <td className="px-6 py-4">
-                            <div className="flex items-center justify-center">
-                              <span className="text-lg font-bold text-purple-600">
-                                {request.requestedCapacity}
-                              </span>
-                            </div>
-                          </td>
-                        )}
-                        {quotaRequestsColumns.approved && (
-                          <td className="px-6 py-4">
-                            <div className="flex items-center justify-center">
-                              {request.status === 'approved' && request.approvedCapacity !== undefined ? (
-                                <span className="text-lg font-bold text-green-600">
-                                  {request.approvedCapacity}
-                                </span>
-                              ) : (
-                                <span className="text-sm text-gray-400">-</span>
-                              )}
-                            </div>
-                          </td>
-                        )}
-                        {quotaRequestsColumns.period && (
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                              <Calendar className="h-4 w-4" />
-                              {request.endDate === PERMANENT_END_DATE
-                                ? "Permanent"
-                                : formatQuotaDateRange(
-                                    request.startDate,
-                                    request.endDate,
-                                  )}
-                            </div>
-                          </td>
-                        )}
-                        {quotaRequestsColumns.status && (
-                          <td className="px-6 py-4">
-                            <Badge
-                              variant="outline"
-                              className={`${getQuotaStatusBadgeClass(request.status)} flex items-center gap-1 w-fit`}
-                            >
-                              {request.status === 'pending' && <Clock className="h-3 w-3" />}
-                              {request.status === 'approved' && <CheckCircle className="h-3 w-3" />}
-                              {request.status === 'rejected' && <X className="h-3 w-3" />}
-                              {request.status === 'fulfilled' && <CheckCircle className="h-3 w-3" />}
-                              {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                            </Badge>
-                          </td>
-                        )}
-                        {quotaRequestsColumns.actions && (
-                          <td className="px-6 py-4">
-                            <div className="flex items-center justify-center gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => onQuotaRequestNavigate?.(request)}
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                title="Create Placement Task"
-                              >
-                                <ArrowRight className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-6 py-8 text-center text-gray-500"
-                    >
-                      <ClipboardList className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                      <p>No quota requests found</p>
-                    </td>
                   </tr>
                 )}
               </tbody>

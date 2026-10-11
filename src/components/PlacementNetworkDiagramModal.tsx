@@ -35,7 +35,7 @@ interface PlacementNetworkDiagramModalProps {
       placeName: string;
       departmentId: string;
       departmentName: string;
-      quotaRequestId?: string;
+      profileId?: string;
       entityId?: string;
     };
   }>;
@@ -50,7 +50,7 @@ interface PlacementNetworkDiagramModalProps {
     status?: 'pending' | 'approved' | 'rejected' | 'fulfilled';
   }>;
   placementTitle: string;
-  onAssignStudent: (studentId: string, placeId: string, departmentId: string, placeName: string, departmentName: string, quotaRequestId: string) => void;
+  onAssignStudent: (studentId: string, placeId: string, departmentId: string, placeName: string, departmentName: string, profileId: string) => void;
   onUnassignStudent: (studentId: string) => void;
 }
 
@@ -239,7 +239,7 @@ function DiagramContent({
     const assignmentCounts = new Map<string, number>();
     students.forEach(student => {
       if (student.assignedPlace) {
-        const key = `${student.assignedPlace.quotaRequestId ?? ''}__${student.assignedPlace.departmentId}`;
+        const key = `${student.assignedPlace.profileId ?? ''}__${student.assignedPlace.departmentId}`;
         assignmentCounts.set(key, (assignmentCounts.get(key) || 0) + 1);
       }
     });
@@ -287,10 +287,10 @@ function DiagramContent({
       if (student.assignedPlace) {
         // Match quota by requestId + departmentId (handles multi-entity requests correctly)
         const targetQuota = quotas.find(q =>
-          q.requestId === student.assignedPlace!.quotaRequestId &&
+          q.requestId === student.assignedPlace!.profileId &&
           q.departmentId === student.assignedPlace!.departmentId
         ) ?? quotas.find(q =>
-          // Fallback: match by place + dept when quotaRequestId is absent
+          // Fallback: match by place + dept when profileId is absent
           q.placeId === student.assignedPlace!.placeId &&
           q.departmentId === student.assignedPlace!.departmentId
         );
@@ -403,7 +403,7 @@ function DiagramContent({
       
       // Count students assigned to this specific quota request
       const currentAssigned = students.filter(s => {
-        const reqId = (s.assignedPlace as any)?.quotaRequestId;
+        const reqId = (s.assignedPlace as any)?.profileId;
         return reqId === matchingQuota.requestId;
       }).length;
       

@@ -109,7 +109,7 @@ export function PlacementTaskHeader({
                 type="button"
                 onClick={onOpenTasks}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
-                  currentTask.step === "6/6"
+                  currentTask.step === "5/5"
                     ? "bg-green-50 border-green-200 text-green-800 hover:bg-green-100"
                     : "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100"
                 }`}

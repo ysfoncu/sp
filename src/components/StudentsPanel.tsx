@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Users,
   Search,
@@ -18,6 +18,9 @@ import {
   Upload,
   AlertTriangle,
   Star,
+  MapPin,
+  CheckCircle2,
+  CircleDashed,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -31,7 +34,11 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Student } from "../types/placementTask";
+import { usePlacementProfiles } from "../types/placementProfile";
 import { PriorityPlacementApplication } from "../types/priorityPlacement";
+import { overBy, pointsOf, rankStudents } from "../types/quickAssign";
+import { placesLabel, unassignedOf } from "../types/entityPicker";
+import { EntityPickerPopover } from "./EntityPickerPopover";
 import { PriorityApplicationDetailsModal } from "./PriorityApplicationDetailsModal";
 import { toast } from "sonner@2.0.3";
 
@@ -41,56 +48,92 @@ interface FileMetadata {
   uploadedAt: string;
 }
 
+export interface AssignOption {
+  id: string;
+  name: string;
+  praksisPlaceId: string;
+  praksisPlaceName: string;
+  remaining: number;
+  over: number;
+}
+
 interface StudentsPanelProps {
   students: Student[];
   isAssignmentPublished: boolean;
-  isFirstPublishCompleted: boolean;
   isStudentsExpanded: boolean;
   quotaEntityKeys: Set<string>;
   connectedPraksisPlaces?: { id: string; name: string }[];
   priorityApplications?: PriorityPlacementApplication[];
+  // Places still free on the entities of this placement (never below 0)
+  placesLeft?: number;
   onStudentsExpandChange: (expanded: boolean) => void;
-  onImportStudents: () => void;
   onDetachStudent: (studentId: string) => void;
+  // Placing students on an entity: the students are picked in this table and added from a bar at the bottom
+  assignTarget?: AssignOption | null;
+  // Every entity the students can be placed on, for the students-first bar
+  assignOptions?: AssignOption[];
+  // The ticked students and the entity chosen for them live on the page, because the entity cards read them too
+  selectedStudents: Set<string>;
+  onSelectedStudentsChange: React.Dispatch<React.SetStateAction<Set<string>>>;
+  pickedEntityId?: string | null;
+  onPickEntity?: (entityId: string | null) => void;
+  onAddToTarget?: (studentIds: string[], targetId?: string) => void;
+  onCancelAssign?: () => void;
   onAttachFiles: (studentId: string, files: FileMetadata[]) => void;
-  onBulkAttachFiles: (studentIds: string[], files: FileMetadata[]) => void;
   onRemoveFile: (studentId: string, fileId: string) => void;
   onOpenQuotaDialog: (student: Student) => void;
-  onShowPublishWarning: () => void;
   onOpenNetworkDiagram: () => void;
+  // The mentor control for one placed student
+  renderMentor?: (student: Student) => React.ReactNode;
+  // The profile now says something different from what the student was told at publish
+  changedSincePublish?: (student: Student) => boolean;
 }
+
+// One collator for all name comparisons, instead of a new locale lookup on every comparison
+const NAME_COLLATOR = new Intl.Collator();
 
 export function StudentsPanel({
   students,
   isAssignmentPublished,
-  isFirstPublishCompleted,
   isStudentsExpanded,
   quotaEntityKeys,
   connectedPraksisPlaces = [],
   priorityApplications,
+  placesLeft,
   onStudentsExpandChange,
-  onImportStudents,
   onDetachStudent,
+  assignTarget,
+  assignOptions = [],
+  selectedStudents,
+  onSelectedStudentsChange: setSelectedStudents,
+  pickedEntityId = null,
+  onPickEntity,
+  onAddToTarget,
+  onCancelAssign,
   onAttachFiles,
-  onBulkAttachFiles,
   onRemoveFile,
   onOpenQuotaDialog,
-  onShowPublishWarning,
   onOpenNetworkDiagram,
+  renderMentor,
+  changedSincePublish,
 }: StudentsPanelProps) {
-  const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
+  const profiles = usePlacementProfiles();
   const [viewingPriorityApp, setViewingPriorityApp] = useState<PriorityPlacementApplication | null>(null);
 
   const priorityMap = useMemo(
     () => new Map((priorityApplications ?? []).map((a) => [a.studentId, a])),
     [priorityApplications]
   );
-  const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false);
+  // Points of approved applications by student; a student without one has the points from the import, if any
+  const applicationPoints = useMemo(
+    () => new Map((priorityApplications ?? []).map((a) => [a.studentId, a.totalPoints])),
+    [priorityApplications],
+  );
   const [visibleColumns, setVisibleColumns] = useState({
     student: true,
     placementHistory: true,
     assignedPlace: true,
-    supervisor: false,
+    supervisor: true,
     customRequest: true,
     attachFiles: true,
     priorities: true,
@@ -106,7 +149,7 @@ export function StudentsPanel({
   const [filterPriority, setFilterPriority] = useState("all");
   const [expandedPlacementHistory, setExpandedPlacementHistory] = useState<Set<string>>(new Set());
 
-  const studentsImported = students.length > 0 || isFirstPublishCompleted;
+  const studentsImported = students.length > 0;
 
   const toggleColumn = (column: keyof typeof visibleColumns) => {
     setVisibleColumns((prev) => ({ ...prev, [column]: !prev[column] }));
@@ -148,55 +191,76 @@ export function StudentsPanel({
     input.click();
   };
 
-  const filteredStudents = students
-    .filter((s) => {
-      if (filterAssignment === "all") return true;
-      if (filterAssignment === "unassigned") return !s.assignedPraksisPlace;
-      return s.assignedPraksisPlace?.placeId === filterAssignment;
-    })
-    .filter((s) => {
-      if (filterPriority === "all") return true;
-      if (filterPriority === "with") return priorityMap.has(s.id);
-      return !priorityMap.has(s.id); // "without"
-    })
-    .filter((s) => {
-      const q = studentSearch.trim().toLowerCase();
+  // Filtering, counting and sorting in one pass that only runs when what it depends on changes. The students
+  // that pass the search and the priority filter come first; the assignment filter comes after, so the assigned /
+  // not assigned counts say what pressing them will show.
+  const { filteredStudents, assignedCount, notAssignedCount } = useMemo(() => {
+    const q = studentSearch.trim().toLowerCase();
+    const base = students.filter((s) => {
+      const hasPoints = pointsOf(s, applicationPoints) !== undefined;
+      if (filterPriority === "with" && !hasPoints) return false;
+      if (filterPriority === "without" && hasPoints) return false;
       if (!q) return true;
       return (
         s.name.toLowerCase().includes(q) ||
-        (s.personnummer ?? "").toLowerCase().includes(q)
+        (s.personnummer ?? "").toLowerCase().includes(q) ||
+        (s.address ?? "").toLowerCase().includes(q)
       );
-    })
-    .sort((a, b) => {
-      if (prioritySortDir) {
-        const apts = priorityMap.get(a.id)?.totalPoints ?? -1;
-        const bpts = priorityMap.get(b.id)?.totalPoints ?? -1;
-        return prioritySortDir === "asc" ? apts - bpts : bpts - apts;
-      }
-      return studentSortDir === "asc"
-        ? a.name.localeCompare(b.name)
-        : studentSortDir === "desc"
-          ? b.name.localeCompare(a.name)
-          : 0;
     });
+    const assigned = base.filter((s) => s.assignedPraksisPlace).length;
+    const shown = base
+      .filter((s) => {
+        if (filterAssignment === "all") return true;
+        if (filterAssignment === "assigned") return !!s.assignedPraksisPlace;
+        if (filterAssignment === "unassigned") return !s.assignedPraksisPlace;
+        return s.assignedPraksisPlace?.placeId === filterAssignment;
+      })
+      .sort((a, b) => {
+        if (prioritySortDir) {
+          const apts = pointsOf(a, applicationPoints) ?? -1;
+          const bpts = pointsOf(b, applicationPoints) ?? -1;
+          return prioritySortDir === "asc" ? apts - bpts : bpts - apts;
+        }
+        return studentSortDir === "asc"
+          ? NAME_COLLATOR.compare(a.name, b.name)
+          : studentSortDir === "desc"
+            ? NAME_COLLATOR.compare(b.name, a.name)
+            : 0;
+      });
+    return { filteredStudents: shown, assignedCount: assigned, notAssignedCount: base.length - assigned };
+  }, [students, studentSearch, filterPriority, filterAssignment, applicationPoints, prioritySortDir, studentSortDir]);
+  const placing = !!assignTarget;
+  const pickable = useMemo(() => filteredStudents.filter((s) => !s.assignedPraksisPlace), [filteredStudents]);
+  // The ticked students that still have no entity (one placed elsewhere meanwhile drops out)
+  const selectedIds = useMemo(() => unassignedOf(selectedStudents, students), [students, selectedStudents]);
+  // Students-first: ticked students and no entity chosen from the + yet; the entity is picked in the bar
+  const studentsFirst = !assignTarget && selectedIds.length > 0;
+  const pickedEntity = assignOptions.find((o) => o.id === pickedEntityId) ?? null;
+  const tableRef = useRef<HTMLDivElement>(null);
+  const topForPlacing = () => {
+    if (!assignTarget) return;
+    const top = rankStudents(pickable, { query: "" }, applicationPoints, assignTarget.praksisPlaceName).slice(0, Math.max(0, assignTarget.remaining));
+    setSelectedStudents(new Set(top.map((s) => s.id)));
+  };
+  const addSelected = () => {
+    onAddToTarget?.(selectedIds);
+    setSelectedStudents(new Set());
+    // The bar closes once the students are added; the + on an entity starts the next batch
+    onCancelAssign?.();
+  };
+  // Students-first: the group goes to the entity picked in the bar, and the bar closes (nothing is ticked any more)
+  const addToPicked = () => {
+    if (!pickedEntity) return;
+    onAddToTarget?.(selectedIds, pickedEntity.id);
+    setSelectedStudents(new Set());
+    onPickEntity?.(null);
+    setTimeout(() => tableRef.current?.focus(), 0);
+  };
+  // Students no free place covers: the places left do not reach them
+  const shortBy = placesLeft === undefined ? 0 : Math.max(0, notAssignedCount - placesLeft);
 
-  // Pagination
-  const [pageSize, setPageSize] = useState(10);
-  const [currentPage, setCurrentPage] = useState(1);
+  // Every student is shown: there is no paging
   const totalStudents = filteredStudents.length;
-  const totalPages = Math.max(1, Math.ceil(totalStudents / pageSize));
-  // Snap back to a valid page when the result set shrinks (e.g. after filtering).
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [currentPage, totalPages]);
-  // Reset to first page whenever the search/filter inputs change.
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [studentSearch, filterAssignment, filterPriority, pageSize]);
-  const pageStartIndex = (currentPage - 1) * pageSize;
-  const pagedStudents = filteredStudents.slice(pageStartIndex, pageStartIndex + pageSize);
-  const rangeStart = totalStudents === 0 ? 0 : pageStartIndex + 1;
-  const rangeEnd = Math.min(pageStartIndex + pageSize, totalStudents);
 
   if (students.length === 0) {
     return (
@@ -204,17 +268,11 @@ export function StudentsPanel({
         <div className="text-center max-w-md">
           <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-gray-800 mb-2">
-            No students imported yet
+            No students in this placement
           </h3>
-          <p className="text-gray-600 mb-6">
-            Import students to start managing placements and assignments.
+          <p className="text-gray-600">
+            Students come from Praksis-students. Import them there, then start a new placement for their emne.
           </p>
-          <Button
-            onClick={onImportStudents}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            Import Students
-          </Button>
         </div>
       </div>
     );
@@ -228,6 +286,43 @@ export function StudentsPanel({
         <div>
           <div className="flex items-center gap-3">
             <h3 className="font-semibold text-gray-800">Students</h3>
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600" aria-live="polite">
+              <span>
+                <span className="font-semibold text-gray-900">{filteredStudents.length}</span>
+                {filteredStudents.length !== students.length && ` of ${students.length}`} student{students.length === 1 ? "" : "s"}
+              </span>
+              <button
+                type="button"
+                aria-pressed={filterAssignment === "assigned"}
+                title="Show only assigned students"
+                onClick={() => setFilterAssignment(filterAssignment === "assigned" ? "all" : "assigned")}
+                className={`rounded px-1.5 py-0.5 hover:bg-gray-100 ${filterAssignment === "assigned" ? "bg-green-50 ring-1 ring-green-300" : ""}`}
+              >
+                <CheckCircle2 className="mr-1 inline h-3.5 w-3.5 text-green-700" aria-hidden="true" />
+                <span className="font-semibold text-green-700">{assignedCount}</span> assigned
+              </button>
+              <button
+                type="button"
+                aria-pressed={filterAssignment === "unassigned"}
+                title="Show only students without a place"
+                onClick={() => setFilterAssignment(filterAssignment === "unassigned" ? "all" : "unassigned")}
+                className={`rounded px-1.5 py-0.5 hover:bg-gray-100 ${filterAssignment === "unassigned" ? "bg-amber-50 ring-1 ring-amber-300" : ""}`}
+              >
+                <CircleDashed className="mr-1 inline h-3.5 w-3.5 text-amber-700" aria-hidden="true" />
+                <span className="font-semibold text-amber-700">{notAssignedCount}</span> not assigned
+              </button>
+              {placesLeft !== undefined && (
+                <span title="Free places on the entities of this placement">
+                  <span className="font-semibold text-gray-900">{placesLeft}</span> places left
+                </span>
+              )}
+              {shortBy > 0 && (
+                <span className="text-amber-800" title="Students no free place covers. They can still be placed; raise places or add an entity.">
+                  <AlertTriangle className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="font-semibold">{shortBy}</span> without a free place
+                </span>
+              )}
+            </p>
           </div>
 
           {/* Search & filters */}
@@ -250,6 +345,7 @@ export function StudentsPanel({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All assignments</SelectItem>
+                    <SelectItem value="assigned">Assigned</SelectItem>
                     <SelectItem value="unassigned">Not assigned</SelectItem>
                     {connectedPraksisPlaces.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
@@ -284,17 +380,13 @@ export function StudentsPanel({
                     Clear filters
                   </button>
                 )}
-
-                {filteredStudents.length !== students.length && (
-                  <span className="text-xs text-gray-400">· {filteredStudents.length} shown</span>
-                )}
               </>
             ) : (
               <>
                 <div className="relative w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
-                    placeholder="Search by name or personnummer..."
+                    placeholder="Search by name, personnummer or address..."
                     value={studentSearch}
                     onChange={(e) => setStudentSearch(e.target.value)}
                     className="h-8 pl-10"
@@ -358,7 +450,7 @@ export function StudentsPanel({
                         ["student", "Student"],
                         ["placementHistory", "Placement History"],
                         ["assignedPlace", "Assigned Praksis Place"],
-                        ["supervisor", "Supervisor"],
+                        ["supervisor", "Mentor"],
                         ["priorities", "Priorities"],
                         ["customRequest", "Custom Request"],
                         ["attachFiles", "Attach Files"],
@@ -399,70 +491,22 @@ export function StudentsPanel({
             )}
           </button>
 
-          {/* Bulk Actions Dropdown */}
-          {!isAssignmentPublished && (
-            <div className="relative">
-              <Button
-                size="sm"
-                disabled={selectedStudents.size === 0}
-                onClick={() => setIsActionsDropdownOpen(!isActionsDropdownOpen)}
-                className={`flex items-center gap-2 ${
-                  selectedStudents.size === 0
-                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                    : "bg-blue-600 text-white hover:bg-blue-700"
-                }`}
-              >
-                Actions
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-
-              {isActionsDropdownOpen && selectedStudents.size > 0 && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setIsActionsDropdownOpen(false)}
-                  />
-                  <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 overflow-hidden">
-                    <button
-                      onClick={() => {
-                        const selectedIds = Array.from(selectedStudents);
-                        openFilePicker((files) => {
-                          onBulkAttachFiles(selectedIds, files);
-                        });
-                        setIsActionsDropdownOpen(false);
-                      }}
-                      className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-3"
-                    >
-                      <Paperclip className="h-4 w-4 text-gray-500" />
-                      <div>
-                        <div className="font-medium">Attach files to students</div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          Add file(s) to {selectedStudents.size} student
-                          {selectedStudents.size !== 1 ? "s" : ""}
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto">
+      <div ref={tableRef} tabIndex={-1} className={`overflow-x-auto outline-none ${placing || studentsFirst ? "pb-28" : ""}`}>
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-2 py-3 text-left w-12">
                 <Checkbox
-                  checked={
-                    selectedStudents.size === students.length && students.length > 0
-                  }
+                  checked={pickable.length > 0 && pickable.every((s) => selectedStudents.has(s.id))}
+                  aria-label="Select all students without an entity in this list"
                   onCheckedChange={(checked: boolean) => {
                     if (checked) {
-                      setSelectedStudents(new Set(students.map((s) => s.id)));
+                      // Every student without an entity that the filters show, over all pages
+                      setSelectedStudents(new Set(pickable.map((s) => s.id)));
                     } else {
                       setSelectedStudents(new Set());
                     }
@@ -502,7 +546,7 @@ export function StudentsPanel({
               )}
               {visibleColumns.supervisor && (
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                  Supervisor
+                  Mentor
                 </th>
               )}
               {visibleColumns.priorities && (
@@ -539,7 +583,7 @@ export function StudentsPanel({
             </tr>
           </thead>
           <tbody>
-            {pagedStudents.map((student) => (
+            {filteredStudents.map((student) => (
               <tr
                 key={student.id}
                 className={`border-b border-gray-100 transition-colors ${
@@ -549,10 +593,13 @@ export function StudentsPanel({
                 }`}
               >
                 <td className="px-2 py-4">
-                  <Checkbox
-                    checked={selectedStudents.has(student.id)}
-                    onCheckedChange={() => handleToggleStudentSelection(student.id)}
-                  />
+                  {!student.assignedPraksisPlace && (
+                    <Checkbox
+                      checked={selectedStudents.has(student.id)}
+                      aria-label={`Select ${student.name}`}
+                      onCheckedChange={() => handleToggleStudentSelection(student.id)}
+                    />
+                  )}
                 </td>
 
                 {visibleColumns.student && (
@@ -562,6 +609,24 @@ export function StudentsPanel({
                       <div className="text-xs text-gray-400 font-mono">{student.personnummer}</div>
                     )}
                     <div className="text-sm text-gray-500">{student.email}</div>
+                    {(student.studyLocation || student.registered === false) && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+                        {student.studyLocation && (
+                          <span className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-gray-600" title="Study location">
+                            {student.studyLocation}
+                          </span>
+                        )}
+                        {student.registered === false && (
+                          <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-800">Not registered</span>
+                        )}
+                      </div>
+                    )}
+                    {student.address && (
+                      <div className="mt-0.5 flex items-start gap-1 text-xs text-gray-500" title="Home address">
+                        <MapPin className="mt-0.5 h-3 w-3 flex-shrink-0 text-gray-400" />
+                        <span>{student.address}</span>
+                      </div>
+                    )}
                   </td>
                 )}
 
@@ -650,62 +715,79 @@ export function StudentsPanel({
                 {visibleColumns.assignedPlace && (
                   <td className="px-4 py-4">
                     {student.assignedPraksisPlace ? (
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex-1">
+                      <div>
+                        <div>
                           <div className="font-medium text-gray-800 text-[12px]">
                             {student.assignedPraksisPlace.placeName}
                           </div>
                           <div className="text-sm text-gray-500">
                             {student.assignedPraksisPlace.departmentName}
                           </div>
-                          {student.assignedPraksisPlace.approvalRequested && (
-                            <Badge
-                              variant="outline"
-                              className={`mt-1 text-xs ${
-                                student.assignedPraksisPlace.approvalStatus === "pending"
-                                  ? "bg-yellow-50 text-yellow-700 border-yellow-200"
-                                  : student.assignedPraksisPlace.approvalStatus === "approved"
-                                    ? "bg-green-50 text-green-700 border-green-200"
-                                    : "bg-red-50 text-red-700 border-red-200"
-                              }`}
-                            >
-                              {student.assignedPraksisPlace.approvalStatus === "pending" &&
-                                "⏳ Approval pending"}
-                              {student.assignedPraksisPlace.approvalStatus === "approved" &&
-                                "✓ Approved"}
-                              {student.assignedPraksisPlace.approvalStatus === "rejected" &&
-                                "✗ Rejected"}
-                            </Badge>
-                          )}
+                          {(() => {
+                            const a = student.assignedPraksisPlace!;
+                            const prof = a.profileId ? profiles.find((x) => x.id === a.profileId) : undefined;
+                            const label =
+                              a.status === "booked" ? "Booked" : a.status === "completed" ? "Completed" : a.status === "cancelled" ? "Cancelled" : "Planned";
+                            const tone =
+                              a.status === "booked"
+                                ? "bg-green-50 text-green-700 border-green-200"
+                                : a.status === "completed"
+                                  ? "bg-blue-50 text-blue-700 border-blue-200"
+                                  : a.status === "cancelled"
+                                    ? "bg-gray-50 text-gray-500 border-gray-200"
+                                    : "bg-amber-50 text-amber-700 border-amber-200";
+                            return (
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                <Badge variant="outline" className={`text-xs ${tone}`}>
+                                  {label}
+                                </Badge>
+                                {!isAssignmentPublished && (
+                                  <Badge
+                                    variant="outline"
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Detach ${student.name} from ${a.departmentName || a.placeName}`}
+                                    className="cursor-pointer border-red-200 bg-red-50 text-xs text-red-600 hover:bg-red-100"
+                                    onClick={(e: React.MouseEvent) => {
+                                      e.stopPropagation();
+                                      onDetachStudent(student.id);
+                                      toast.success(`${student.name} detached from praksis place`);
+                                    }}
+                                    onKeyDown={(e: React.KeyboardEvent) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        onDetachStudent(student.id);
+                                        toast.success(`${student.name} detached from praksis place`);
+                                      }
+                                    }}
+                                  >
+                                    Detach
+                                  </Badge>
+                                )}
+                                {changedSincePublish?.(student) && (
+                                  <Badge variant="outline" className="border-amber-200 bg-amber-50 text-xs text-amber-800" title="The entity now says something different from what the student was told">
+                                    Info changed
+                                  </Badge>
+                                )}
+                                {prof ? (
+                                  // The entity name is already shown above; only an archived entity needs a note
+                                  prof.status === "archived" && <span className="text-xs text-gray-400">(archived)</span>
+                                ) : (
+                                  <span className="text-xs text-amber-700" title="Not linked to an entity">
+                                    Unlinked
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
-                        {!isAssignmentPublished && (
-                          <Badge
-                            variant="outline"
-                            className="bg-red-50 text-red-600 border-red-200 text-xs cursor-pointer hover:bg-red-100"
-                            onClick={(e: React.MouseEvent) => {
-                              e.stopPropagation();
-                              onDetachStudent(student.id);
-                              toast.success(
-                                `${student.name} detached from praksis place`,
-                              );
-                            }}
-                          >
-                            Detach
-                          </Badge>
-                        )}
                       </div>
                     ) : (
                       !isAssignmentPublished && (
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => {
-                            if (!isFirstPublishCompleted) {
-                              onShowPublishWarning();
-                            } else {
-                              onOpenQuotaDialog(student);
-                            }
-                          }}
+                          onClick={() => onOpenQuotaDialog(student)}
                           className="text-blue-600 border-blue-300 hover:bg-blue-50"
                         >
                           Add praksis place
@@ -717,9 +799,11 @@ export function StudentsPanel({
 
                 {visibleColumns.supervisor && (
                   <td className="px-4 py-4">
-                    <span className="text-sm text-gray-600">
-                      {student.supervisor ? student.supervisor.name : "Not assigned"}
-                    </span>
+                    {student.assignedPraksisPlace && renderMentor ? (
+                      renderMentor(student)
+                    ) : (
+                      <span className="text-sm text-gray-400">—</span>
+                    )}
                   </td>
                 )}
 
@@ -733,6 +817,14 @@ export function StudentsPanel({
                         <Star size={11} />
                         {priorityMap.get(student.id)!.totalPoints} pts
                       </button>
+                    ) : pointsOf(student, applicationPoints) !== undefined ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
+                        title="Priority points from the import"
+                      >
+                        <Star size={11} />
+                        {pointsOf(student, applicationPoints)} pts
+                      </span>
                     ) : (
                       <span className="text-sm text-gray-400">—</span>
                     )}
@@ -843,50 +935,113 @@ export function StudentsPanel({
         </table>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50/50 flex-wrap gap-3">
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span>Rows per page</span>
-          <Select value={String(pageSize)} onValueChange={(v: string) => setPageSize(Number(v))}>
-            <SelectTrigger className="h-8 w-[72px] bg-white">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {[10, 25, 50, 100].map((n) => (
-                <SelectItem key={n} value={String(n)}>
-                  {n}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
-          <span>
-            {rangeStart}–{rangeEnd} of {totalStudents}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 w-8 p-0"
-              disabled={currentPage <= 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+      {/* All students are listed; this line says how many */}
+      <div className="border-t border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-500">
+        {totalStudents} student{totalStudents === 1 ? "" : "s"}
+        {totalStudents !== students.length && ` of ${students.length}`}
+      </div>
+    </div>
+
+    {/* Placing students: the bar that shows the pick and adds it to the entity */}
+    {placing && assignTarget && (
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:pr-24">
+        <div
+          role="region"
+          aria-label="Place the selected students"
+          className="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-white shadow-xl"
+        >
+          <div role="status" aria-live="polite" className="text-sm text-slate-200">
+            <span className="font-semibold text-white">{selectedIds.length}</span> student
+            {selectedIds.length !== 1 ? "s" : ""} selected
+            <span className="text-slate-400"> · </span>
+            <span className="font-semibold text-white">{assignTarget.remaining}</span> place{assignTarget.remaining !== 1 ? "s" : ""} left
+            {overBy(assignTarget.remaining, selectedIds.length) > 0 && (
+              <span className="ml-1 inline-flex items-center gap-1 font-semibold text-amber-300">
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                over by {overBy(assignTarget.remaining, selectedIds.length)}
+              </span>
+            )}
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={topForPlacing}
+              disabled={assignTarget.remaining <= 0 || pickable.length === 0}
+              className="text-xs font-medium text-sky-300 hover:underline disabled:text-slate-500 disabled:no-underline"
+              title="Select the students with most points, as many as there are places left"
             >
-              <ChevronLeft size={14} />
+              Select top {Math.max(0, assignTarget.remaining)} by points
+            </button>
+            {selectedIds.length > 0 && (
+              <button type="button" onClick={() => setSelectedStudents(new Set())} className="text-xs text-slate-300 hover:underline">
+                Clear
+              </button>
+            )}
+            <Button
+              size="sm"
+              disabled={selectedIds.length === 0}
+              onClick={addSelected}
+              className="bg-sky-500 text-white hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-400"
+            >
+              Add {selectedIds.length} to {assignTarget.name}
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 w-8 p-0"
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            >
-              <ChevronRight size={14} />
+            <Button size="sm" variant="outline" onClick={onCancelAssign} className="border-slate-500 bg-transparent text-white hover:bg-slate-800 hover:text-white">
+              Done
             </Button>
           </div>
         </div>
       </div>
-    </div>
+    )}
+
+    {/* Students first: the group is ticked, the entity is picked here (a light bar, not the dark one of the + flow) */}
+    {studentsFirst && (
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:pr-24">
+        <div
+          role="region"
+          aria-label="Add the selected students to a praksis place"
+          className="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border-2 border-indigo-600 bg-indigo-50 px-4 py-3 text-indigo-950 shadow-xl"
+        >
+          <span className="rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Students first</span>
+          <div role="status" aria-live="polite" className="text-sm">
+            <span className="font-semibold">{selectedIds.length}</span> student{selectedIds.length !== 1 ? "s" : ""} selected
+            <span className="text-indigo-400"> · </span>
+            {pickedEntity ? (
+              <>
+                <span className="font-semibold">{pickedEntity.praksisPlaceName} - {pickedEntity.name}</span>
+                <span className="text-indigo-700">, {placesLabel(pickedEntity.remaining, pickedEntity.over)}</span>
+                {overBy(pickedEntity.remaining, selectedIds.length) > 0 && (
+                  <span className="ml-1 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900">
+                    <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                    over by {overBy(pickedEntity.remaining, selectedIds.length)}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="text-indigo-700">no place chosen yet</span>
+            )}
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setSelectedStudents(new Set())} className="text-xs text-indigo-800 hover:underline">
+              Clear
+            </button>
+            <EntityPickerPopover options={assignOptions} selectedCount={selectedIds.length} onPick={(id) => onPickEntity?.(id)}>
+              <Button size="sm" variant="outline" className="border-indigo-600 bg-white text-indigo-900 hover:bg-indigo-100" aria-haspopup="listbox">
+                {pickedEntity ? "Change place" : "Choose praksis place…"}
+              </Button>
+            </EntityPickerPopover>
+            <Button
+              size="sm"
+              disabled={!pickedEntity}
+              onClick={addToPicked}
+              className="bg-indigo-700 text-white hover:bg-indigo-800 disabled:bg-indigo-200 disabled:text-indigo-500"
+            >
+              {pickedEntity ? `Add ${selectedIds.length} to ${pickedEntity.name}` : `Add ${selectedIds.length}`}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {viewingPriorityApp && (
       <PriorityApplicationDetailsModal

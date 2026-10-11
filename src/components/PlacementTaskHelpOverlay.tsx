@@ -15,7 +15,7 @@ const USER_GUIDE_CONTENT = `# User Guide: Creating a Placement Task (PK Coordina
 1. [Overview](#overview)
 2. [Getting Started](#getting-started)
 3. [Creating a New Placement Task](#creating-a-new-placement-task)
-4. [The 6-Step Placement Workflow](#the-6-step-placement-workflow)
+4. [The 5-Step Placement Workflow](#the-5-step-placement-workflow)
 5. [Key Features & Tools](#key-features--tools)
 6. [Best Practices](#best-practices)
 7. [Troubleshooting](#troubleshooting)
@@ -26,14 +26,14 @@ const USER_GUIDE_CONTENT = `# User Guide: Creating a Placement Task (PK Coordina
 
 ### What is a Placement Task?
 
-A **Placement Task** is a structured workflow that helps PK coordinators manage the entire student internship placement process from start to finish. It guides you through organizing quotas, importing students, assigning praksis places, managing documents, and publishing placement information.
+A **Placement Task** is a structured workflow that helps PK coordinators manage the entire student internship placement process from start to finish. It guides you through checking the entities, importing students, assigning praksis places, managing documents, and publishing placement information.
 
 ### Who is this guide for?
 
 This guide is designed for **PK Coordinators** (Program Koordinator/Teachers) who are responsible for:
 - Managing student internship placements
 - Coordinating with praksis places (internship sites)
-- Requesting and managing quotas (available positions)
+- Checking the places that entities offer
 - Assigning students to praksis places
 - Finalizing placement documentation
 
@@ -71,39 +71,39 @@ Fill out the placement metadata form with the following details:
 **Important Notes:**
 - The system will calculate the semester automatically based on the start date if not specified
 - Start date must be before the end date
-- The number of students helps the system recommend appropriate quotas
+- The number of students is compared with the places the matching entities offer
 
 #### 2. **Review and Create**
 
 - Click **\"Create Placement\"** to initialize the task
 - The system will create a draft placement and open the detailed task view
-- You'll see the **6-step workflow tracker** at the top of the screen
+- You'll see the **5-step workflow tracker** at the top of the screen
 
 ---
 
-## The 6-Step Placement Workflow
+## The 5-Step Placement Workflow
 
-The placement task follows a structured **6-step workflow** designed to ensure all students are properly placed and all documentation is complete.
+The placement task follows a structured **5-step workflow** designed to ensure all students are properly placed and all documentation is complete.
 
 ---
 
-### Step 1/6: Setup Students & Quotas
+### Step 1/5: Import students
 
 **Status:** Mandatory | **Type:** Auto-completes
 
 #### What happens in this step?
 
-This is the foundation step where you secure placement positions (quotas) and prepare your student list.
+This is the foundation step where you check that the entities for this emne have places and prepare your student list.
 
 #### Actions Required:
 
-**A. Check the available capacity**
+**A. Check the available entities**
 
-1. **Look at \"Available capacity\"** on the left of the placement view
-2. It lists the **Praksis place capacity** for this placement's emne, with the places left in the current period
-3. **No capacity, or not enough places?** Add or raise capacity under **Praksis places → Capacity**:
-   - Pick the lowest unit where students are placed (units above show the sum)
-   - Set the number of students per emne (the period is set once per praksis place)
+1. **Look at \"Available entities\"** on the left of the placement view
+2. It lists the **entities** that take this placement's program and emne, with the places left in the current period
+3. **No entity, or not enough places?** Add an entity or raise its places under **Praksis places → Entities**:
+   - Give the entity a name and pick the program (and emner) it is for
+   - Set the places per period (the period is set once per praksis place) and fill in the contacts and information students get
 
 **B. Import Students**
 
@@ -121,53 +121,20 @@ This is the foundation step where you secure placement positions (quotas) and pr
 #### When does this step complete?
 
 ✅ **Auto-completes when:**
-- At least one quota is selected/requested AND approved, AND
-- Students have been imported
+- Students have been imported, AND
+- The entities for this emne offer at least as many places as there are students
 
-**💡 Pro Tip:** You can request multiple quotas from different praksis places to ensure you have enough positions for all students.
-
----
-
-### Step 2/6: First Publish
-
-**Status:** Mandatory | **Type:** Publish action
-
-#### What happens in this step?
-
-Publishing the placement makes it visible to students, allowing them to submit custom placement requests or preferences.
-
-#### Actions Required:
-
-1. **Review your setup:**
-   - Verify quota count matches or exceeds student count
-   - Confirm all information is correct
-
-2. **Click \"Publish\" button:**
-   - Located in the **Current Task Banner** (amber banner at top)
-   - Or use the **\"View all tasks\"** modal
-
-3. **Confirm publication:**
-   - A confirmation dialog may appear
-   - Click \"Confirm\" to proceed
-
-#### What happens after publishing?
-
-- ✅ Students can now view available praksis places
-- ✅ Students can submit custom requests for specific placements
-- ✅ The placement status changes from \"draft\" to \"published\"
-- ✅ You can proceed to assign students
-
-**⚠️ Important:** Once published, students will be notified and can start interacting with the system.
+**💡 Pro Tip:** Entities at several praksis places add up, so you can spread students across them.
 
 ---
 
-### Step 3/6: Attach Praksis Places to Students
+### Step 2/5: Attach Praksis Places to Students
 
 **Status:** Mandatory | **Type:** Auto-completes
 
 #### What happens in this step?
 
-This is where you assign each student to a specific praksis place and department.
+This is where you assign each student to an entity of a praksis place.
 
 #### Actions Required:
 
@@ -178,8 +145,8 @@ This is where you assign each student to a specific praksis place and department
 3. **Click the \"Assign\" button** next to their name
 4. **In the assignment modal:**
    - Select the praksis place from the dropdown
-   - Choose the specific department
-   - Verify the quota is available
+   - Choose the entity
+   - Verify the entity has places left
    - Confirm the assignment
 
 5. **Repeat** for each student
@@ -191,7 +158,7 @@ When the **AI Auto-Assign** button appears in the Current Task Banner:
 1. **Click \"AI Auto-Assign\"** 
 2. **Review the AI's suggested assignments:**
    - The AI considers student preferences
-   - Balances quota distribution
+   - Balances the load across entities
    - Respects capacity
    - Accounts for custom requests
 
@@ -201,24 +168,22 @@ When the **AI Auto-Assign** button appears in the Current Task Banner:
 
 4. **Confirm the assignments**
 
-**Method 3: Quick Assign from Quotas**
+**Method 3: Quick Assign from an entity**
 
-1. **Navigate to \"Available Quotas\" tab**
-2. **Find a quota** with available capacity
+1. **Look at \"Available entities\"** on the left
+2. **Find an entity** with places left
 3. **Click \"Quick Assign Students\"** button
 4. **In the Quick Assign modal:**
    - View unassigned students
    - Select multiple students (checkbox selection)
    - Click \"Assign Selected Students\"
-   - Students are assigned to that specific quota
+   - Students are placed on that entity
 
-**Method 4: Assign from Praksis Places Tab**
+**Method 4: Assign one student at a time**
 
-1. **Navigate to \"Praksis Places\" tab**
-2. **Expand a praksis place** to see departments
-3. **View quota details** and available capacity
-4. **Click \"Assign Students\"** for that quota
-5. **Select students** from the list and confirm
+1. **Click \"Add praksis place\"** on a student's row
+2. **Pick an entity** with places left
+3. The student is placed on that entity
 
 #### When does this step complete?
 
@@ -230,7 +195,7 @@ When the **AI Auto-Assign** button appears in the Current Task Banner:
 
 ---
 
-### Step 4/6: Attach Required Documents
+### Step 3/5: Attach Required Documents
 
 **Status:** Optional | **Type:** Mark as completed
 
@@ -263,13 +228,13 @@ Upload and send necessary documentation to praksis places, such as insurance cer
 
 ✅ **Manually completed when:**
 - You click **\"Mark as completed\"** button in the Current Task Banner
-- This button appears when the current task is 4/6
+- This button appears when the current task is 3/5
 
 **📝 Note:** This is an optional step. You can skip it if no documentation is required, or mark it complete when ready to proceed.
 
 ---
 
-### Step 5/6: Assign Supervisors to Students
+### Step 4/5: Assign Supervisors to Students
 
 **Status:** Optional | **Type:** Mark as completed
 
@@ -280,13 +245,13 @@ Upload and send necessary documentation to praksis places, such as insurance cer
 
 ✅ **Manually completed when:**
 - You click **\"Mark as completed\"** button in the Current Task Banner
-- This button appears when the current task is 5/6
+- This button appears when the current task is 4/5
 
 **📝 Note:** This is an optional step. Some placements may not require formal supervisor assignment at this stage.
 
 ---
 
-### Step 6/6: Second Publish (Finalize)
+### Step 5/5: Publish (Finalize)
 
 **Status:** Mandatory | **Type:** Auto-completes
 
@@ -297,7 +262,7 @@ The final publication locks the placement, sends notifications to all parties, a
 #### Actions Required:
 
 **Prerequisites:**
-- All mandatory tasks (1/6, 2/6, 3/6) must be completed
+- All mandatory tasks (1/5, 2/5) must be completed
 - You must be ready to finalize the placement
 
 #### Publish Options:
@@ -331,7 +296,7 @@ The final publication locks the placement, sends notifications to all parties, a
 - **Location:** Top of the screen, below any alerts
 - **Purpose:** Shows your current step and available actions
 - **Features:**
-  - Step indicator (e.g., \"3/6 Attach praksis places to students\")
+  - Step indicator (e.g., \"2/5 Attach praksis places to students\")
   - Description of what to do
   - Action buttons specific to the current step
   - \"View all\" link to see complete task list
@@ -341,29 +306,29 @@ The final publication locks the placement, sends notifications to all parties, a
 Access the complete task overview:
 
 1. Click **\"View all\"** in the Current Task Banner
-2. See all 6 steps with:
+2. See all 5 steps with:
    - Completion status (✓ or pending)
    - Step titles and descriptions
    - Action buttons for each step
    - Mandatory vs. Optional labels
 
-### Capacity
+### Entities
 
-**Where capacity comes from:**
-- Capacity is set on the lowest units of a praksis place under **Praksis places → Capacity**
-- Each unit has a number per emne; this placement can use its emne's number
-- A yearly share is shared by all placements of the emne in the same yearly period; a semester share by placements in the same semester
+**Where entities come from:**
+- Entities are made on a praksis place under **Praksis places → Entities**
+- Each entity is for one program (all or some of its emner) and offers a number of places; this placement can use the entities that take its program and emne
+- A yearly entity's places are shared by all placements it covers in the same yearly period; a semester entity's by placements in the same semester
 
-**Available capacity panel:**
-- One row per unit with capacity, grouped by praksis place
-- Shows places left out of the emne's share, and how many are used in other placements
-- Quick assign places students in that unit
+**Available entities panel:**
+- One row per entity, grouped by praksis place
+- Shows places left, and how many are used in other placements
+- Quick assign places students on the entity
 
 ### AI Auto-Assign
 
 **When available:**
-- Appears when you have approved quotas AND imported students
-- Shows in the Current Task Banner during step 3/6
+- Appears when the entities have places AND students are imported
+- Shows in the Current Task Banner during step 2/5
 
 **How it works:**
 1. AI analyzes student data, preferences, and custom requests
@@ -381,13 +346,12 @@ Access the complete task overview:
 ### Quick Assign Students Modal
 
 **Access from:**
-- Available Quotas table (\"Quick Assign Students\" button)
-- Praksis Places tab (quota details)
+- The assign button on an entity in the Available entities panel
 
 **Features:**
 - Shows unassigned students only
 - Multi-select checkboxes
-- Batch assignment to a specific quota
+- Batch assignment to a specific entity
 - Real-time capacity validation
 - Prevents over-assignment
 
@@ -402,29 +366,23 @@ The **Network Diagram** button provides a visual representation of the organizat
 - Purple button with network icon labeled \"Diagram\"
 
 **What it shows:**
-1. **Organizational Hierarchy:**
-   - Visual tree structure of the praksis place organization
-   - Regions → Municipalities → Departments → Sections
-   - Color-coded nodes (purple = has people assigned, gray = empty units)
+1. **Praksis places and entities:**
+   - Each praksis place with its entities, and the places left on each
+   - Color-coded nodes (purple = has students placed, gray = empty entities)
 
-2. **People Distribution:**
-   - Contact persons assigned to each organizational unit
-   - Supervisors at each department/section
-   - Students assigned to specific units
-   - Count indicators (e.g., \"📋 2 contacts\", \"👔 3 supervisors\", \"🎓 5 students\")
+2. **Student distribution:**
+   - Students placed on each entity
+   - Count indicators per entity
 
 3. **Interactive Elements:**
-   - Click on any organizational unit to view detailed information
+   - Drag a student onto an entity to place them there
    - Zoom in/out controls
    - Pan and navigate the diagram
-   - Mini-map for large organizational structures
 
 **When to use:**
-- ✅ Understanding the structure of a complex praksis place
-- ✅ Identifying which departments have supervisors or students
-- ✅ Verifying organizational unit assignments
-- ✅ Planning student distribution across departments
-- ✅ Communicating structure to stakeholders
+- ✅ Seeing how students are spread across entities
+- ✅ Identifying entities with free places
+- ✅ Placing students by drag and drop
 
 **How to use:**
 1. Navigate to the **Students** tab
@@ -442,7 +400,7 @@ The **Network Diagram** button provides a visual representation of the organizat
 6. View the **Mini-map** in bottom-left corner for navigation
 7. Click **Close** or press **Esc** to exit
 
-**💡 Pro Tip:** The network diagram helps you visualize quota distribution and identify underutilized departments that could accept more students.
+**💡 Pro Tip:** The network diagram helps you visualize how students are spread across entities and identify underutilized entities that could accept more students.
 
 #### Columns Button
 
@@ -480,10 +438,10 @@ The **Columns** button allows you to customize which columns are visible in the 
 - Attach Files ✓
 
 **When to use:**
-- ✅ **During Assignment (Step 3/6):** Show \"Assigned Praksis Place\" and \"Priorities\"
+- ✅ **During Assignment (Step 2/5):** Show \"Assigned Praksis Place\" and \"Priorities\"
 - ✅ **Reviewing History:** Enable \"Placement History\" to see student experience
-- ✅ **Supervisor Assignment (Step 5/6):** Show \"Supervisor\" column
-- ✅ **Document Management (Step 4/6):** Show \"Attach Files\" column
+- ✅ **Supervisor Assignment (Step 4/5):** Show \"Supervisor\" column
+- ✅ **Document Management (Step 3/5):** Show \"Attach Files\" column
 - ✅ **Reviewing Requests:** Show \"Custom Request\" to see student preferences
 - ✅ **Clean View:** Hide unnecessary columns to reduce clutter
 
@@ -493,13 +451,13 @@ The **Columns** button allows you to customize which columns are visible in the 
 
 The system provides helpful alerts:
 
-**\"Insufficient Quotas\" Alert:**
-- Appears when student count exceeds approved quota count
-- Suggests requesting more quotas
+**\"Not enough places\" Alert:**
+- Appears when the student count exceeds the places on the matching entities
+- Suggests raising places or adding an entity
 - Prevents publishing until resolved
 
 **\"All Students Assigned\" Success:**
-- Confirms step 3/6 completion
+- Confirms step 2/5 completion
 - Shows completion checkmark
 
 **Validation Errors:**

@@ -141,11 +141,7 @@ export function CreatePraksisPlaceView({
       address: formData.address.trim(),
       city: formData.city.trim(),
       postalCode: formData.postalCode.trim(),
-      totalCapacity: 0,
-      currentStudents: 0,
-      contactPersons: [],
       contracts: [],
-      departments: [],
       tags: [],
     };
 
@@ -397,9 +393,9 @@ export function CreatePraksisPlaceView({
               Note:
             </p>
             <p className="text-[#1447e6] text-[12.25px] leading-[17.5px]">
-              After creating the praksis place, you can add
-              contact persons, contracts, departments, and
-              supervisors from the detail view.
+              After creating the praksis place, add its entities
+              (the places where students are placed) from the
+              Entities tab.
             </p>
           </div>
         </div>
