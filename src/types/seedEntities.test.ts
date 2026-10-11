@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEED_CATALOG, SEED_CONTACTS, SEED_PROFILES } from "../data/seedEntities";
+import { SEED_CATALOG, SEED_CONTACTS, SEED_PROFILES, isPristine } from "../data/seedEntities";
 
 describe("starting data", () => {
   const programs = SEED_CATALOG.flatMap((s) => s.programs);
@@ -20,5 +20,14 @@ describe("starting data", () => {
     const keys = SEED_PROFILES.map((e) => `${e.praksisPlaceId}|${e.name}`);
     expect(new Set(keys).size).toBe(40);
     expect(new Set(SEED_PROFILES.map((e) => e.id)).size).toBe(40);
+  });
+});
+
+describe("an untouched browser", () => {
+  it("is one where entities, people and studies are all missing or empty", () => {
+    expect(isPristine([null, null, null])).toBe(true);
+    expect(isPristine([[], [], null])).toBe(true);
+    expect(isPristine([[], [{}], []])).toBe(false);
+    expect(isPristine([null, [], [1]])).toBe(false);
   });
 });

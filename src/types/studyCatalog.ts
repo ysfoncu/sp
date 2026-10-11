@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import { SEED_CATALOG } from "../data/seedEntities";
+import { SEED_CATALOG, SEED_PRISTINE } from "../data/seedEntities";
 
 // The shared catalog of studies → programs → emner (cohorts).
 //
@@ -108,6 +108,11 @@ const load = (): Study[] => {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     if (!Array.isArray(parsed?.studies)) return DEFAULT_CATALOG;
+    if (SEED_PRISTINE && parsed.studies.length === 0) {
+      // An untouched browser that saved an empty catalog before the starting data existed: save the starting one
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, studies: DEFAULT_CATALOG }));
+      return DEFAULT_CATALOG;
+    }
     const version = parsed.version ?? 1;
     const v2 = version < 2 ? migrateCatalogV2(parsed.studies) : parsed.studies;
     return version < 3 ? migrateCatalogV3(v2) : v2;

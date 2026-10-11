@@ -67,7 +67,11 @@ export function PraksisPlacesView({ places, onCreatePlace }: PraksisPlacesViewPr
 
   // One scroll area for the pane: it goes back to the top when another place or entity opens
   const paneRef = useRef<HTMLDivElement>(null);
-  useEffect(() => paneRef.current?.scrollTo({ top: 0 }), [route.entityId, route.placeId]);
+  // (braces, so the effect returns nothing: React treats a returned value as a clean-up function, and some
+  // browsers' scrollTo returns one)
+  useEffect(() => {
+    paneRef.current?.scrollTo({ top: 0 });
+  }, [route.entityId, route.placeId]);
 
   // The page title says where you are (a single-page app has no other page title)
   useEffect(() => {

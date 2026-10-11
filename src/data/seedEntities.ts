@@ -45,6 +45,28 @@ const ABOUT = [
   "Specialist nurse who values questions. Students are welcome to follow the morning meeting.",
   "Coordinates the weekly plan for students and is the first person to contact before the first day.",
 ];
+// Is the browser untouched? A browser that opened the app before the starting data existed saved empty lists of
+// entities, people and studies, and "saved data is never replaced" would keep it empty for good. If all three are
+// missing or empty, nothing of the user's is there to protect, so the starting data is used (and saved).
+export const isPristine = (lists: (unknown[] | null)[]) => lists.every((l) => l === null || l.length === 0);
+const savedList = (key: string, field: string): unknown[] | null => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    const list = JSON.parse(raw)?.[field];
+    return Array.isArray(list) ? list : [1]; // unreadable or odd: treat as the user's
+  } catch {
+    return [1];
+  }
+};
+export const SEED_PRISTINE: boolean = (() => {
+  try {
+    return isPristine([savedList("placementProfiles", "profiles"), savedList("placeContacts", "contacts"), savedList("studyCatalog", "studies")]);
+  } catch {
+    return false;
+  }
+})();
+
 const SEED_TIME = "2026-01-01T00:00:00.000Z";
 
 const build = () => {

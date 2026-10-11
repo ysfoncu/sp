@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { SEED_CONTACTS } from "../data/seedEntities";
+import { SEED_CONTACTS, SEED_PRISTINE } from "../data/seedEntities";
 
 // People of a praksis place: a supervisor or an entity contact. A person is created once on the place and
 // can then be added to several entities (see EntityContactLink in placementProfile.ts). Saved in
@@ -46,6 +46,11 @@ const load = (): PlaceContact[] => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === null) return SEED_CONTACTS; // first run: the starting people, saved with the next change
     const parsed = JSON.parse(raw);
+    if (SEED_PRISTINE && Array.isArray(parsed?.contacts) && parsed.contacts.length === 0) {
+      // An untouched browser that saved an empty list before the starting data existed: save the starting people
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, contacts: SEED_CONTACTS }));
+      return SEED_CONTACTS;
+    }
     return Array.isArray(parsed?.contacts) ? parsed.contacts : [];
   } catch {
     return [];

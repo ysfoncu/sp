@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { findEmne, findEmneByName, findProgram, remapEmneId } from "./studyCatalog";
 import { allMockContacts, allMockSupervisors } from "../data/mockContactsAndSupervisors";
 import { ContactType, PlaceContact, mergePlaceContacts, removePlaceContact } from "./placeContact";
-import { SEED_PROFILES } from "../data/seedEntities";
+import { SEED_PRISTINE, SEED_PROFILES } from "../data/seedEntities";
 
 // Entities: a placement profile is an entity of a praksis place.
 //
@@ -272,6 +272,11 @@ const load = (): PlacementProfile[] => {
     if (raw !== null) {
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed?.profiles)) return [];
+      if (SEED_PRISTINE && parsed.profiles.length === 0) {
+        // An untouched browser that saved an empty list before the starting data existed: the starting entities
+        save(SEED_PROFILES);
+        return SEED_PROFILES;
+      }
       if (parsed.version === STORAGE_VERSION) return parsed.profiles.map((p: PlacementProfile) => ({ ...p, version: p.version ?? 1 }));
       const migrated = upgrade(parsed.profiles, Number(parsed.version) || 1);
       save(migrated);
