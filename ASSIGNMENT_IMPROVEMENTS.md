@@ -1,13 +1,13 @@
 # Assigning students to praksis places: what is left to do
 
-Written after assigning 50 students in Safari and reviewing the result with three experts (workflow design, allocation logic and data, performance and accessibility). Items that have since been built were checked against the code and removed from this file. Built so far: the first-publish step and its warning are gone. Placing students no longer uses a dialog: the + button on an entity makes it the target (highlighted, with a one-time hint dialog that can be switched off), the students are picked in the Students table (or ticked first: a light indigo "Students first" bar then lets you search and pick the entity, grouped by place with places left and "over by N", or press the + of a card, which then chooses that entity for the ticked students), and a dark bar at the bottom adds them ("Add N to <entity>", "over by N", "Select top N by points", Undo; it closes after Add, and Done or Escape ends it; the + of another entity switches the target and keeps the selection). The table shows imported priority points, study location, "Not registered" and the address, ranks by points, and searches by address; its assigned / not assigned counts are filters, with icons and a places-left line; "Select all" takes every unassigned student the filters show; the table's Actions menu is gone, and checkboxes show only on students without an entity (so selection is only for placing); full entities can be picked in the per-student dialog (shown as over); the capacity bars are progressbars; lists are memoized, and the Students table has no paging: every student is listed (154 rows rendered fine; at 500 or more the long list may need virtualization, see the speed notes).
+Written after assigning 50 students in Safari and reviewing the result with three experts (workflow design, allocation logic and data, performance and accessibility). Items that have since been built were checked against the code and removed from this file. Built so far (all of phase 1): the first-publish step and its warning are gone; the Quick Assign dialog ranks students by points (approved application, else imported), shows location, address, preferred place and "Not registered", has search, no longer caps the selection ("over by N", "Select top N"), and has a dialog role, Escape and a live count; the Students table has the assigned / not assigned filters and the places-left line, and searches by address; undo for a batch of assignments and a bulk "take off their entities"; full entities can be picked in the per-student dialog (shown as over); focus trap and focus return in the Quick Assign dialog; icons next to the counts and a progressbar role on the capacity bar; memoized lists and a default page size of 25.
 
 ## 1. What was tested
 
 - Placement: Sjuksköterskeprogrammet, VFU HT 2022 (study "Hälso- och sjukvård samt social omsorg").
 - 154 students waiting, 10 eligible entities with 53 places in total. The page shows "Not enough places: 154 students, 53 places, add 101 more".
 - Mock data: 3 praksis places, 40 entities (ten per program), 485 imported Umeå students.
-- 50 students were assigned through the old Quick Assign dialog (now replaced by the placing bar), one entity at a time: 10 entities took 10 rounds (open, tick N, confirm).
+- 50 students were assigned through the Quick Assign dialog, one entity at a time: 10 entities took 10 rounds (open, tick N, confirm).
 
 ## 2. How efficient is it today
 
@@ -21,7 +21,7 @@ Clicks are not the main cost. The decisions were made blind, which the dialog no
 
 ### 2b. The per-student "Add praksis place" path (tested)
 
-- "Add praksis place" on a row opens "Select Praksis Place", a dialog listing the entities grouped by place with "N left" or "Full". One click on an entity assigns the student. That is 2 clicks per student, or about 200 clicks per 100 students (the table lists every student, with no paging).
+- "Add praksis place" on a row opens "Select Praksis Place", a dialog listing the entities grouped by place with "N left" or "Full". One click on an entity assigns the student. That is 2 clicks per student, or about 200 clicks per 100 students (the table now shows 25 rows per page).
 - The student's preferred place (when there is one) is visible in the same row, but the dialog itself shows no priority, location or preference.
 
 Unexplained: after the 50-student run the page showed 50 assigned and 3 of 53 places left. When I came back to test the per-student path it showed 40 assigned and 13 of 53 left. I did not detach anyone on purpose and have not found the cause. It should be checked before relying on those numbers.
@@ -30,7 +30,7 @@ Unexplained: after the 50-student run the page showed 50 assigned and 3 of 53 pl
 
 1. **One entity at a time.** There is no way to say "fill the Bergen places from students who prefer Bergen".
 2. **Preference data is missing.** The first-publish step is gone, so students no longer submit "Preferred: …" requests, and nothing collects them. Where they existed, they were a place name only, not an entity.
-3. **History is matched by name.** The placed-here-before warning compares place and unit names as text. The students table does not show it yet.
+3. **History is matched by name.** The Quick Assign conflict warning compares place and unit names as text.
 4. **The "Not enough places" banner offers no action.** The progress line says how many students are "without a free place", but nothing helps raise places or ask for more.
 
 ## 4. Recommended design
@@ -53,7 +53,7 @@ Invert the unit of work. Work from the student queue against entity capacity, an
   - Each proposed row carries its reasons ("Preferred Bergen", "Priority 87") and the runner-up entity.
   - The coordinator can deselect rows, change the entity for a row, then press "Apply N assignments". One apply is one undo entry.
   - Manual assignments are locked. A re-run only touches unlocked "planned" rows.
-- **Split view, what is left.** The core is built (pick students in the table, add them from the bar). Still to do: shift-click range selection in the table, filters on the entity cards (by place, "has capacity"), a program and emne match marker on the cards, and showing preferred place and history as columns once they have data.
+- **Split view.** Student queue on the left (name, priority, location, preferred place, history, status), entity capacity cards on the right (capacity bar, place, program and emne match, filter by place and "has capacity"). Select a batch with shift-click or select-all-filtered, then click an entity or press Enter.
 - **Demand over capacity (154 students, 53 places).** Never block and never overbook silently.
   - The suggestion fills each entity to its places in priority order and lists the rest as "unplaced (no free place)" with a reason.
   - Replace the "add 101 more" banner with a "capacity gap by place" table (demand by preferred place against places) and an action to ask a place for more places.
@@ -118,6 +118,7 @@ Suggested order: `allocation.ts` with priority, preference, capacity and locks, 
 
 ## 9. Files involved
 
+- `src/components/QuickAssignStudentsModal.tsx`
 - `src/components/PlacementTaskView.tsx`
 - `src/components/PlacementModals.tsx` (the per-student "Select Praksis Place" dialog)
 - `src/components/StudentsPanel.tsx`
@@ -133,3 +134,9 @@ Suggested order: `allocation.ts` with priority, preference, capacity and locks, 
 - Should unregistered students (the imported "Not registered" flag) be excluded from suggestions, or only flagged?
 - Where do study locations map to regions (Umeå, Skellefteå against Oslo, Bergen, Trondheim)? The mock places are Norwegian and the imported students Swedish, so this needs a decision before location scoring is meaningful.
 - Where should student preferences be collected now that the first publish is gone?
+
+
+When + icon in an entity card is pressed make the selected entity highlighted and others disabled.
+Display an info dialog saying select students from students list and click add to entity button. There should be a button saying dont show this info again
+After this user should be able to select students from current students list. Selected students will be displayed under page with a floating action as ... students selected add to ... entity. when completed user will press add
+Will this implementation solve the problem you mentioned 
