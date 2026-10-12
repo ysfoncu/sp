@@ -63,7 +63,7 @@ Invert the unit of work. Work from the student queue against entity capacity, an
 
 - **Collect student preferences** in a step of their own, now that the first publish is gone. Preferences should name an entity or place (ranked, at most 3), plus a free-text reason.
 - Keyboard flow: autofocus search in the dialog, Enter to assign, shift-click range select, per-row "Assign to…", focus moves to the next entity after assigning. Drag and drop is secondary because it does not scale across 154 rows.
-- Pair placement, repeat-avoidance and region rules per emne.
+- Repeat-avoidance and region rules per emne (the emne "requirement" text is only shown, not checked).
 - Optimal global matching in place of greedy. Not now.
 
 ## 5. Data model changes needed
@@ -72,7 +72,7 @@ Invert the unit of work. Work from the student queue against entity capacity, an
 |---|---|---|
 | `proposeAllocation` with scoring, tie-breaks and explanations (`src/types/allocation.ts`) | medium | yes: determinism, constraints, lock, over-demand, tie-breaks |
 | `assignedPraksisPlace.source` (manual or auto), `locked`, `batchId`, and undo helper | small | yes (apply and undo as pure reducers) |
-| Rule set per emne in the catalog (`pairPlacement`, avoid repeat, weights) | small to medium | yes |
+| Rule set per emne in the catalog (`requirement` text exists; avoid repeat, weights) | small to medium | yes |
 | Region on `PraksisPlace` plus a `studyLocation` to region mapping | medium | yes (`locationScore`) |
 | Structured student address (street, postcode, city, country) in place of the free-text line; only 27 of 485 imported addresses have a postcode or city | medium | yes (parsing) |
 | Entity-level ranked preferences on the student request (ids, max 3, plus reason) | medium (student-facing UI too) | scoring yes |

@@ -1,5 +1,5 @@
 // What a fresh browser starts with: the study catalog the Umeå import uses, and 40 entities over the three praksis
-// places (ten per program, each with every emne of its program) with 3 people each — 120 in all. Ids are fixed so
+// places (ten per program, each with every emne of its program; Barne seksjon takes three programs) with 3 people each — 120 in all. Ids are fixed so
 // the data is the same everywhere. It is only used when nothing is saved yet; saved data is never replaced.
 // This file must not import the stores (they import it).
 import type { Study } from "../types/studyCatalog";
@@ -99,10 +99,16 @@ const build = () => {
       name: `${unit} ${type}`,
       entityType: type,
       status: "active",
-      studyId: STUDY_ID,
-      programId: program.id,
-      emneIds: program.terms.map((t) => emneId(program.id, t)),
-      places: 2 + (i % 7),
+      programs: [
+        { programId: program.id, emneIds: program.terms.map((t) => emneId(program.id, t)), places: 2 + (i % 7) },
+        // Barne seksjon also takes nursing and speech therapy students: one entity, three programs, separate places for each
+        ...(unit === "Barne"
+          ? [
+              { programId: PROGRAMS[0].id, emneIds: PROGRAMS[0].terms.map((t) => emneId(PROGRAMS[0].id, t)), places: 4 },
+              { programId: PROGRAMS[3].id, emneIds: PROGRAMS[3].terms.map((t) => emneId(PROGRAMS[3].id, t)), places: 3 },
+            ]
+          : []),
+      ],
       contacts: links,
       info: {
         contactBeforePlacement: "The unit contact",

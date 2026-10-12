@@ -19,8 +19,7 @@ import { usePlacedOnProfile, useStudentsOnProfile } from "../ProfileUsageContext
 import { consumeFocusRequest } from "../../navigation";
 import { EntityTypeIcon } from "../EntityTypeIcon";
 import { SectionCard } from "./SectionCard";
-import { ProgramEmnerSection } from "./ProgramEmnerSection";
-import { PlacesSection } from "./PlacesSection";
+import { AcceptedProgramsSection } from "./AcceptedProgramsSection";
 import { ContactsSection } from "./ContactsSection";
 import { InfoSection } from "./InfoSection";
 import { NameSection } from "./NameSection";
@@ -38,7 +37,7 @@ const fmt = (d?: string) => (d ? d.slice(0, 10).split("-").reverse().join(".") :
 export function EntityPage({ place, entity, onCopied }: EntityPageProps) {
   const all = usePlacementProfiles();
   const people = usePlaceContacts();
-  const placed = usePlacedOnProfile()(entity);
+  const placed = usePlacedOnProfile()(entity); // all programs: the archive warning
   const students = useStudentsOnProfile()(entity);
   const [archiving, setArchiving] = useState(false);
 
@@ -69,8 +68,9 @@ export function EntityPage({ place, entity, onCopied }: EntityPageProps) {
     toast(`${entity.name} archived`, { action: { label: "Undo", onClick: () => setProfileStatus(entity.id, "active") } });
   };
 
-  const jump = (key: string) => {
-    const id = key === "program" || key === "emner" ? "program" : key;
+  // A gap on one program opens at that program's card; the others at their block
+  const jump = (m: { key: string; programId?: string }) => {
+    const id = m.programId ? `program-${m.programId}` : m.key === "program" || m.key === "emner" || m.key === "places" ? "programs" : m.key;
     document.getElementById(`entity-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -127,8 +127,8 @@ export function EntityPage({ place, entity, onCopied }: EntityPageProps) {
           </p>
           <ul className="mt-1.5 flex flex-wrap gap-2">
             {missing.map((m) => (
-              <li key={m.key}>
-                <button type="button" onClick={() => jump(m.key)} className="rounded-full border border-amber-300 bg-white px-2.5 py-0.5 text-xs text-amber-900 hover:bg-amber-100">
+              <li key={`${m.key}-${m.programId ?? ""}`}>
+                <button type="button" onClick={() => jump(m)} className="rounded-full border border-amber-300 bg-white px-2.5 py-0.5 text-xs text-amber-900 hover:bg-amber-100">
                   {m.label}
                 </button>
               </li>
@@ -145,8 +145,7 @@ export function EntityPage({ place, entity, onCopied }: EntityPageProps) {
 
       <fieldset disabled={archived} className="min-w-0 space-y-5 border-0 p-0">
         <NameSection place={place} entity={entity} />
-        <ProgramEmnerSection entity={entity} placedTotal={placed.total} missing={missingOf("program") ? "Program missing" : missingOf("emner") ? "Emner missing" : undefined} />
-        <PlacesSection entity={entity} placedPeak={placed.peak} placeName={place.name} missing={missingOf("places") ? "Not set" : undefined} />
+        <AcceptedProgramsSection entity={entity} placeName={place.name} missing={missing} />
         <ContactsSection place={place} entity={entity} missing={missingOf("contacts") ? "No contacts" : undefined} />
         <InfoSection entity={entity} missing={emptyInfo ? `${emptyInfo} of 5 empty` : undefined} />
       </fieldset>

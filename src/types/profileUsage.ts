@@ -1,15 +1,16 @@
 // How placements use entities (placement profiles).
 //
-// An entity belongs to a praksis place and targets one program (optionally some of its emner). It offers
-// a number of places per period. Nothing is booked against an entity — a placed student only records the
+// An entity belongs to a praksis place and accepts one or more programs (each with its emner). For each
+// program it offers a number of places per period; students of another program never use them. Nothing is booked against an entity — a placed student only records the
 // entity they go to (`assignedPraksisPlace.placeId` + `profileId`), and usage is worked out from that:
 //   - Where a placement may place: the place's active entities for the placement's program and emne
-//   - Places left on an entity: its places − students placed on it in the same period, from this
-//     placement and from other placements whose program and emne the entity also covers
+//   - Places left on an entity: its places for the placement's program − students of that program placed on it
+//     in the same period, from this placement and from other placements of the same program whose emne the
+//     entity also covers
 //   - Period: one per praksis place (placePeriod.ts)
 import { PraksisPlace } from "./praksisPlace";
 import { PeriodContext, periodKeyFor, periodLabel, placePeriodOf } from "./placePeriod";
-import { PlacementProfile, isPlaceable, placementEmneId, profileMatches, resolveAssignmentProfile } from "./placementProfile";
+import { PlacementProfile, isPlaceable, placementEmneId, placesFor, profileMatches, resolveAssignmentProfile } from "./placementProfile";
 
 // What a placement needs to be matched against profiles
 export interface ProfilePlacementContext extends PeriodContext {
@@ -50,7 +51,8 @@ export interface OtherPlacementUsage {
 export interface ProfileNodeInfo {
   profile: PlacementProfile;
   unitName: string; // the entity name
-  places: number;
+  places: number; // the places the entity offers to the placement's program
+  otherPrograms: string[]; // ids of the other programs the entity accepts (for a note; their places are separate)
   used: number; // by this placement
   usedElsewhere: number; // by other placements in the same period
   remaining: number; // places − used − usedElsewhere, never below 0
@@ -113,7 +115,8 @@ export const profileTreeForPlacement = (
         const used = students.filter((s) => onProfile(s, target)).length;
         // Other placements count when the entity also covers their program and emne, in the same period
         const usedElsewhere = otherPlacements.reduce((sum, o) => {
-          if (!o.programId) return sum;
+          // Places are per program: students of another program never use these
+          if (!o.programId || o.programId !== ctx.programId) return sum;
           const otherTarget = {
             programId: o.programId,
             emneId: o.emne ? placementEmneId({ programId: o.programId, subject: o.emne, emneId: o.emneId }) : undefined,
@@ -122,9 +125,11 @@ export const profileTreeForPlacement = (
             return sum;
           return sum + o.students.filter((s) => onProfile(s, otherTarget)).length;
         }, 0);
-        const remaining = Math.max(0, profile.places - used - usedElsewhere);
-        const over = Math.max(0, used + usedElsewhere - profile.places);
-        nodes.push({ profile, unitName: profile.name, places: profile.places, used, usedElsewhere, remaining, over, periodLabel: periodLabel(period) });
+        const places = placesFor(profile, ctx.programId!);
+        const remaining = Math.max(0, places - used - usedElsewhere);
+        const over = Math.max(0, used + usedElsewhere - places);
+        const otherPrograms = profile.programs.filter((e) => e.programId !== ctx.programId).map((e) => e.programId);
+        nodes.push({ profile, unitName: profile.name, places, otherPrograms, used, usedElsewhere, remaining, over, periodLabel: periodLabel(period) });
         unitInfos.push({ id: profile.id, name: profile.name, remaining, profileId: profile.id, profileName: profile.name });
       });
 

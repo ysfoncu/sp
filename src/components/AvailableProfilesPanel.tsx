@@ -4,8 +4,8 @@ import { Button } from './ui/button';
 import { ChevronDown, ChevronRight, Clock, Gauge, Info, Pencil, UserPlus, X } from 'lucide-react';
 import { Student } from '../types/placementTask';
 import { PlaceProfileTree } from '../types/profileUsage';
-import { profileAudienceLabel } from '../types/placementProfile';
-import { SetPlacesDialog } from './SetPlacesDialog';
+import { programAudienceLabel } from '../types/placementProfile';
+import { findProgram } from '../types/studyCatalog';
 
 interface AvailableProfilesPanelProps {
   trees: PlaceProfileTree[];
@@ -54,7 +54,6 @@ export default function AvailableProfilesPanel({
     });
     return map;
   }, [students]);
-  const [settingPlaces, setSettingPlaces] = useState<string | null>(null); // entity id whose places are being set
 
   if (!hasPlacementDetails) {
     return (
@@ -153,9 +152,15 @@ export default function AvailableProfilesPanel({
                         <span className="ml-2 rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Chosen</span>
                       )}
                     </p>
+                    {/* Only the program of this placement: the places shown are for it. The entity's other programs have places of their own. */}
                     <p className="truncate text-[11px] text-gray-500">
-                      {profileAudienceLabel(profile)}
+                      {programAudienceLabel(profile.programs.find((e) => !node.otherPrograms.includes(e.programId)) ?? profile.programs[0])}
                     </p>
+                    {node.otherPrograms.length > 0 && (
+                      <p className="truncate text-[11px] text-gray-400" title="Their places are separate and are not used by this placement">
+                        Also accepts {node.otherPrograms.map((id) => findProgram(id)?.program.code ?? findProgram(id)?.program.name ?? 'another program').join(', ')}
+                      </p>
+                    )}
                     <Badge variant="outline" className="mt-1 text-[10px] h-5 px-1.5 bg-white text-gray-600 border-gray-200">
                       {node.periodLabel}
                     </Badge>
@@ -281,12 +286,6 @@ export default function AvailableProfilesPanel({
           .
         </p>
       </div>
-      {(() => {
-        const node = trees.flatMap((t) => t.nodes).find((n) => n.profile.id === settingPlaces);
-        return node ? (
-          <SetPlacesDialog entity={node.profile} placed={node.used + node.usedElsewhere} periodLabel={node.periodLabel} onClose={() => setSettingPlaces(null)} />
-        ) : null;
-      })()}
     </div>
   );
 }

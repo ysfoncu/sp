@@ -8,6 +8,7 @@ import {
   Study,
   StudyEmne,
   StudyProgram,
+  MAX_REQUIREMENT,
   MAX_TERM,
   addEmne,
   emneMeta,
@@ -62,15 +63,16 @@ function EmneForm({ study, program, emne, onClose }: { study: Study; program: St
   const [code, setCode] = useState(emne?.code ?? "");
   const [term, setTerm] = useState(emne?.term ? String(emne.term) : "");
   const [subject, setSubject] = useState(emne?.subject ?? "");
-  const [pair, setPair] = useState(!!emne?.pairPlacement);
+  const [hasRequirement, setHasRequirement] = useState(!!emne?.requirement);
+  const [requirement, setRequirement] = useState(emne?.requirement ?? "");
   const [startTerm, setStartTerm] = useState(emne?.startTerm ?? "");
 
   const termNumber = term.trim() === "" ? undefined : Number(term);
-  const errors = validateEmne({ name, code, term: termNumber }, (program.emner ?? []).filter((e) => e.id !== emne?.id));
+  const errors = validateEmne({ name, code, term: termNumber, requirement: hasRequirement ? requirement : undefined }, (program.emner ?? []).filter((e) => e.id !== emne?.id));
 
   const save = () => {
     if (errors.length > 0) return;
-    const input = { name, code, term: termNumber, subject, pairPlacement: pair, startTerm };
+    const input = { name, code, term: termNumber, subject, requirement: hasRequirement ? requirement : undefined, startTerm };
     if (emne) updateEmne(study.id, program.id, emne.id, input);
     else addEmne(study.id, program.id, input);
     onClose();
@@ -105,10 +107,30 @@ function EmneForm({ study, program, emne, onClose }: { study: Study; program: St
           <Input value={startTerm} onChange={(e) => setStartTerm(e.target.value)} onKeyDown={enter} placeholder="e.g. 2026 Høst" aria-label="Start term" />
         </div>
       </div>
-      <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
-        <Checkbox checked={pair} onCheckedChange={(on) => setPair(!!on)} aria-label="Pair placement requested" />
-        Pair placement requested (two students on the same entity)
-      </label>
+      <div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+          <Checkbox checked={hasRequirement} onCheckedChange={(on) => setHasRequirement(!!on)} aria-label="Emne requirements" />
+          Emne requirements
+        </label>
+        {hasRequirement && (
+          <div className="mt-2">
+            <label className={field}>
+              Requirement <span className="text-red-500">*</span>
+            </label>
+            <Input
+              value={requirement}
+              maxLength={MAX_REQUIREMENT}
+              onChange={(e) => setRequirement(e.target.value)}
+              onKeyDown={enter}
+              placeholder="e.g. Two students must be placed together on the same entity"
+              aria-label="Requirement"
+              aria-required
+              aria-invalid={requirement.trim() === ""}
+            />
+            <p className="mt-1 text-xs text-gray-500">Shown on every entity that accepts this emne.</p>
+          </div>
+        )}
+      </div>
       {errors.length > 0 && name.trim() !== "" && <p className="text-xs text-red-600">{errors[0]}</p>}
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="outline" onClick={onClose}>
@@ -171,6 +193,7 @@ export function ProgramRow({ study, program }: { study: Study; program: StudyPro
                   {emne.archived && <span className="text-xs text-gray-500">(archived)</span>}
                 </p>
                 {emneMeta(emne).length > 0 && <p className="ml-[18px] text-xs text-gray-600">{emneMeta(emne).join(" · ")}</p>}
+                {emne.requirement && <p className="ml-[18px] text-xs text-amber-800">Requirement: {emne.requirement}</p>}
               </div>
               <div className="flex flex-shrink-0 items-center">
                 {!emne.archived && (

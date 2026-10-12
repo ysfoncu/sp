@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contactsDirty, infoDirty, nameDirty, placesDirty, programDirty } from "./entityDirty";
+import { contactsDirty, infoDirty, nameDirty, placesDirty, programEntryDirty } from "./entityDirty";
 import { emptyPlacementInfo } from "./placementProfile";
 
 describe("is an open block changed?", () => {
@@ -10,10 +10,14 @@ describe("is an open block changed?", () => {
     expect(nameDirty({ name: "S1", type: "klinikk" }, { name: "S1" })).toBe(true);
   });
 
-  it("program and emner, whatever the order", () => {
-    expect(programDirty({ programId: "p", emneIds: ["b", "a"] }, { programId: "p", emneIds: ["a", "b"] })).toBe(false);
-    expect(programDirty({ programId: "p", emneIds: ["a"] }, { programId: "p", emneIds: ["a", "b"] })).toBe(true);
-    expect(programDirty({ programId: "q", emneIds: [] }, { programId: "p", emneIds: [] })).toBe(true);
+  it("one accepted program: its emner (whatever the order) and its places together", () => {
+    const saved = { programId: "p", emneIds: ["a", "b"], places: 4 };
+    expect(programEntryDirty({ programId: "p", emneIds: ["b", "a"], places: "4" }, saved)).toBe(false);
+    expect(programEntryDirty({ programId: "p", emneIds: ["a"], places: "4" }, saved)).toBe(true);
+    expect(programEntryDirty({ programId: "p", emneIds: ["a", "b"], places: "5" }, saved)).toBe(true);
+    expect(programEntryDirty({ programId: "q", emneIds: ["a", "b"], places: "4" }, saved)).toBe(true);
+    // a program that is not saved yet always counts as changed
+    expect(programEntryDirty({ programId: "p", emneIds: [], places: "0" }, undefined)).toBe(true);
   });
 
   it("places as typed", () => {

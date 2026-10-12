@@ -19,7 +19,7 @@ import {
 import { Student } from "../types/placementTask";
 import { PlacementTaskState, StudentPlacement } from "../types/studentPlacement";
 import { PraksisPlace } from "../types/praksisPlace";
-import { PlacementProfile, placementEmneId, profileMatches, usePlacementProfiles } from "../types/placementProfile";
+import { PlacementProfile, acceptsProgram, placementEmneId, profileMatches, usePlacementProfiles } from "../types/placementProfile";
 import { OtherPlacementUsage, profileTreeForPlacement } from "../types/profileUsage";
 import { periodKeyFor, placePeriodOf } from "../types/placePeriod";
 import { Study, StudyEmne, StudyProgram } from "../types/studyCatalog";
@@ -66,7 +66,7 @@ export function CapacityPlanningReportView({
   // Number of active profiles that take the program (and emne)
   const profileCount = (programId: string, emneId?: string) =>
     allProfiles.filter(
-      (p) => p.status === "active" && (emneId ? profileMatches(p, { programId, emneId }) : p.programId === programId),
+      (p) => p.status === "active" && (emneId ? profileMatches(p, { programId, emneId }) : acceptsProgram(p, programId)),
     ).length;
 
   // ── Tree (left) ──────────────────────────────────────────────────────────

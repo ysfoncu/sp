@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Study, emneIdRemap, emneMeta, migrateCatalogV2, migrateCatalogV3, programLabel, remapEmneId, validateEmne, validateProgram } from "./studyCatalog";
+import { Study, addEmne, addProgram, addStudy, emneIdRemap, findEmne, getStudies, updateEmne, emneMeta, migrateCatalogV2, migrateCatalogV3, programLabel, remapEmneId, validateEmne, validateProgram } from "./studyCatalog";
 
 const study = (emner: Study["programs"][number]["emner"]): Study => ({
   id: "s1",
@@ -54,12 +54,20 @@ describe("emne and program rules", () => {
     expect(validateProgram({ name: "Fysio", code: "FYS" }, programs)).toEqual([]);
   });
 
+  it("makes the requirement mandatory once Emne requirements is ticked", () => {
+    expect(validateEmne({ name: "X" }, [])).toEqual([]); // not ticked: undefined
+    expect(validateEmne({ name: "X", requirement: "" }, [])).toHaveLength(1);
+    expect(validateEmne({ name: "X", requirement: "   " }, [])).toHaveLength(1);
+    expect(validateEmne({ name: "X", requirement: "Two students together" }, [])).toEqual([]);
+    expect(validateEmne({ name: "X", requirement: "x".repeat(301) }, [])).toHaveLength(1);
+  });
+
   it("labels", () => {
     expect(programLabel({ name: "Sykepleie", code: "SYK" })).toBe("Sykepleie (SYK)");
     expect(programLabel({ name: "Sykepleie" })).toBe("Sykepleie");
-    expect(emneMeta({ term: 3, code: "NSK201", subject: "Medical ward", pairPlacement: true, startTerm: "2026 Høst" })).toEqual([
-      "Term 3", "NSK201", "Medical ward", "Pair placement", "Start 2026 Høst",
-    ]);
+    expect(emneMeta({ term: 3, code: "NSK201", subject: "Medical ward", requirement: "Two students together", startTerm: "2026 Høst" })).toEqual([
+      "Term 3", "NSK201", "Medical ward", "Start 2026 Høst",
+    ]); // the requirement is shown on its own line
     expect(emneMeta({})).toEqual([]);
   });
 });
@@ -89,5 +97,21 @@ describe("study catalog v3", () => {
     expect(migrateCatalogV3([study(undefined)])[0].programs[0].emner).toBeUndefined();
     const done = [study([{ id: "a", name: "VFU HT 2026", startTerm: "HT 2026" }])];
     expect(migrateCatalogV3(done)).toEqual(done);
+  });
+});
+
+describe("emne requirement in the store", () => {
+  it("is saved with the emne, trimmed, and removed when the box is unticked or the emne is edited without it", () => {
+    addStudy("Requirement study");
+    const study = getStudies().find((x) => x.name === "Requirement study")!;
+    addProgram(study.id, "Req program");
+    const program = getStudies().find((x) => x.id === study.id)!.programs[0];
+    addEmne(study.id, program.id, { name: "Praksis", requirement: "  Two students together  " });
+    const emne = () => findEmne(program.id, getStudies().find((x) => x.id === study.id)!.programs[0].emner![0].id)!.emne;
+    expect(emne().requirement).toBe("Two students together");
+    updateEmne(study.id, program.id, emne().id, { name: "Praksis", requirement: "One supervisor per student" });
+    expect(emne().requirement).toBe("One supervisor per student");
+    updateEmne(study.id, program.id, emne().id, { name: "Praksis" });
+    expect(emne()).not.toHaveProperty("requirement");
   });
 });

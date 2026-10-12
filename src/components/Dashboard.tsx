@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { PraksisPlace } from "../types/praksisPlace";
 import { Study } from "../types/studyCatalog";
-import { profilesOfPlace, usePlacementProfiles } from "../types/placementProfile";
+import { profilesOfPlace, totalPlaces, usePlacementProfiles } from "../types/placementProfile";
 import { DashboardSettings } from "./SettingsView";
 import {
   DropdownMenu,
@@ -700,7 +700,7 @@ export function Dashboard({
                     .slice(0, parseInt(praksisPlaceItemsToShow))
                     .map((place) => {
                       const placeEntities = profilesOfPlace(entities, place.id).filter((e) => e.status === "active");
-                      const placeCapacity = placeEntities.reduce((sum, e) => sum + e.places, 0);
+                      const placeCapacity = placeEntities.reduce((sum, e) => sum + totalPlaces(e), 0);
                       const placedHere = placementTaskStates.reduce(
                         (sum, ts) =>
                           sum +

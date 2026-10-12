@@ -18,7 +18,7 @@ export interface StudyEmne {
   code?: string; // course code, unique within the program; used to match imported students
   term?: number; // the term of the program the course is in (1, 2, 3 …)
   subject?: string; // what the placement is about, e.g. "Medical ward"
-  pairPlacement?: boolean; // two students are wanted on the same entity
+  requirement?: string; // what an entity must offer or a student must have for this emne; not set = no requirement
   startTerm?: string; // the intake the course is for, e.g. "2026 Høst" (it was a "Kull …" emne before)
   archived?: boolean;
 }
@@ -194,21 +194,23 @@ export const emneLabel = (programId: string, emneId: string) => {
 // "Sykepleie (SYK-B)": the code tells similar programs apart
 export const programLabel = (program: Pick<StudyProgram, "name" | "code">) => (program.code ? `${program.name} (${program.code})` : program.name);
 
-// What else is known about an emne, for a line under its name: "Term 3 · NSK201 · Medical ward · Pair placement · Start 2026 Høst"
+// What else is known about an emne, for a line under its name: "Term 3 · NSK201 · Medical ward · Start 2026 Høst" (a requirement is shown on its own line)
 export const emneMeta = (e: Omit<StudyEmne, "id" | "name" | "archived">): string[] =>
   [
     e.term ? `Term ${e.term}` : "",
     e.code ?? "",
     e.subject ?? "",
-    e.pairPlacement ? "Pair placement" : "",
     e.startTerm ? `Start ${e.startTerm}` : "",
   ].filter(Boolean);
 
 // ── Validation ────────────────────────────────────────────────────────────────
 export const MAX_TERM = 12;
 
-// Why an emne can't be saved; empty when it is fine. `others` are the program's other emner.
-export const validateEmne = (input: { name: string; code?: string; term?: number }, others: StudyEmne[]): string[] => {
+export const MAX_REQUIREMENT = 300;
+
+// Why an emne can't be saved; empty when it is fine. `others` are the program's other emner. `requirement` is
+// undefined when the "Emne requirements" box is not ticked; when it is ticked the text is mandatory.
+export const validateEmne = (input: { name: string; code?: string; term?: number; requirement?: string }, others: StudyEmne[]): string[] => {
   const out: string[] = [];
   const name = input.name.trim();
   if (!name) out.push("Give the emne a name");
@@ -216,6 +218,10 @@ export const validateEmne = (input: { name: string; code?: string; term?: number
   const code = (input.code ?? "").trim();
   if (code && others.some((o) => !o.archived && o.code && same(o.code, code))) out.push("Another emne of this program has this code");
   if (input.term !== undefined && !(Number.isInteger(input.term) && input.term >= 1 && input.term <= MAX_TERM)) out.push(`The term must be a whole number from 1 to ${MAX_TERM}`);
+  if (input.requirement !== undefined) {
+    if (!input.requirement.trim()) out.push("Describe the requirement, or untick Emne requirements");
+    else if (input.requirement.trim().length > MAX_REQUIREMENT) out.push(`The requirement can be at most ${MAX_REQUIREMENT} characters`);
+  }
   return out;
 };
 
@@ -236,7 +242,7 @@ const cleanEmne = (input: EmneInput): Omit<StudyEmne, "id"> => ({
   ...(input.code?.trim() ? { code: input.code.trim() } : {}),
   ...(input.term ? { term: input.term } : {}),
   ...(input.subject?.trim() ? { subject: input.subject.trim() } : {}),
-  ...(input.pairPlacement ? { pairPlacement: true } : {}),
+  ...(input.requirement?.trim() ? { requirement: input.requirement.trim() } : {}),
   ...(input.startTerm?.trim() ? { startTerm: input.startTerm.trim() } : {}),
 });
 

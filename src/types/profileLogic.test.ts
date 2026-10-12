@@ -5,6 +5,7 @@ import { addEmne, addProgram, addStudy, emneIdRemap, getStudies } from "./studyC
 import {
   ENTITY_TYPES,
   EntityContactLink,
+  FlatProfile,
   PlacementProfile,
   addProfile,
   createEntity,
@@ -14,7 +15,8 @@ import {
   entityMissing,
   entityTypeLabel,
   isPlaceable,
-  migrateProfilesV3, migrateProfilesV5,
+  migrateProfilesV3, migrateProfilesV5, migrateProfilesV6,
+  placesFor, totalPlaces, emptyPlacementInfo,
   validateName,
   profileAudienceLabel,
   profileMatches,
@@ -32,7 +34,7 @@ import {
   updateProfile,
   validateProfile,
 } from "./placementProfile";
-import { activationErrors, mentorState, peopleToNotify, placedOnProfile, placesError, studentsNeedingMentor } from "./profileRules";
+import { activationErrors, lockedEmneIds, mentorState, peopleToNotify, placedOnProfile, placesError, studentsNeedingMentor } from "./profileRules";
 import { OtherPlacementUsage, UsageStudent, profileTreeForPlacement } from "./profileUsage";
 import { buildStudentView, missingInfo, takeSnapshot, viewChangedSince } from "./studentView";
 import { PlaceContact, addPlaceContact, getPlaceContacts, validateContact } from "./placeContact";
@@ -57,20 +59,31 @@ beforeAll(() => {
   [emne1, emne2] = study().programs[0].emner!.map((e) => e.id);
 });
 
-const profile = (over: Partial<PlacementProfile> & { id: string }): PlacementProfile => ({
+// An entity that accepts the test program: the short forms programId / emneIds / places stand for its one entry
+// (`programs` itself can be given for several). An empty programId means no program.
+type Over = Partial<PlacementProfile> & { id: string; programId?: string; emneIds?: string[]; places?: number; studyId?: string };
+const profile = ({ programId: pid = programId, emneIds = [emne1, emne2], places = 4, studyId: _study, programs, ...over }: Over): PlacementProfile => ({
   praksisPlaceId: "place1",
   name: over.id,
   status: "active",
-  studyId,
-  programId,
-  emneIds: [emne1, emne2], // the emner it accepts; none picked would mean it takes nobody
-  places: 4,
+  programs: programs ?? (pid ? [{ programId: pid, emneIds, places }] : []), // the emne it accepts; none picked would mean it takes nobody
   contacts: [],
   info: {} as PlacementProfile["info"],
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   version: 1,
   ...over,
+});
+
+// The same entity as saved before it accepted several programs (storage versions 1 to 5)
+const flat = (over: Over): FlatProfile => {
+  const { programs, ...rest } = profile(over);
+  return { ...rest, studyId, programId: programs[0]?.programId ?? "", emneIds: programs[0]?.emneIds ?? [], places: programs[0]?.places ?? 0 };
+};
+
+// What the store functions take for an entity of the test program
+const one = (o: { programId?: string; emneIds?: string[]; places?: number }) => ({
+  programs: o.programId ? [{ programId: o.programId, emneIds: o.emneIds ?? [], places: o.places ?? 0 }] : [],
 });
 
 // A person added to an entity, and the person on the place
@@ -231,7 +244,7 @@ describe("rules", () => {
   });
   it("needs a name that no other active entity of the place has, but allows the same program and emne", () => {
     const a = profile({ id: "a", name: "Ward 3B", emneIds: [emne1] });
-    const draft = { id: "new", praksisPlaceId: "place1", name: " ward 3b ", programId, emneIds: [emne1], places: 4 };
+    const draft = { id: "new", praksisPlaceId: "place1", name: " ward 3b ", programs: [{ programId, emneIds: [emne1], places: 4 }] };
     expect(validateProfile(draft, [a])).toEqual(["An entity with this name already exists at this place"]);
     expect(validateProfile({ ...draft, name: "Ward 3C" }, [a])).toEqual([]); // same program and emne is fine
     expect(validateProfile({ ...draft, praksisPlaceId: "other" }, [a])).toEqual([]); // another place
@@ -252,15 +265,15 @@ describe("entity store", () => {
   const versionOf = (id: string) => getProfiles().find((p) => p.id === id)?.version;
 
   it("rises in version when something a placement relies on changes, not when the name or status does", () => {
-    const created = addProfile({ praksisPlaceId: "place1", name: "Original", studyId, programId, places: 3 });
+    const created = addProfile({ praksisPlaceId: "place1", name: "Original", ...one({ programId, places: 3 }) });
     expect(versionOf(created.id)).toBe(1);
     updateProfile(created.id, { name: "Renamed" });
     expect(versionOf(created.id)).toBe(1);
-    updateProfile(created.id, { places: 3 }); // same value: nothing changed
+    updateProfile(created.id, one({ programId, places: 3 })); // same value: nothing changed
     expect(versionOf(created.id)).toBe(1);
-    updateProfile(created.id, { places: 5 });
+    updateProfile(created.id, one({ programId, places: 5 }));
     expect(versionOf(created.id)).toBe(2);
-    updateProfile(created.id, { emneIds: [emne1] });
+    updateProfile(created.id, one({ programId, places: 5, emneIds: [emne1] }));
     expect(versionOf(created.id)).toBe(3);
     updateProfile(created.id, { contacts: [contact("c1")] });
     expect(versionOf(created.id)).toBe(4);
@@ -268,8 +281,8 @@ describe("entity store", () => {
     expect(versionOf(created.id)).toBe(4);
   });
   it("copies an entity as 'Copy of X' with the same people on it, at version 1", () => {
-    const created = addProfile({ praksisPlaceId: "place1", name: "Source", studyId, programId, places: 2, contacts: [contact("c1")] });
-    updateProfile(created.id, { places: 9 });
+    const created = addProfile({ praksisPlaceId: "place1", name: "Source", ...one({ programId, places: 2 }), contacts: [contact("c1")] });
+    updateProfile(created.id, one({ programId, places: 9 }));
     const copy = duplicateProfile(created.id);
     expect(copy?.version).toBe(1);
     expect(copy?.name).toBe("Copy of Source");
@@ -429,7 +442,7 @@ describe("student view and snapshot", () => {
 
 // ── People of a place, added to several entities ──────────────────────────────
 describe("contacts of a place", () => {
-  const entity = (name: string, placeId = "place1") => addProfile({ praksisPlaceId: placeId, name, studyId, programId, places: 2 });
+  const entity = (name: string, placeId = "place1") => addProfile({ praksisPlaceId: placeId, name, ...one({ programId, places: 2 }) });
   const profileOf = (id: string) => getProfiles().find((p) => p.id === id)!;
 
   it("needs a name and, when given, a valid email", () => {
@@ -544,7 +557,7 @@ describe("entity type", () => {
     expect(entityTypeLabel(undefined)).toBeUndefined(); // entities from before types have none
   });
   it("is kept when an entity is copied and doesn't raise the version when changed", () => {
-    const created = addProfile({ praksisPlaceId: "place1", name: "Typed ward", entityType: "avdeling", studyId, programId, places: 1 });
+    const created = addProfile({ praksisPlaceId: "place1", name: "Typed ward", entityType: "avdeling", ...one({ programId, places: 1 }) });
     expect(duplicateProfile(created.id)?.entityType).toBe("avdeling");
     updateProfile(created.id, { entityType: "seksjon" });
     const after = getProfiles().find((p) => p.id === created.id)!;
@@ -555,7 +568,7 @@ describe("entity type", () => {
 
 // ── An entity that is made with only a type and a name ─────────────────────────
 describe("incomplete entities", () => {
-  const blank = (over: Partial<PlacementProfile> = {}) => ({ ...profile({ id: "blank", programId: "", studyId: "", emneIds: [], places: 0, info: emptyInfo() }), ...over });
+  const blank = (over: Partial<Over> = {}) => profile({ id: "blank", programId: "", emneIds: [], places: 0, info: emptyInfo(), ...over });
   const emptyInfo = () =>
     ({
       contactBeforePlacement: "",
@@ -570,7 +583,7 @@ describe("incomplete entities", () => {
 
   it("is created with a type and a name and nothing else", () => {
     const e = createEntity("place1", "  Ny avdeling ", "avdeling");
-    expect(e).toMatchObject({ name: "Ny avdeling", entityType: "avdeling", programId: "", studyId: "", emneIds: [], places: 0, contacts: [], version: 1, status: "active" });
+    expect(e).toMatchObject({ name: "Ny avdeling", entityType: "avdeling", programs: [], contacts: [], version: 1, status: "active" });
     expect(profileAudienceLabel(e)).toBe("No program yet");
   });
   it("needs only a name that no other active entity of the place has", () => {
@@ -583,7 +596,7 @@ describe("incomplete entities", () => {
   });
   it("lists everything that is missing, and drops items as they are filled in", () => {
     const keys = (e: PlacementProfile, people: PlaceContact[] = []) => entityMissing(e, people).map((m) => m.key);
-    expect(keys(blank())).toEqual(["program", "places", "contacts", "info"]); // no program: emner can't be judged yet
+    expect(keys(blank())).toEqual(["program", "contacts", "info"]); // no program: emner and places can't be judged yet
     expect(keys(blank({ programId, studyId }))).toEqual(["emner", "places", "contacts", "info"]);
     expect(keys(blank({ programId, studyId, emneIds: [emne1] }))).toEqual(["places", "contacts", "info"]);
     expect(keys(blank({ programId, studyId, emneIds: [emne1], places: 3 }))).toEqual(["contacts", "info"]);
@@ -612,17 +625,17 @@ describe("incomplete entities", () => {
   it("changing the program in one update bumps the version once; text-only and identical updates don't", () => {
     const e = createEntity("place1", "Version test", "gruppe");
     const v = () => getProfiles().find((p) => p.id === e.id)!.version;
-    updateProfile(e.id, { studyId, programId, emneIds: [] });
+    updateProfile(e.id, one({ programId }));
     expect(v()).toBe(2);
-    updateProfile(e.id, { programId, emneIds: [] }); // same values
+    updateProfile(e.id, one({ programId })); // same values
     expect(v()).toBe(2);
     updateProfile(e.id, { info: { ...e.info, activityDescription: "Day shifts" } });
     expect(v()).toBe(2);
-    updateProfile(e.id, { emneIds: [emne1] });
+    updateProfile(e.id, one({ programId, emneIds: [emne1] }));
     expect(v()).toBe(3);
   });
   it("writes out every emne for entities that left them empty to mean 'all'", () => {
-    const old = [profile({ id: "old", emneIds: [] }), profile({ id: "explicit", emneIds: [emne2] }), blank({ id: "noprogram" })];
+    const old = [flat({ id: "old", emneIds: [] }), flat({ id: "explicit", emneIds: [emne2] }), flat({ id: "noprogram", programId: "", emneIds: [] })];
     const out = migrateProfilesV3(old);
     expect(out[0].emneIds).toEqual([emne1, emne2]);
     expect(out[1].emneIds).toEqual([emne2]);
@@ -634,9 +647,112 @@ describe("emner merged when the starting data moved to 2026", () => {
   it("makes entities follow the id that was kept, without listing an emne twice", () => {
     emneIdRemap.clear();
     emneIdRemap.set("gone", "kept");
-    const out = migrateProfilesV5([profile({ id: "p", emneIds: ["kept", "gone", "other"] }), profile({ id: "q", emneIds: ["other"] })]);
+    const out = migrateProfilesV5([flat({ id: "p", emneIds: ["kept", "gone", "other"] }), flat({ id: "q", emneIds: ["other"] })]);
     expect(out[0].emneIds).toEqual(["kept", "other"]);
     expect(out[1].emneIds).toEqual(["other"]);
     emneIdRemap.clear();
+  });
+});
+
+// ── An entity that accepts several programs ─────────────────────────────────────
+describe("entities with several programs", () => {
+  let program2 = "";
+  let p2emne = "";
+  beforeAll(() => {
+    addProgram(studyId, "Logopedics");
+    const study = getStudies().find((s) => s.id === studyId)!;
+    program2 = study.programs.find((p) => p.name === "Logopedics")!.id;
+    addEmne(studyId, program2, "Autumn cohort");
+    p2emne = getStudies().find((s) => s.id === studyId)!.programs.find((p) => p.id === program2)!.emner![0].id;
+  });
+  // takes Nursing (3 places) and Logopedics (5 places)
+  const two = (over: Partial<Over> = {}) =>
+    profile({ id: "two", programs: [{ programId, emneIds: [emne1], places: 3 }, { programId: program2, emneIds: [p2emne], places: 5 }], ...over });
+  const ctx2 = () => ({ programId: program2, emne: "Autumn cohort", emneId: p2emne, year: 2026, semester: "Autumn", startDate: "2026-10-12" });
+
+  it("offers the places of the program of the placement, and the total over its programs", () => {
+    const e = two();
+    expect(placesFor(e, programId)).toBe(3);
+    expect(placesFor(e, program2)).toBe(5);
+    expect(placesFor(e, "other")).toBe(0);
+    expect(totalPlaces(e)).toBe(8);
+    expect(profileTreeForPlacement([e], [place], ctx(), [], [])[0].nodes[0]).toMatchObject({ places: 3, remaining: 3, otherPrograms: [program2] });
+    expect(profileTreeForPlacement([e], [place], ctx2(), [], [])[0].nodes[0]).toMatchObject({ places: 5, remaining: 5, otherPrograms: [programId] });
+  });
+  it("matches each program on its own emner", () => {
+    const e = two();
+    expect(profileMatches(e, { programId, emneId: emne1 })).toBe(true);
+    expect(profileMatches(e, { programId, emneId: emne2 })).toBe(false); // an emne of the first program it does not take
+    expect(profileMatches(e, { programId: program2, emneId: p2emne })).toBe(true);
+    expect(profileMatches(e, { programId: "other", emneId: emne1 })).toBe(false);
+  });
+  it("counts only students of the same program against a program's places", () => {
+    const e = two();
+    // Another placement (the Logopedics one, same period) has two students on the entity
+    const logopedics: OtherPlacementUsage = {
+      placementId: "o1", year: 2026, startDate: "2026-10-12", programId: program2, emne: "Autumn cohort", emneId: p2emne,
+      students: [onProfile("two"), onProfile("two")],
+    };
+    expect(profileTreeForPlacement([e], [place], ctx(), [], [logopedics])[0].nodes[0]).toMatchObject({ remaining: 3, usedElsewhere: 0 });
+    expect(profileTreeForPlacement([e], [place], ctx2(), [], [logopedics])[0].nodes[0]).toMatchObject({ remaining: 3, usedElsewhere: 2 });
+    // and in the other direction: this placement's Nursing students leave Logopedics' places alone
+    const nursing: OtherPlacementUsage = { ...logopedics, placementId: "o2", programId, emne: "Autumn cohort", emneId: emne1, students: [onProfile("two")] };
+    expect(profileTreeForPlacement([e], [place], ctx2(), [], [nursing])[0].nodes[0]).toMatchObject({ remaining: 5, usedElsewhere: 0 });
+    expect(profileTreeForPlacement([e], [place], ctx(), [], [nursing])[0].nodes[0]).toMatchObject({ remaining: 2, usedElsewhere: 1 });
+  });
+  it("shows students placed beyond one program's places as over, without touching the other", () => {
+    const e = two();
+    const node = profileTreeForPlacement([e], [place], ctx(), [onProfile("two"), onProfile("two"), onProfile("two"), onProfile("two")], [])[0].nodes[0];
+    expect(node).toMatchObject({ places: 3, remaining: 0, over: 1 });
+  });
+  it("counts the students placed per program, and which emner they use", () => {
+    const e = two();
+    const nursing: OtherPlacementUsage = { placementId: "n", year: 2026, startDate: "2026-10-12", programId, emne: "Autumn cohort", emneId: emne1, students: [onProfile("two"), onProfile("two")] };
+    const logo: OtherPlacementUsage = { placementId: "l", year: 2026, startDate: "2026-10-12", programId: program2, emne: "Autumn cohort", emneId: p2emne, students: [onProfile("two")] };
+    expect(placedOnProfile(e, [e], [nursing, logo])).toEqual({ total: 3, peak: 3 });
+    expect(placedOnProfile(e, [e], [nursing, logo], undefined, programId)).toEqual({ total: 2, peak: 2 });
+    expect(placedOnProfile(e, [e], [nursing, logo], undefined, program2)).toEqual({ total: 1, peak: 1 });
+    expect(lockedEmneIds(e, [e], [nursing, logo], programId)).toEqual([emne1]);
+    expect(lockedEmneIds(e, [e], [nursing, logo], program2)).toEqual([p2emne]);
+    expect(lockedEmneIds(e, [e], [nursing], program2)).toEqual([]);
+  });
+  it("says which program lacks what, and is placeable only when every program has its emner", () => {
+    const e = two({ programs: [{ programId, emneIds: [emne1], places: 3 }, { programId: program2, emneIds: [], places: 0 }], info: emptyPlacementInfo() });
+    expect(entityMissing(e, []).map((m) => [m.key, m.programId ?? ""])).toEqual([["emner", program2], ["places", program2], ["contacts", ""], ["info", ""]]);
+    expect(entityMissing(e, [])[0].label).toMatch(/^Emner for Logopedics/);
+    expect(isPlaceable(e)).toBe(false);
+    expect(isPlaceable(two())).toBe(true);
+  });
+  it("is checked per program: each only once, its own emner, no duplicates", () => {
+    const base = { id: "x", name: "N" };
+    expect(validateProfile({ ...base, programs: two().programs })).toEqual([]);
+    expect(validateProfile({ ...base, programs: [two().programs[0], two().programs[0]] })).toContain("Each program can only be added once");
+    expect(validateProfile({ ...base, programs: [{ programId, emneIds: [p2emne], places: 1 }] })).toContain("Some emner don't belong to the program");
+    expect(validateProfile({ ...base, programs: [{ programId, emneIds: [emne1, emne1], places: 1 }] })).toContain("An emne can only be picked once");
+    expect(validateProfile({ ...base, programs: [{ programId, emneIds: [emne1], places: -1 }] })).toContain("Places must be a whole number, 0 or more");
+  });
+  it("lists every program in its audience label", () => {
+    expect(profileAudienceLabel(two())).toBe("Nursing · Autumn cohort | Logopedics · Autumn cohort");
+  });
+  it("is copied with its own list of programs, and a change to one program raises the version", () => {
+    const created = addProfile({ praksisPlaceId: "place1", name: "Multi", programs: two().programs });
+    const copy = duplicateProfile(created.id)!;
+    expect(copy.programs).toEqual(created.programs);
+    expect(copy.programs[0]).not.toBe(created.programs[0]);
+    expect(copy.programs[0].emneIds).not.toBe(created.programs[0].emneIds);
+    updateProfile(created.id, { programs: [created.programs[0], { ...created.programs[1], places: 6 }] });
+    expect(getProfiles().find((p) => p.id === created.id)!.version).toBe(2);
+  });
+  it("moves a saved single-program entity to one entry, and leaves a new one alone", () => {
+    const old = flat({ id: "old", emneIds: [emne2], places: 7 });
+    const [out] = migrateProfilesV6([old]);
+    expect(out.programs).toEqual([{ programId, emneIds: [emne2], places: 7 }]);
+    expect(out).not.toHaveProperty("programId");
+    expect(out).not.toHaveProperty("studyId");
+    expect(out).not.toHaveProperty("emneIds");
+    expect(out).not.toHaveProperty("places");
+    expect(out.version).toBe(old.version);
+    expect(migrateProfilesV6([out])[0]).toBe(out); // already in the new shape
+    expect(migrateProfilesV6([flat({ id: "none", programId: "", emneIds: [] })])[0].programs).toEqual([]);
   });
 });

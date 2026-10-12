@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { findEmne, findEmneByName, findProgram, remapEmneId } from "./studyCatalog";
+import { findEmne, findEmneByName, findProgram, programLabel, remapEmneId } from "./studyCatalog";
 import { allMockContacts, allMockSupervisors } from "../data/mockContactsAndSupervisors";
 import { ContactType, PlaceContact, mergePlaceContacts, removePlaceContact } from "./placeContact";
 import { SEED_PRISTINE, SEED_PROFILES } from "../data/seedEntities";
@@ -7,8 +7,9 @@ import { SEED_PRISTINE, SEED_PROFILES } from "../data/seedEntities";
 // Entities: a placement profile is an entity of a praksis place.
 //
 // A praksis place (a hospital, a municipality) has entities. An entity has a name (written when it is
-// made; it is the entity's name everywhere), targets ONE program, optionally narrowed to some of its
-// emner, and carries one number — the places it offers per period — plus the contacts students are told
+// made; it is the entity's name everywhere) and accepts one or more programs. For each accepted program it
+// says which of the program's emner it takes and how many places it offers per period (places are counted per
+// program: students of another program never use them). It also carries the contacts students are told
 // about and the information they get before the placement. Its contacts are people of the praksis place
 // (supervisors and entity contacts, see placeContact.ts) that are added to the entity; one person can be on
 // several entities.
@@ -82,6 +83,13 @@ export const ENTITY_TYPES: { id: EntityType; label: string }[] = [
 
 export const entityTypeLabel = (type?: EntityType) => ENTITY_TYPES.find((t) => t.id === type)?.label;
 
+// One program an entity accepts: the emner of the program it is for and the places it offers per period for them
+export interface AcceptedProgram {
+  programId: string;
+  emneIds: string[]; // the program's emner it is for; empty = none picked yet
+  places: number; // places offered per period to students of this program
+}
+
 export interface PlacementProfile {
   id: string;
   praksisPlaceId: string;
@@ -89,20 +97,26 @@ export interface PlacementProfile {
   entityType?: EntityType;
 
   status: ProfileStatus;
-  studyId: string;
-  programId: string; // exactly one program
-  emneIds: string[]; // the program's emner it is for; empty = every emne of the program
-  places: number; // places offered per period
+  programs: AcceptedProgram[]; // each program at most once
   contacts: EntityContactLink[];
   info: PlacementInfo;
   createdAt: string;
   updatedAt: string;
-  // Raised by every edit that changes what a placement relies on (places, program, emner,
+  // Raised by every edit that changes what a placement relies on (programs with their emner and places,
   // contacts), so a placement can tell that its profile has changed since
   version: number;
   // Set on profiles created from an old limit, so the conversion never makes the same one twice
   migratedFromLimitId?: string;
 }
+
+// An entity as it was saved before it accepted several programs (storage versions 1 to 5): one program, its
+// emner and one number of places on the entity itself. Only the migrations read this shape.
+export type FlatProfile = Omit<PlacementProfile, "programs"> & {
+  studyId: string;
+  programId: string;
+  emneIds: string[]; // empty = every emne of the program (before version 3)
+  places: number;
+};
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 const STORAGE_KEY = "placementProfiles";
@@ -113,7 +127,7 @@ const newId = () => `profile-${Date.now().toString(36)}${(idCounter++).toString(
 
 // Old capacity (limits) → profiles: one profile per unit and program, places = the sum of the program's emne
 // shares, emner = those with a share. Limits whose program is no longer in the catalog are left out.
-const profilesFromLimits = (): PlacementProfile[] => {
+const profilesFromLimits = (): FlatProfile[] => {
   let limits: any[] = [];
   try {
     const parsed = JSON.parse(localStorage.getItem(LIMITS_KEY) ?? "[]");
@@ -121,7 +135,7 @@ const profilesFromLimits = (): PlacementProfile[] => {
   } catch {
     return [];
   }
-  const out: PlacementProfile[] = [];
+  const out: FlatProfile[] = [];
   let skipped = 0;
   limits.forEach((limit) => {
     const byProgram = new Map<string, any[]>();
@@ -176,7 +190,7 @@ const legacyPerson = (ref: { personType?: string; personId?: string }) => {
   return p && { name: p.name, role: p.type || "Contact", email: p.email, phone: p.phone };
 };
 
-export type LegacyProfile = Omit<PlacementProfile, "contacts"> & { contacts: LegacyEntityContact[] };
+export type LegacyProfile = Omit<FlatProfile, "contacts"> & { contacts: LegacyEntityContact[] };
 
 export const migrateProfilesV1 = (old: any[]): LegacyProfile[] => {
   const taken = new Map<string, Set<string>>(); // place → names in use (lower case)
@@ -211,10 +225,10 @@ export const migrateProfilesV1 = (old: any[]): LegacyProfile[] => {
 // contact of the place. A copy keeps its id for the first entity it appears on, so older references still match.
 // Entities that left the emner empty meant "every emne of the program". Now an empty list means none picked, so
 // those entities get all the emner of their program written out.
-export const migrateProfilesV3 = (old: PlacementProfile[]): PlacementProfile[] =>
+export const migrateProfilesV3 = (old: FlatProfile[]): FlatProfile[] =>
   old.map((p) => (p.programId && p.emneIds.length === 0 ? { ...p, emneIds: activeEmneIds(p.programId) } : p));
 
-export const migrateProfilesV2 = (old: any[]): { profiles: PlacementProfile[]; contacts: PlaceContact[] } => {
+export const migrateProfilesV2 = (old: any[]): { profiles: FlatProfile[]; contacts: PlaceContact[] } => {
   const byPerson = new Map<string, PlaceContact>();
   const contacts: PlaceContact[] = [];
   const profiles = old.map((p) => {
@@ -239,16 +253,29 @@ export const migrateProfilesV2 = (old: any[]): { profiles: PlacementProfile[]; c
       }
       return [{ contactId: person.id, notifyOnPlacement: !!c.notifyOnPlacement, availableToStudents: !!c.availableToStudents }];
     });
-    return { ...p, contacts: links } as PlacementProfile;
+    return { ...p, contacts: links } as FlatProfile;
   });
   return { profiles, contacts };
 };
 
-const STORAGE_VERSION = 5;
+const STORAGE_VERSION = 6;
 
 // Version 5: emner that were merged when the starting data moved to 2026 (see migrateCatalogV3) are followed
-export const migrateProfilesV5 = (old: PlacementProfile[]): PlacementProfile[] =>
+export const migrateProfilesV5 = (old: FlatProfile[]): FlatProfile[] =>
   old.map((p) => ({ ...p, emneIds: [...new Set(p.emneIds.map(remapEmneId))] }));
+
+// Version 6: an entity accepts several programs, each with its emner and places. The one program, its emner and
+// its places become the only entry; an entity without a program has none. Entities already in the new shape
+// are left as they are.
+export const migrateProfilesV6 = (old: any[]): PlacementProfile[] =>
+  old.map((p) => {
+    if (Array.isArray(p.programs)) return p as PlacementProfile;
+    const { studyId: _study, programId, emneIds, places, ...rest } = p;
+    const programs: AcceptedProgram[] = programId
+      ? [{ programId, emneIds: Array.isArray(emneIds) ? emneIds : [], places: Number.isInteger(places) && places > 0 ? places : 0 }]
+      : [];
+    return { ...rest, programs } as PlacementProfile;
+  });
 
 const save = (list: PlacementProfile[]) => {
   try {
@@ -261,11 +288,12 @@ const save = (list: PlacementProfile[]) => {
 const load = (): PlacementProfile[] => {
   // Moves saved data up to the current version; the people found on the way go to the place contacts
   const upgrade = (list: any[], version: number): PlacementProfile[] => {
-    if (version >= 3) return version >= 5 ? migrateProfilesV3(list) : migrateProfilesV5(migrateProfilesV3(list));
+    if (version >= 6) return list;
+    if (version >= 3) return migrateProfilesV6(version >= 5 ? migrateProfilesV3(list) : migrateProfilesV5(migrateProfilesV3(list)));
     const v2 = version >= 2 ? list : migrateProfilesV1(list);
     const { profiles: v3, contacts } = migrateProfilesV2(v2);
     mergePlaceContacts(contacts);
-    return migrateProfilesV5(migrateProfilesV3(v3));
+    return migrateProfilesV6(migrateProfilesV5(migrateProfilesV3(v3)));
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -313,15 +341,12 @@ export const getProfiles = () => profiles;
 
 // ── Changes ───────────────────────────────────────────────────────────────────
 export type NewProfile = Pick<PlacementProfile, "praksisPlaceId" | "name"> & { entityType?: EntityType } &
-  Partial<Pick<PlacementProfile, "studyId" | "programId" | "emneIds" | "places" | "contacts" | "info">>;
+  Partial<Pick<PlacementProfile, "programs" | "contacts" | "info">>;
 
 const buildProfile = (input: NewProfile): PlacementProfile => {
   const now = new Date().toISOString();
   return {
-    studyId: "",
-    programId: "",
-    emneIds: [],
-    places: 0,
+    programs: [],
     contacts: [],
     info: emptyPlacementInfo(),
     ...input,
@@ -352,7 +377,7 @@ export const addProfiles = (inputs: NewProfile[]): PlacementProfile[] => {
 };
 
 // The fields a placement relies on: changing one of them raises the profile's version
-const MATERIAL_FIELDS = ["places", "programId", "emneIds", "contacts"] as const;
+const MATERIAL_FIELDS = ["programs", "contacts"] as const;
 
 export const updateProfile = (id: string, patch: Partial<Omit<PlacementProfile, "id" | "createdAt" | "version">>) =>
   setProfiles(
@@ -387,7 +412,7 @@ export const duplicateProfile = (id: string, name?: string): PlacementProfile | 
     name: uniqueEntityName(profiles, source.praksisPlaceId, name?.trim() || `Copy of ${source.name}`),
     status: "active",
     version: 1,
-    emneIds: [...source.emneIds],
+    programs: source.programs.map((e) => ({ ...e, emneIds: [...e.emneIds] })),
     contacts: source.contacts.map((c) => ({ ...c })),
     info: JSON.parse(JSON.stringify(source.info)),
     createdAt: now,
@@ -402,11 +427,36 @@ export const duplicateProfile = (id: string, name?: string): PlacementProfile | 
 export const profilesOfPlace = (all: PlacementProfile[], placeId: string) =>
   all.filter((p) => p.praksisPlaceId === placeId);
 
+// What an entity accepts, by program
+export const programEntry = (p: Pick<PlacementProfile, "programs">, programId: string): AcceptedProgram | undefined =>
+  p.programs.find((e) => e.programId === programId);
+
+export const acceptsProgram = (p: Pick<PlacementProfile, "programs">, programId: string) => !!programEntry(p, programId);
+
+// The places an entity offers to one program (0 when it does not accept it)
+export const placesFor = (p: Pick<PlacementProfile, "programs">, programId: string) => programEntry(p, programId)?.places ?? 0;
+
+// All the places an entity offers, over its programs
+export const totalPlaces = (p: Pick<PlacementProfile, "programs">) => p.programs.reduce((sum, e) => sum + e.places, 0);
+
+// Sets one program of an entity (adds it when the entity does not accept it yet). The order of programs is kept.
+export const setProgramEntry = (profileId: string, entry: AcceptedProgram) => {
+  const p = profiles.find((x) => x.id === profileId);
+  if (!p) return;
+  const next = acceptsProgram(p, entry.programId) ? p.programs.map((e) => (e.programId === entry.programId ? entry : e)) : [...p.programs, entry];
+  updateProfile(profileId, { programs: next });
+};
+
+export const removeProgramEntry = (profileId: string, programId: string) => {
+  const p = profiles.find((x) => x.id === profileId);
+  if (p && acceptsProgram(p, programId)) updateProfile(profileId, { programs: p.programs.filter((e) => e.programId !== programId) });
+};
+
 // Places on offer at a praksis place (archived entities don't count)
 export const placesOfPlace = (all: PlacementProfile[], placeId: string) =>
   profilesOfPlace(all, placeId)
     .filter((p) => p.status === "active")
-    .reduce((sum, p) => sum + p.places, 0);
+    .reduce((sum, p) => sum + totalPlaces(p), 0);
 
 // A mentor is one of an entity's contacts: it refers to the contact by id (personType is the contact's type)
 export const contactKey = (c: { personType: string; personId: string }) => `${c.personType}:${c.personId}`;
@@ -453,10 +503,11 @@ export const activeEmneIds = (programId: string) =>
 
 // An entity with no program takes nobody. It takes the emner picked for it; a program with no emner is matched
 // by program alone.
-export const profileMatches = (profile: PlacementProfile, target: { programId: string; emneId?: string }) => {
-  if (!profile.programId || profile.programId !== target.programId) return false;
-  if (activeEmneIds(profile.programId).length === 0) return true;
-  return !!target.emneId && profile.emneIds.includes(target.emneId);
+export const profileMatches = (profile: Pick<PlacementProfile, "programs">, target: { programId: string; emneId?: string }) => {
+  const entry = target.programId ? programEntry(profile, target.programId) : undefined;
+  if (!entry) return false;
+  if (activeEmneIds(entry.programId).length === 0) return true;
+  return !!target.emneId && entry.emneIds.includes(target.emneId);
 };
 
 // The entity an assignment belongs to: the one it stores (archived entities included, so a placed student
@@ -475,21 +526,24 @@ export const resolveAssignmentProfile = (
 export const placementEmneId = (placement: { programId: string; subject: string; emneId?: string }) =>
   placement.emneId ?? findEmneByName(placement.programId, placement.subject)?.id;
 
-// "Sykepleie · Kull 2026 Høst, Kull 2027 Vår" or "Sykepleie · all emner"; archived/removed items stay readable
-export const profileAudienceLabel = (profile: PlacementProfile) => {
-  if (!profile.programId) return "No program yet";
-  const found = findProgram(profile.programId);
+// "Sykepleie · Kull 2026 Høst, Kull 2027 Vår" for one program; the programs of an entity are joined with " | ";
+// archived/removed items stay readable
+export const programAudienceLabel = (entry: AcceptedProgram) => {
+  const found = findProgram(entry.programId);
   const program = found ? found.program.name : "Unknown program";
-  if (profile.emneIds.length === 0) return activeEmneIds(profile.programId).length === 0 ? program : `${program} · no emner picked`;
-  const names = profile.emneIds.map((id) => findEmne(profile.programId, id)?.emne.name ?? "Unknown emne");
+  if (entry.emneIds.length === 0) return activeEmneIds(entry.programId).length === 0 ? program : `${program} · no emner picked`;
+  const names = entry.emneIds.map((id) => findEmne(entry.programId, id)?.emne.name ?? "Unknown emne");
   return `${program} · ${names.join(", ")}`;
 };
 
+export const profileAudienceLabel = (profile: Pick<PlacementProfile, "programs">) =>
+  profile.programs.length === 0 ? "No program yet" : profile.programs.map(programAudienceLabel).join(" | ");
+
 // How much of the profile is filled in — it doubles as the students' information, so it is worth showing
-export const profileCompleteness = (profile: Pick<PlacementProfile, "places" | "contacts" | "info">) => {
+export const profileCompleteness = (profile: Pick<PlacementProfile, "programs" | "contacts" | "info">) => {
   const { info } = profile;
   const checks = [
-    profile.places > 0,
+    profile.programs.length > 0 && profile.programs.every((e) => e.places > 0),
     profile.contacts.length > 0,
     !!info.contactBeforePlacement.trim(),
     !!info.contactPhone.trim(),
@@ -527,44 +581,65 @@ export type MissingKey = "program" | "emner" | "places" | "contacts" | "info";
 
 // What is still missing on an entity. The page, the tree, the list and the placement screens all read this, so
 // they can't disagree. Program and emner stop the entity from being used in placements; places, contacts and
-// information are shown as things to complete.
-const programMissing = (p: Pick<PlacementProfile, "programId" | "emneIds">): "program" | "emner" | undefined => {
-  if (!p.programId || !findProgram(p.programId)) return "program";
-  const accepted = activeEmneIds(p.programId);
-  return accepted.length > 0 && !p.emneIds.some((id) => accepted.includes(id)) ? "emner" : undefined;
+// information are shown as things to complete. With several programs the label says which program lacks what;
+// `programId` is set then, so the page can open the right card.
+const entryMissing = (e: AcceptedProgram): "program" | "emner" | undefined => {
+  if (!e.programId || !findProgram(e.programId)) return "program";
+  const accepted = activeEmneIds(e.programId);
+  return accepted.length > 0 && !e.emneIds.some((id) => accepted.includes(id)) ? "emner" : undefined;
 };
 
-export const entityMissing = (p: PlacementProfile, people: PlaceContact[]): { key: MissingKey; label: string }[] => {
-  const out: { key: MissingKey; label: string }[] = [];
-  const pm = programMissing(p);
-  if (pm) out.push({ key: pm, label: pm === "program" ? "Program" : "Emner" });
-  if (p.places <= 0) out.push({ key: "places", label: "Places per period" });
+const programName = (programId: string) => {
+  const found = findProgram(programId);
+  return found ? programLabel(found.program) : "Unknown program";
+};
+
+export type MissingItem = { key: MissingKey; label: string; programId?: string };
+
+export const entityMissing = (p: PlacementProfile, people: PlaceContact[]): MissingItem[] => {
+  const out: MissingItem[] = [];
+  const many = p.programs.length > 1;
+  if (p.programs.length === 0) out.push({ key: "program", label: "Program" });
+  p.programs.forEach((e) => {
+    const gap = entryMissing(e);
+    if (gap) out.push({ key: gap, label: gap === "program" ? "Program" : many ? `Emner for ${programName(e.programId)}` : "Emner", programId: e.programId });
+  });
+  p.programs.forEach((e) => {
+    if (e.places <= 0) out.push({ key: "places", label: many ? `Places for ${programName(e.programId)}` : "Places per period", programId: e.programId });
+  });
   if (resolveContacts(p, people).length === 0) out.push({ key: "contacts", label: "Contacts" });
   const empty = missingInfo(p.info);
   if (empty.length > 0) out.push({ key: "info", label: `Placement information (${empty.length} of 5 empty)` });
   return out;
 };
 
-// Can the entity take students? It needs a program and the emner it accepts.
-export const isPlaceable = (p: Pick<PlacementProfile, "programId" | "emneIds">) => !programMissing(p);
+// Can the entity take students? Every program it accepts needs its emner, and it needs at least one program.
+export const isPlaceable = (p: Pick<PlacementProfile, "programs">) => p.programs.length > 0 && p.programs.every((e) => !entryMissing(e));
 
 // Why a (possibly unsaved) entity can't be saved or looks wrong; empty when it's fine.
 // `others` are the entities to compare names with (the ones of the same place count).
 export const validateProfile = (
-  profile: Pick<PlacementProfile, "id" | "name" | "programId" | "emneIds" | "places"> & { praksisPlaceId?: string },
+  profile: Pick<PlacementProfile, "id" | "name" | "programs"> & { praksisPlaceId?: string },
   others: PlacementProfile[] = [],
 ): string[] => {
   const reasons: string[] = [];
-  if (!profile.name.trim()) reasons.push("Give the entity a name");
-  const found = profile.programId ? findProgram(profile.programId) : undefined;
-  if (!found) reasons.push("Pick a program");
-  else {
-    const bad = profile.emneIds.filter((id) => !found.program.emner?.some((e) => e.id === id));
-    if (bad.length > 0) reasons.push("Some emner don't belong to the program");
-    // An entity must say which emner it accepts (a program without emner has nothing to pick)
-    if (profile.emneIds.length === 0 && found.program.emner?.some((e) => !e.archived)) reasons.push("Select at least one emne");
-  }
-  if (!Number.isInteger(profile.places) || profile.places < 0) reasons.push("Places must be a whole number, 0 or more");
+  const add = (reason: string) => {
+    if (!reasons.includes(reason)) reasons.push(reason);
+  };
+  if (!profile.name.trim()) add("Give the entity a name");
+  if (profile.programs.length === 0) add("Pick a program");
+  if (new Set(profile.programs.map((e) => e.programId)).size < profile.programs.length) add("Each program can only be added once");
+  profile.programs.forEach((e) => {
+    const found = e.programId ? findProgram(e.programId) : undefined;
+    if (!found) add("Pick a program");
+    else {
+      if (e.emneIds.some((id) => !found.program.emner?.some((x) => x.id === id))) add("Some emner don't belong to the program");
+      if (new Set(e.emneIds).size < e.emneIds.length) add("An emne can only be picked once");
+      // An entity must say which emner it accepts (a program without emner has nothing to pick)
+      if (e.emneIds.length === 0 && found.program.emner?.some((x) => !x.archived)) add("Select at least one emne");
+    }
+    if (!Number.isInteger(e.places) || e.places < 0) add("Places must be a whole number, 0 or more");
+  });
   // Names are unique within a place
   const sameName = others.filter(
     (o) =>
@@ -574,6 +649,6 @@ export const validateProfile = (
       o.name.trim().toLowerCase() === profile.name.trim().toLowerCase() &&
       profile.name.trim() !== "",
   );
-  if (sameName.length > 0) reasons.push("An entity with this name already exists at this place");
+  if (sameName.length > 0) add("An entity with this name already exists at this place");
   return reasons;
 };

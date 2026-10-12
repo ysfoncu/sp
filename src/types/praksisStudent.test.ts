@@ -197,12 +197,12 @@ describe("profile validation", () => {
     const study = ensureStudy("Valideringsstudie");
     const program = ensureProgram(study, "Valideringsprogram");
     const emne = ensureEmne(study, program, "Kull 1");
-    const base = { id: "x", name: "P", programId: program };
-    expect(validateProfile({ ...base, emneIds: [], places: 0 })).toContain("Select at least one emne");
-    expect(validateProfile({ ...base, emneIds: [emne], places: 0 })).toEqual([]);
+    const base = { id: "x", name: "P" };
+    expect(validateProfile({ ...base, programs: [{ programId: program, emneIds: [], places: 0 }] })).toContain("Select at least one emne");
+    expect(validateProfile({ ...base, programs: [{ programId: program, emneIds: [emne], places: 0 }] })).toEqual([]);
     // a program with no emner has nothing to pick
     const bare = ensureProgram(study, "Uten emner");
-    expect(validateProfile({ ...base, programId: bare, emneIds: [], places: 0 })).toEqual([]);
+    expect(validateProfile({ ...base, programs: [{ programId: bare, emneIds: [], places: 0 }] })).toEqual([]);
   });
 });
 

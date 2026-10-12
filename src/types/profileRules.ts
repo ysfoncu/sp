@@ -7,17 +7,19 @@ import { OtherPlacementUsage, UsageStudent } from "./profileUsage";
 
 
 // How many students are placed on a profile: in total, and at most in any one period (the number
-// its places are measured against). Cancelled assignments don't count.
+// its places are measured against). Cancelled assignments don't count. With `programId` only the students of
+// that program count: an entity's places are per program.
 export const placedOnProfile = (
   profile: PlacementProfile,
   profiles: PlacementProfile[],
   placements: OtherPlacementUsage[],
   period: PlacePeriod = placePeriodOf(profile.praksisPlaceId),
+  programId?: string,
 ): { total: number; peak: number } => {
   const perPeriod = new Map<string, number>();
   let total = 0;
   placements.forEach((p) => {
-    if (!p.programId) return;
+    if (!p.programId || (programId && p.programId !== programId)) return;
     const target = {
       programId: p.programId,
       emneId: p.emne || p.emneId ? placementEmneId({ programId: p.programId, subject: p.emne ?? "", emneId: p.emneId }) : undefined,
@@ -82,8 +84,32 @@ export const placesError = (newPlaces: number, peak: number): string | undefined
     ? `${peak} student${peak === 1 ? " is" : "s are"} already placed in one period, so places can't go below ${peak}`
     : undefined;
 
-// Once students are placed, what the placement relies on stays put: the program and the emner
+// Once students are placed on a program of an entity, what they rely on stays put: that program (it can't be
+// removed) and the emner they are placed under (see lockedEmneIds)
 export const isScopeLocked = (placedTotal: number) => placedTotal > 0;
+
+// The emner of one program of an entity that placed students use (cancelled assignments left out): these can't
+// be taken off the entity while the students are on it
+export const lockedEmneIds = (
+  profile: PlacementProfile,
+  profiles: PlacementProfile[],
+  placements: OtherPlacementUsage[],
+  programId: string,
+): string[] => {
+  const used = new Set<string>();
+  placements.forEach((p) => {
+    if (p.programId !== programId) return;
+    const emneId = p.emne || p.emneId ? placementEmneId({ programId, subject: p.emne ?? "", emneId: p.emneId }) : undefined;
+    if (!emneId) return;
+    const placed = p.students.some((s) => {
+      const a = s.assignedPraksisPlace;
+      if (!a || a.status === "cancelled" || a.placeId !== profile.praksisPlaceId) return false;
+      return resolveAssignmentProfile(profiles, { placeId: a.placeId, unitId: a.entityId ?? a.departmentId, profileId: a.profileId })?.id === profile.id;
+    });
+    if (placed) used.add(emneId);
+  });
+  return [...used];
+};
 
 // Why an entity can't be made active (again): another active entity at the place has its name
 export const activationErrors = (profile: PlacementProfile, all: PlacementProfile[]): string[] =>

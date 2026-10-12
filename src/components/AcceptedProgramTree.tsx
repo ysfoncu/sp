@@ -6,11 +6,12 @@ import { emneMeta, findProgram, programLabel } from "../types/studyCatalog";
 //   │ Praksis 1 – …
 //   └ Praksis 2 – …
 // An archived or removed program or emne stays readable.
-export function AcceptedProgramTree({ programId, emneIds, className }: { programId: string; emneIds: string[]; className?: string }) {
+// `showRequirements` adds each emne's requirement (set in Settings) under it, for the entity page.
+export function AcceptedProgramTree({ programId, emneIds, className, showRequirements = false }: { programId: string; emneIds: string[]; className?: string; showRequirements?: boolean }) {
   const found = findProgram(programId);
   const emner = emneIds.map((id) => {
     const e = found?.program.emner?.find((x) => x.id === id);
-    return { id, name: e?.name ?? "Unknown emne", archived: !!e?.archived, meta: e ? emneMeta(e).join(" · ") : "" };
+    return { id, name: e?.name ?? "Unknown emne", archived: !!e?.archived, meta: e ? emneMeta(e).join(" · ") : "", requirement: e?.requirement };
   });
 
   return (
@@ -29,6 +30,7 @@ export function AcceptedProgramTree({ programId, emneIds, className }: { program
               {e.name}
               {e.meta && <span className="ml-2 text-xs text-gray-500">{e.meta}</span>}
               {e.archived && <span className="ml-1 text-xs">(archived)</span>}
+              {showRequirements && e.requirement && <p className="text-xs text-amber-800">Requirement: {e.requirement}</p>}
             </li>
           ))}
         </ul>

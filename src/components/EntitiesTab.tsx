@@ -10,7 +10,7 @@ import { PraksisPlace } from "../types/praksisPlace";
 import { isPeriodComplete, periodLabel, setPlacePeriod, usePlacePeriod } from "../types/placePeriod";
 import { findProgram, programLabel } from "../types/studyCatalog";
 import { usePlaceContacts } from "../types/placeContact";
-import { PlacementProfile, entityTypeLabel, profileAudienceLabel, profilesOfPlace, resolveContacts, entityMissing, usePlacementProfiles } from "../types/placementProfile";
+import { PlacementProfile, entityTypeLabel, placesFor, profileAudienceLabel, profilesOfPlace, resolveContacts, entityMissing, totalPlaces, usePlacementProfiles } from "../types/placementProfile";
 import { usePlacedOnProfile } from "./ProfileUsageContext";
 import { EntityTypeIcon } from "./EntityTypeIcon";
 import { AcceptedProgramTree } from "./AcceptedProgramTree";
@@ -35,7 +35,7 @@ export function EntitiesTab({ place, onOpenEntity, onAddEntity }: EntitiesTabPro
   const [periodOpen, setPeriodOpen] = useState(false);
 
   const placeEntities = profilesOfPlace(allProfiles, place.id);
-  const programsInUse = [...new Set(placeEntities.map((p) => p.programId))].map((id) => ({
+  const programsInUse = [...new Set(placeEntities.flatMap((p) => p.programs.map((e) => e.programId)))].map((id) => ({
     id,
     name: findProgram(id) ? programLabel(findProgram(id)!.program) : "Unknown program",
   })).filter((p) => p.id);
@@ -43,7 +43,7 @@ export function EntitiesTab({ place, onOpenEntity, onAddEntity }: EntitiesTabPro
   const q = query.trim().toLowerCase();
   const inView = placeEntities.filter(
     (p) =>
-      (programId === "all" || p.programId === programId) &&
+      (programId === "all" || p.programs.some((e) => e.programId === programId)) &&
       (!q ||
         `${p.name} ${profileAudienceLabel(p)} ${resolveContacts(p, people)
           .map((c) => c.name)
@@ -53,7 +53,8 @@ export function EntitiesTab({ place, onOpenEntity, onAddEntity }: EntitiesTabPro
   );
   const shown = (showArchived ? inView : inView.filter((p) => p.status === "active")).sort((a, b) => a.name.localeCompare(b.name, "nb", { numeric: true }));
   const activeInView = inView.filter((p) => p.status === "active");
-  const totalPlaces = activeInView.reduce((sum, p) => sum + p.places, 0);
+  // With a program chosen, the places count are those offered to that program
+  const placesInView = activeInView.reduce((sum, p) => sum + (programId === "all" ? totalPlaces(p) : placesFor(p, programId)), 0);
 
   const filtering = q !== "" || programId !== "all";
   const clearFilters = () => {
@@ -64,7 +65,11 @@ export function EntitiesTab({ place, onOpenEntity, onAddEntity }: EntitiesTabPro
   // One row per entity; the accepted program and its emner are shown as a small tree
   const row = (p: PlacementProfile) => {
     const archived = p.status === "archived";
-    const peak = placedFor(p).peak;
+    // Places are per program: the program lines show their own, the last column the total over all programs
+    const lines = p.programs.filter((e) => programId === "all" || e.programId === programId);
+    const peaks = new Map(p.programs.map((e) => [e.programId, placedFor(p, e.programId).peak]));
+    const peak = [...peaks.values()].reduce((sum, n) => sum + n, 0);
+    const places = totalPlaces(p);
     const contactCount = resolveContacts(p, people).length;
     const gaps = archived ? [] : entityMissing(p, people);
     return (
@@ -92,8 +97,24 @@ export function EntitiesTab({ place, onOpenEntity, onAddEntity }: EntitiesTabPro
             </span>
           )}
         </span>
-        {p.programId ? (
-          <AcceptedProgramTree programId={p.programId} emneIds={p.emneIds} />
+        {lines.length > 0 ? (
+          <div className="space-y-2">
+            {lines.map((e) => {
+              const placed = peaks.get(e.programId) ?? 0;
+              return (
+                <div key={e.programId}>
+                  <AcceptedProgramTree programId={e.programId} emneIds={e.emneIds} />
+                  {p.programs.length > 1 && (
+                    <p className="ml-1 mt-0.5 text-xs text-gray-500">
+                      <span className={placed > e.places ? "font-semibold text-red-600" : "font-semibold text-purple-600"}>{placed}</span>
+                      {" / "}
+                      <span className="font-semibold text-purple-600">{e.places}</span> placed for this program
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <span className="text-sm text-amber-700">No program yet</span>
         )}
@@ -101,10 +122,10 @@ export function EntitiesTab({ place, onOpenEntity, onAddEntity }: EntitiesTabPro
           <Users className="h-3.5 w-3.5 text-gray-400" />
           {contactCount}
         </span>
-        <span className="text-sm" title={`${peak} placed in the busiest period`}>
-          <span className={`font-semibold ${peak > p.places ? "text-red-600" : "text-purple-600"}`}>{peak}</span>
+        <span className="text-sm" title={p.programs.length > 1 ? `${peak} placed in the busiest periods, over ${p.programs.length} programs` : `${peak} placed in the busiest period`}>
+          <span className={`font-semibold ${[...peaks].some(([id, n]) => n > placesFor(p, id)) ? "text-red-600" : "text-purple-600"}`}>{peak}</span>
           <span className="text-gray-400"> / </span>
-          <span className="font-semibold text-purple-600">{p.places}</span>
+          <span className="font-semibold text-purple-600">{places}</span>
           <span className="text-xs text-gray-500"> placed</span>
         </span>
       </button>
@@ -152,7 +173,7 @@ export function EntitiesTab({ place, onOpenEntity, onAddEntity }: EntitiesTabPro
             <span className="text-lg font-semibold text-gray-900">{activeInView.length}</span> entit{activeInView.length === 1 ? "y" : "ies"}
           </span>
           <span>
-            <span className="font-semibold text-gray-900">{totalPlaces}</span> places
+            <span className="font-semibold text-gray-900">{placesInView}</span> places
           </span>
           {filtering && <span className="text-xs text-gray-400">for the current filter</span>}
         </div>

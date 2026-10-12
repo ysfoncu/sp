@@ -34,7 +34,7 @@ import {
 import { Student } from "../types/placementTask";
 import { PlacementTaskState, StudentPlacement } from "../types/studentPlacement";
 import { PraksisPlace } from "../types/praksisPlace";
-import { PlacementProfile, placementEmneId, resolveAssignmentProfile, usePlacementProfiles } from "../types/placementProfile";
+import { PlacementProfile, placementEmneId, placesFor, resolveAssignmentProfile, usePlacementProfiles } from "../types/placementProfile";
 import { OtherPlacementUsage, profileTreeForPlacement } from "../types/profileUsage";
 import { useUsagePlacements } from "./ProfileUsageContext";
 import { Study } from "../types/studyCatalog";
@@ -612,7 +612,7 @@ function PlacementSection({
         organisationName: a.placeName,
         profileName: owner?.name ?? a.departmentName ?? "No entity",
         status: owner ? "archived" : "unlinked",
-        places: owner?.places ?? 0,
+        places: owner ? placesFor(owner, placement.programId) : 0,
         placed: 0,
         elsewhere: 0,
       };

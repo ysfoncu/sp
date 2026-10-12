@@ -787,15 +787,16 @@ export default function App() {
       (p) => p.status === "active" && praksisPlaces.some((pl) => pl.id === p.praksisPlaceId),
     );
     const place = profile && praksisPlaces.find((pl) => pl.id === profile.praksisPlaceId);
-    const program = profile ? findProgram(profile.programId) : undefined;
-    if (!profile || !place || !program) {
+    const accepted = profile?.programs.find((e) => findProgram(e.programId));
+    const program = accepted ? findProgram(accepted.programId) : undefined;
+    if (!profile || !place || !accepted || !program) {
       toast.error("No entity to place students on", {
         description: "Add an entity under Praksis places first",
       });
       return;
     }
     const emne =
-      (profile.emneIds[0] && findEmne(profile.programId, profile.emneIds[0])?.emne) || program.program.emner?.[0];
+      (accepted.emneIds[0] && findEmne(accepted.programId, accepted.emneIds[0])?.emne) || program.program.emner?.[0];
 
     const placementId = `placement-${Date.now()}`;
     const startDate = new Date(2026, 1, 2).toISOString();
@@ -803,7 +804,7 @@ export default function App() {
     const title = `${program.program.name} placement – ${profile.name}`;
 
     // Use mockStudents so student IDs match priority application references; never more than the profile has places
-    const count = Math.max(1, Math.min(mockStudents.length, profile.places));
+    const count = Math.max(1, Math.min(mockStudents.length, accepted.places));
     const mockPlacementStudents = mockStudents.slice(0, count).map((s) => ({
       ...s,
       assignedPraksisPlace: {
@@ -834,8 +835,8 @@ export default function App() {
       endDate,
       students: count,
       status: "completed",
-      studyId: profile.studyId,
-      programId: profile.programId,
+      studyId: program.study.id,
+      programId: accepted.programId,
     };
 
     const newPlacementTaskState: PlacementTaskState = {
