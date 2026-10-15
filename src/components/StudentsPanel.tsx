@@ -21,10 +21,18 @@ import {
   MapPin,
   CheckCircle2,
   CircleDashed,
+  Plus,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
+import { TagChip, TagFilterBar, TagPicker } from "./StudentTags";
+import { hasAnyTag, tagsOf, toggleStudentTag, useStudentTags } from "../types/studentTags";
+
+// The boxes that pick students: larger, with a dark border on white, and solid blue when ticked
+const PICK_CHECKBOX =
+  "size-5 rounded-[5px] border-2 border-gray-500 bg-white shadow-none hover:border-blue-600 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600 data-[state=checked]:text-white focus-visible:ring-blue-300";
 import { Input } from "./ui/input";
 import {
   Select,
@@ -38,7 +46,6 @@ import { usePlacementProfiles } from "../types/placementProfile";
 import { PriorityPlacementApplication } from "../types/priorityPlacement";
 import { overBy, pointsOf, rankStudents } from "../types/quickAssign";
 import { placesLabel, unassignedOf } from "../types/entityPicker";
-import { EntityPickerPopover } from "./EntityPickerPopover";
 import { PriorityApplicationDetailsModal } from "./PriorityApplicationDetailsModal";
 import { toast } from "sonner@2.0.3";
 
@@ -140,6 +147,9 @@ export function StudentsPanel({
   });
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
+  // Tags on the students: the chips above the list filter it, several picked tags show the students with any of them
+  const tagState = useStudentTags();
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [studentSortDir, setStudentSortDir] = useState<"asc" | "desc" | null>(null);
   const [prioritySortDir, setPrioritySortDir] = useState<"asc" | "desc" | null>(null);
@@ -200,6 +210,7 @@ export function StudentsPanel({
       const hasPoints = pointsOf(s, applicationPoints) !== undefined;
       if (filterPriority === "with" && !hasPoints) return false;
       if (filterPriority === "without" && hasPoints) return false;
+      if (!hasAnyTag(tagState, s.id, tagFilter)) return false;
       if (!q) return true;
       return (
         s.name.toLowerCase().includes(q) ||
@@ -228,33 +239,53 @@ export function StudentsPanel({
             : 0;
       });
     return { filteredStudents: shown, assignedCount: assigned, notAssignedCount: base.length - assigned };
-  }, [students, studentSearch, filterPriority, filterAssignment, applicationPoints, prioritySortDir, studentSortDir]);
+  }, [students, studentSearch, filterPriority, filterAssignment, applicationPoints, prioritySortDir, studentSortDir, tagState, tagFilter]);
   const placing = !!assignTarget;
   const pickable = useMemo(() => filteredStudents.filter((s) => !s.assignedPraksisPlace), [filteredStudents]);
   // The ticked students that still have no entity (one placed elsewhere meanwhile drops out)
   const selectedIds = useMemo(() => unassignedOf(selectedStudents, students), [students, selectedStudents]);
-  // Students-first: ticked students and no entity chosen from the + yet; the entity is picked in the bar
+  // Students ticked and no entity started from the +: the entity is the one the + of a card chose for them
   const studentsFirst = !assignTarget && selectedIds.length > 0;
   const pickedEntity = assignOptions.find((o) => o.id === pickedEntityId) ?? null;
+  // The one bar (started from an entity or from the students) shows this entity, whichever way it was chosen
+  const barEntity = assignTarget ?? pickedEntity;
+  const barOpen = placing || studentsFirst;
   const tableRef = useRef<HTMLDivElement>(null);
-  const topForPlacing = () => {
-    if (!assignTarget) return;
-    const top = rankStudents(pickable, { query: "" }, applicationPoints, assignTarget.praksisPlaceName).slice(0, Math.max(0, assignTarget.remaining));
+  const topForBar = () => {
+    if (!barEntity) return;
+    const top = rankStudents(pickable, { query: "" }, applicationPoints, barEntity.praksisPlaceName).slice(0, Math.max(0, barEntity.remaining));
     setSelectedStudents(new Set(top.map((s) => s.id)));
   };
-  const addSelected = () => {
-    onAddToTarget?.(selectedIds);
-    setSelectedStudents(new Set());
-    // The bar closes once the students are added; the + on an entity starts the next batch
-    onCancelAssign?.();
+  const addFromBar = () => {
+    if (!barEntity) return;
+    if (assignTarget) {
+      onAddToTarget?.(selectedIds);
+      setSelectedStudents(new Set());
+      // The bar closes once the students are added; the + on an entity starts the next batch
+      onCancelAssign?.();
+    } else {
+      onAddToTarget?.(selectedIds, barEntity.id);
+      setSelectedStudents(new Set());
+      onPickEntity?.(null);
+      setTimeout(() => tableRef.current?.focus(), 0);
+    }
   };
-  // Students-first: the group goes to the entity picked in the bar, and the bar closes (nothing is ticked any more)
-  const addToPicked = () => {
-    if (!pickedEntity) return;
-    onAddToTarget?.(selectedIds, pickedEntity.id);
+  // The selected students by name, for the list on the count in the bar, and a click on a name takes you to the row
+  const selectedStudentList = selectedIds
+    .map((id) => students.find((s) => s.id === id))
+    .filter((s): s is Student => !!s);
+  const scrollToStudent = (id: string) => {
+    const row = tableRef.current?.querySelector<HTMLElement>(`[data-student-row="${CSS.escape(id)}"]`);
+    if (!row) return; // filtered out of the list right now
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    row.classList.add("ring-2", "ring-inset", "ring-blue-500", "bg-blue-50");
+    setTimeout(() => row.classList.remove("ring-2", "ring-inset", "ring-blue-500", "bg-blue-50"), 1800);
+  };
+  // Cancel: stop placing and untick everything, whichever way the bar was opened
+  const closeBar = () => {
     setSelectedStudents(new Set());
     onPickEntity?.(null);
-    setTimeout(() => tableRef.current?.focus(), 0);
+    onCancelAssign?.();
   };
   // Students no free place covers: the places left do not reach them
   const shortBy = placesLeft === undefined ? 0 : Math.max(0, notAssignedCount - placesLeft);
@@ -495,12 +526,16 @@ export function StudentsPanel({
       </div>
 
       {/* Table */}
-      <div ref={tableRef} tabIndex={-1} className={`overflow-x-auto outline-none ${placing || studentsFirst ? "pb-28" : ""}`}>
+      {/* The tags: a click on a chip shows the students that have it */}
+      <TagFilterBar tagState={tagState} studentIds={students.map((s) => s.id)} picked={tagFilter} onChange={setTagFilter} selectedIds={selectedIds} />
+
+      <div ref={tableRef} tabIndex={-1} className={`overflow-x-auto outline-none ${barOpen ? "pb-28" : ""}`}>
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-2 py-3 text-left w-12">
                 <Checkbox
+                  className={PICK_CHECKBOX}
                   checked={pickable.length > 0 && pickable.every((s) => selectedStudents.has(s.id))}
                   aria-label="Select all students without an entity in this list"
                   onCheckedChange={(checked: boolean) => {
@@ -586,6 +621,7 @@ export function StudentsPanel({
             {filteredStudents.map((student) => (
               <tr
                 key={student.id}
+                data-student-row={student.id}
                 className={`border-b border-gray-100 transition-colors ${
                   student.assignedPraksisPlace
                     ? "bg-green-50/50 opacity-60 hover:opacity-80 hover:bg-green-50"
@@ -595,6 +631,7 @@ export function StudentsPanel({
                 <td className="px-2 py-4">
                   {!student.assignedPraksisPlace && (
                     <Checkbox
+                      className={PICK_CHECKBOX}
                       checked={selectedStudents.has(student.id)}
                       aria-label={`Select ${student.name}`}
                       onCheckedChange={() => handleToggleStudentSelection(student.id)}
@@ -627,6 +664,16 @@ export function StudentsPanel({
                         <span>{student.address}</span>
                       </div>
                     )}
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      {tagsOf(tagState, student.id).map((t) => (
+                        <TagChip key={t.id} tag={t} onRemove={() => toggleStudentTag([student.id], t.id)} />
+                      ))}
+                      <TagPicker tagState={tagState} studentIds={[student.id]} title="Tag this student">
+                        <button type="button" aria-label={`Tag ${student.name}`} className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-gray-300 px-1.5 py-0.5 text-[11px] text-gray-500 hover:border-blue-400 hover:text-blue-700">
+                          <Plus className="h-3 w-3" aria-hidden="true" /> Tag
+                        </button>
+                      </TagPicker>
+                    </div>
                   </td>
                 )}
 
@@ -942,102 +989,102 @@ export function StudentsPanel({
       </div>
     </div>
 
-    {/* Placing students: the bar that shows the pick and adds it to the entity */}
-    {placing && assignTarget && (
+    {/* The one floating bar for placing students, whether it was started from an entity (+) or from ticked students:
+        the chosen entity on the left, the number of selected students on the right. The entity is chosen with the + of a
+        card, never here. */}
+    {barOpen && (
       <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:pr-24">
         <div
           role="region"
           aria-label="Place the selected students"
-          className="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-white shadow-xl"
+          className="pointer-events-auto flex w-full max-w-4xl flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-white shadow-xl sm:flex-nowrap"
         >
-          <div role="status" aria-live="polite" className="text-sm text-slate-200">
-            <span className="font-semibold text-white">{selectedIds.length}</span> student
-            {selectedIds.length !== 1 ? "s" : ""} selected
-            <span className="text-slate-400"> · </span>
-            <span className="font-semibold text-white">{assignTarget.remaining}</span> place{assignTarget.remaining !== 1 ? "s" : ""} left
-            {overBy(assignTarget.remaining, selectedIds.length) > 0 && (
-              <span className="ml-1 inline-flex items-center gap-1 font-semibold text-amber-300">
-                <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                over by {overBy(assignTarget.remaining, selectedIds.length)}
-              </span>
-            )}
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={topForPlacing}
-              disabled={assignTarget.remaining <= 0 || pickable.length === 0}
-              className="text-xs font-medium text-sky-300 hover:underline disabled:text-slate-500 disabled:no-underline"
-              title="Select the students with most points, as many as there are places left"
-            >
-              Select top {Math.max(0, assignTarget.remaining)} by points
-            </button>
-            {selectedIds.length > 0 && (
-              <button type="button" onClick={() => setSelectedStudents(new Set())} className="text-xs text-slate-300 hover:underline">
-                Clear
-              </button>
-            )}
-            <Button
-              size="sm"
-              disabled={selectedIds.length === 0}
-              onClick={addSelected}
-              className="bg-sky-500 text-white hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-400"
-            >
-              Add {selectedIds.length} to {assignTarget.name}
-            </Button>
-            <Button size="sm" variant="outline" onClick={onCancelAssign} className="border-slate-500 bg-transparent text-white hover:bg-slate-800 hover:text-white">
-              Done
-            </Button>
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* Students first: the group is ticked, the entity is picked here (a light bar, not the dark one of the + flow) */}
-    {studentsFirst && (
-      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:pr-24">
-        <div
-          role="region"
-          aria-label="Add the selected students to a praksis place"
-          className="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border-2 border-indigo-600 bg-indigo-50 px-4 py-3 text-indigo-950 shadow-xl"
-        >
-          <span className="rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Students first</span>
-          <div role="status" aria-live="polite" className="text-sm">
-            <span className="font-semibold">{selectedIds.length}</span> student{selectedIds.length !== 1 ? "s" : ""} selected
-            <span className="text-indigo-400"> · </span>
-            {pickedEntity ? (
+          {/* Left: the entity */}
+          <div className="min-w-0 flex-1 text-sm" aria-live="polite">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Praksis place</p>
+            {barEntity ? (
               <>
-                <span className="font-semibold">{pickedEntity.praksisPlaceName} - {pickedEntity.name}</span>
-                <span className="text-indigo-700">, {placesLabel(pickedEntity.remaining, pickedEntity.over)}</span>
-                {overBy(pickedEntity.remaining, selectedIds.length) > 0 && (
-                  <span className="ml-1 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900">
-                    <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                    over by {overBy(pickedEntity.remaining, selectedIds.length)}
-                  </span>
-                )}
+                <p className="truncate font-semibold text-white">
+                  {barEntity.praksisPlaceName} - {barEntity.name}
+                </p>
+                <p className="text-xs text-slate-300">{placesLabel(barEntity.remaining, barEntity.over)}</p>
               </>
             ) : (
-              <span className="text-indigo-700">no place chosen yet</span>
+              <p className="text-slate-300">No place chosen yet. Press + on an entity.</p>
             )}
           </div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => setSelectedStudents(new Set())} className="text-xs text-indigo-800 hover:underline">
-              Clear
-            </button>
-            <EntityPickerPopover options={assignOptions} selectedCount={selectedIds.length} onPick={(id) => onPickEntity?.(id)}>
-              <Button size="sm" variant="outline" className="border-indigo-600 bg-white text-indigo-900 hover:bg-indigo-100" aria-haspopup="listbox">
-                {pickedEntity ? "Change place" : "Choose praksis place…"}
+
+          {/* Right: how many students, and what to do with them */}
+          <div className="ml-auto flex flex-shrink-0 flex-wrap items-center justify-end gap-x-4 gap-y-2 sm:flex-nowrap">
+            <div role="status" aria-live="polite" className="whitespace-nowrap text-right text-sm text-slate-200">
+              <HoverCard openDelay={80} closeDelay={150}>
+                <HoverCardTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    className="cursor-default rounded underline decoration-dotted decoration-slate-500 underline-offset-4 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
+                    aria-label={`${selectedIds.length} students selected. Show their names`}
+                  >
+                    <span className="text-lg font-semibold text-white">{selectedIds.length}</span> student{selectedIds.length !== 1 ? "s" : ""} selected
+                  </span>
+                </HoverCardTrigger>
+                {selectedStudentList.length > 0 && (
+                  <HoverCardContent side="top" align="end" sideOffset={10} className="w-72 p-2">
+                    <p className="px-2 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                      Selected students · click a name to find it in the list
+                    </p>
+                    <ul className="max-h-60 overflow-y-auto">
+                      {selectedStudentList.map((s) => (
+                        <li key={s.id}>
+                          <button
+                            type="button"
+                            onClick={() => scrollToStudent(s.id)}
+                            className="w-full truncate rounded px-2 py-1 text-left text-sm text-gray-800 hover:bg-blue-50 hover:text-blue-900 focus-visible:bg-blue-50"
+                          >
+                            {s.name}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </HoverCardContent>
+                )}
+              </HoverCard>
+              {barEntity && overBy(barEntity.remaining, selectedIds.length) > 0 && (
+                <span className="ml-2 inline-flex items-center gap-1 font-semibold text-amber-300">
+                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                  over by {overBy(barEntity.remaining, selectedIds.length)}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {barEntity && (
+                <button
+                  type="button"
+                  onClick={topForBar}
+                  disabled={barEntity.remaining <= 0 || pickable.length === 0}
+                  className="text-xs font-medium text-sky-300 hover:underline disabled:text-slate-500 disabled:no-underline"
+                  title="Select the students with most points, as many as there are places left"
+                >
+                  Top {Math.max(0, barEntity.remaining)} by points
+                </button>
+              )}
+              {selectedIds.length > 0 && (
+                <button type="button" onClick={() => setSelectedStudents(new Set())} className="text-xs text-slate-300 hover:underline">
+                  Clear
+                </button>
+              )}
+              <Button
+                size="sm"
+                disabled={!barEntity || selectedIds.length === 0}
+                onClick={addFromBar}
+                title={barEntity ? `Add ${selectedIds.length} to ${barEntity.name}` : "Choose an entity with + first"}
+                className="bg-sky-500 text-white hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-400"
+              >
+                Add {selectedIds.length}
               </Button>
-            </EntityPickerPopover>
-            <Button
-              size="sm"
-              disabled={!pickedEntity}
-              onClick={addToPicked}
-              className="bg-indigo-700 text-white hover:bg-indigo-800 disabled:bg-indigo-200 disabled:text-indigo-500"
-            >
-              {pickedEntity ? `Add ${selectedIds.length} to ${pickedEntity.name}` : `Add ${selectedIds.length}`}
-            </Button>
+              <Button size="sm" variant="outline" onClick={closeBar} className="border-slate-500 bg-transparent text-white hover:bg-slate-800 hover:text-white">
+                Cancel
+              </Button>
+            </div>
           </div>
         </div>
       </div>

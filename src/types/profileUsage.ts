@@ -8,8 +8,12 @@
 //     in the same period, from this placement and from other placements of the same program whose emne the
 //     entity also covers
 //   - Period: one per praksis place (placePeriod.ts)
+//   - With the placement's slots (placementSlots.ts) only the chosen entities are offered, `places` is the
+//     slots chosen for this placement and other placements' students are not subtracted again: they were
+//     counted when the slots were set
 import { PraksisPlace } from "./praksisPlace";
 import { PeriodContext, periodKeyFor, periodLabel, placePeriodOf } from "./placePeriod";
+import type { EntitySlot } from "./placementSlots";
 import { PlacementProfile, isPlaceable, placementEmneId, placesFor, profileMatches, resolveAssignmentProfile } from "./placementProfile";
 
 // What a placement needs to be matched against profiles
@@ -51,11 +55,13 @@ export interface OtherPlacementUsage {
 export interface ProfileNodeInfo {
   profile: PlacementProfile;
   unitName: string; // the entity name
-  places: number; // the places the entity offers to the placement's program
+  places: number; // the places this placement can use: the entity's places for its program, or the placement's slots
+  programPlaces: number; // the places the entity offers to the placement's program
+  fromSlots: boolean; // `places` are the placement's slots
   otherPrograms: string[]; // ids of the other programs the entity accepts (for a note; their places are separate)
   used: number; // by this placement
   usedElsewhere: number; // by other placements in the same period
-  remaining: number; // places − used − usedElsewhere, never below 0
+  remaining: number; // places − used (− usedElsewhere without slots), never below 0
   over: number; // students placed beyond the places (0 when within them)
   periodLabel: string;
 }
@@ -86,6 +92,8 @@ export const profileTreeForPlacement = (
   ctx: ProfilePlacementContext,
   students: UsageStudent[],
   otherPlacements: OtherPlacementUsage[],
+  // The entities chosen for the placement and their slots; undefined offers every fitting entity
+  entitySlots?: EntitySlot[],
 ): PlaceProfileTree[] => {
   if (!ctx.programId || !ctx.emne) return [];
   const target = {
@@ -125,11 +133,17 @@ export const profileTreeForPlacement = (
             return sum;
           return sum + o.students.filter((s) => onProfile(s, otherTarget)).length;
         }, 0);
-        const places = placesFor(profile, ctx.programId!);
-        const remaining = Math.max(0, places - used - usedElsewhere);
-        const over = Math.max(0, used + usedElsewhere - places);
+        const programPlaces = placesFor(profile, ctx.programId!);
+        const chosen = entitySlots?.find((s) => s.profileId === profile.id);
+        // An entity that is not chosen but has students of this placement stays visible (with no slots)
+        if (entitySlots && !chosen && used === 0) return;
+        const fromSlots = !!entitySlots;
+        const places = fromSlots ? (chosen?.slots ?? 0) : programPlaces;
+        const taken = fromSlots ? used : used + usedElsewhere;
+        const remaining = Math.max(0, places - taken);
+        const over = Math.max(0, taken - places);
         const otherPrograms = profile.programs.filter((e) => e.programId !== ctx.programId).map((e) => e.programId);
-        nodes.push({ profile, unitName: profile.name, places, otherPrograms, used, usedElsewhere, remaining, over, periodLabel: periodLabel(period) });
+        nodes.push({ profile, unitName: profile.name, places, programPlaces, fromSlots, otherPrograms, used, usedElsewhere, remaining, over, periodLabel: periodLabel(period) });
         unitInfos.push({ id: profile.id, name: profile.name, remaining, profileId: profile.id, profileName: profile.name });
       });
 
@@ -137,6 +151,9 @@ export const profileTreeForPlacement = (
   });
 };
 
-// Places the placement can use: every profile's places minus what other placements used
+// What an entity can take for this placement: its slots, or its places minus what other placements used
+export const nodeCapacity = (n: ProfileNodeInfo) => (n.fromSlots ? n.places : Math.max(0, n.places - n.usedElsewhere));
+
+// Places the placement can use: the slots chosen, or every profile's places minus what other placements used
 export const totalPlacesForPlacement = (trees: PlaceProfileTree[]) =>
-  trees.reduce((sum, t) => sum + t.nodes.reduce((s, n) => s + Math.max(0, n.places - n.usedElsewhere), 0), 0);
+  trees.reduce((sum, t) => sum + t.nodes.reduce((s, n) => s + nodeCapacity(n), 0), 0);

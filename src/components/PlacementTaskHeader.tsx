@@ -1,4 +1,4 @@
-import { ArrowLeft, Calendar as CalendarIcon, Clock, HelpCircle, Pencil } from "lucide-react";
+import { ArrowLeft, Calendar as CalendarIcon, Clock, HelpCircle, Pencil, Users } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   Breadcrumb,
@@ -15,6 +15,8 @@ interface PlacementTaskHeaderProps {
   placement: StudentPlacement;
   currentTask: PlacementTask | undefined;
   isAssignmentPublished: boolean;
+  // How many students are in the placement now
+  studentCount?: number;
   onBack: () => void;
   onOpenTasks: () => void;
   onEdit: () => void;
@@ -25,6 +27,7 @@ export function PlacementTaskHeader({
   placement,
   currentTask,
   isAssignmentPublished,
+  studentCount,
   onBack,
   onOpenTasks,
   onEdit,
@@ -81,6 +84,15 @@ export function PlacementTaskHeader({
                   {placement.startDate} - {placement.endDate}
                 </span>
               </div>
+              {studentCount !== undefined && (
+                <div className="flex items-center gap-1" title="Students in this placement">
+                  <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                  <Users className="h-3.5 w-3.5" />
+                  <span>
+                    {studentCount} student{studentCount === 1 ? "" : "s"}
+                  </span>
+                </div>
+              )}
               {placement.totalPraksisHours != null && (
                 <div className="flex items-center gap-1">
                   <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
@@ -109,7 +121,7 @@ export function PlacementTaskHeader({
                 type="button"
                 onClick={onOpenTasks}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
-                  currentTask.step === "5/5"
+                  currentTask.id === "8"
                     ? "bg-green-50 border-green-200 text-green-800 hover:bg-green-100"
                     : "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100"
                 }`}

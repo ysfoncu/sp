@@ -88,7 +88,8 @@ interface PlacementModalsProps {
   onTaskAction: (taskId: string) => void;
 
   // Publish confirm dialog
-  isPublishConfirmOpen: boolean;
+  // Which publish step the dialog confirms (null = closed)
+  publishMode: "entities" | "students" | null;
   onClosePublishConfirm: () => void;
   onPublishConfirm: () => void;
   // Students placed without a mentor, and the contacts who would be told (nothing is sent in this prototype)
@@ -145,7 +146,7 @@ export function PlacementModals({
   onCloseTasksModal,
   tasks,
   onTaskAction,
-  isPublishConfirmOpen,
+  publishMode,
   onClosePublishConfirm,
   onPublishConfirm,
   needsMentorCount = 0,
@@ -182,14 +183,15 @@ export function PlacementModals({
         onTaskAction={onTaskAction}
       />
 
-      {/* Publish assignments confirm */}
-      <Dialog open={isPublishConfirmOpen} onOpenChange={(open) => !open && onClosePublishConfirm()}>
+      {/* Publish confirm: to entities first, then to students */}
+      <Dialog open={publishMode !== null} onOpenChange={(open) => !open && onClosePublishConfirm()}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Publish assignments?</DialogTitle>
+            <DialogTitle>{publishMode === "entities" ? "Publish to entities?" : "Publish to students?"}</DialogTitle>
             <DialogDescription>
-              Publishing will lock all student assignments. Detach and reassign
-              actions will be disabled. This cannot be undone.
+              {publishMode === "entities"
+                ? "The entities will see which students are placed on them. Detach and reassign actions will be locked. Use Edit to unlock them. Students cannot see anything yet."
+                : "Each student will be told their placement and can see the information in the preview. The assignments become booked. You can edit later and send updates."}
             </DialogDescription>
           </DialogHeader>
           {needsMentorCount > 0 && (
@@ -198,7 +200,7 @@ export function PlacementModals({
               and assign mentors later.
             </p>
           )}
-          {infoWarnings.length > 0 && (
+          {publishMode === "students" && infoWarnings.length > 0 && (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
               <p className="text-xs font-semibold text-amber-900">Information students will not get</p>
               <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto text-xs text-amber-800">
@@ -208,7 +210,7 @@ export function PlacementModals({
               </ul>
             </div>
           )}
-          {notifyList.length > 0 && (
+          {publishMode === "entities" && notifyList.length > 0 && (
             <div className="rounded-md border border-gray-200 px-3 py-2">
               <p className="text-xs font-semibold text-gray-700">Will be notified</p>
               <p className="text-[11px] text-gray-500">Marked "told on placement" on the entities. Nothing is sent in this prototype.</p>
@@ -226,11 +228,11 @@ export function PlacementModals({
               Cancel
             </Button>
             <Button
-              className="bg-green-600 hover:bg-green-700 text-white"
+              className={publishMode === "students" ? "bg-green-600 hover:bg-green-700 text-white" : "bg-indigo-600 hover:bg-indigo-700 text-white"}
               onClick={onPublishConfirm}
             >
               <CheckCircle className="h-4 w-4 mr-2" />
-              Publish assignments
+              {publishMode === "entities" ? "Publish to entities" : "Publish to students"}
             </Button>
           </DialogFooter>
         </DialogContent>

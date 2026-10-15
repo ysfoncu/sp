@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Card } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { StudentMetricsStrip } from "./StudentMetrics";
+import type { StudentFilters, StudentRow } from "../types/praksisStudent";
 import {
   ChevronLeft,
   ChevronRight,
@@ -20,6 +22,7 @@ import {
 } from "lucide-react";
 import { PraksisPlace } from "../types/praksisPlace";
 import { Study } from "../types/studyCatalog";
+import { placementTasks } from "../types/placementTask";
 import { profilesOfPlace, totalPlaces, usePlacementProfiles } from "../types/placementProfile";
 import { DashboardSettings } from "./SettingsView";
 import {
@@ -91,42 +94,13 @@ interface DashboardProps {
   onViewAllClick?: () => void;
   onViewAllPraksisPlacesClick?: () => void;
   dashboardSettings?: DashboardSettings;
+  // The students of Praksis-students with their state, for the overview on top; a tile opens that page
+  studentRows?: StudentRow[];
+  onOpenPraksisStudents?: (status?: StudentFilters["status"]) => void;
 }
 
-// Placement tasks definition (copied from placementTask.ts for reference)
-const placementTasksDefinition = [
-  {
-    id: "1",
-    step: "1/5",
-    title: "Import students",
-    description:
-      "Import the students. The entities for this emne must have places for them",
-    status: "mandatory",
-  },
-  {
-    id: "4",
-    step: "2/5",
-    title: "Attach praksis places to the students",
-    description:
-      "Use students tab or praksis places tab to assign praksis places to the students",
-    status: "mandatory",
-  },
-  {
-    id: "6",
-    step: "4/5",
-    title: "Assign mentors to the students",
-    description:
-      "Use students tab to assign supervisors to the students",
-    status: "optional",
-  },
-  {
-    id: "7",
-    step: "5/5",
-    title: "Publish",
-    description: "Finalise and publish the placement",
-    status: "mandatory",
-  },
-];
+// The placement checklist (the same list the placement page uses)
+const placementTasksDefinition = placementTasks;
 
 export function Dashboard({
   placements,
@@ -138,6 +112,8 @@ export function Dashboard({
   onViewAllClick,
   onViewAllPraksisPlacesClick,
   onStartOnboarding,
+  studentRows = [],
+  onOpenPraksisStudents,
   dashboardSettings = {
     praksisPlacesOverview: false,
     placementOverview: true,
@@ -226,8 +202,8 @@ export function Dashboard({
     const taskState = getPlacementTaskState(placement.id);
     if (!taskState) return true; // New placements without task state are active
 
-    // A placement is active if final publish (task 7/7) is not completed
-    return !taskState.completedTasks.includes("7");
+    // A placement is active until it is published to students (the last task, 7/7)
+    return !taskState.completedTasks.includes("8");
   };
 
   // Get active placements (not all tasks completed)
@@ -270,8 +246,8 @@ export function Dashboard({
       if (currentTask) {
         // Determine priority based on task step
         let priority: "high" | "medium" | "low" = "medium";
-        if (currentTask.step === "5/5") priority = "high";
-        else if (currentTask.step === "1/5")
+        if (currentTask.step === "7/7") priority = "high";
+        else if (currentTask.step === "1/7")
           priority = "high";
         else if (currentTask.status === "mandatory")
           priority = "medium";
@@ -508,6 +484,9 @@ export function Dashboard({
           Overview of your student placements
         </p>
       </div>
+
+      {/* The crucial numbers of Praksis-students, first */}
+      <StudentMetricsStrip rows={studentRows} onOpen={onOpenPraksisStudents} />
 
       {/* Praksis Places Overview */}
       {dashboardSettings.praksisPlacesOverview && (

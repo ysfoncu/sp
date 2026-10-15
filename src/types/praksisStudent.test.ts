@@ -20,7 +20,10 @@ import {
   pruneClaims,
   releasePlacement,
   sortRows,
+  studentMetrics,
   waitingForEmne,
+  placementHistoryOf,
+  waitingLocations,
 } from "./praksisStudent";
 import type { PriorityPlacementApplication } from "./priorityPlacement";
 import { CURRENT_UNIVERSITY, ensureEmne, ensureProgram, ensureStudy, getStudies } from "./studyCatalog";
@@ -94,6 +97,14 @@ describe("derived state", () => {
     const rows = deriveRows(students, {}, placements, new Map());
     expect(countByStatus(rows)).toEqual({ waiting: 3, inPlacement: 0, planned: 0, placed: 0, completed: 0 });
     expect(waitingForEmne(rows, "e1")).toHaveLength(2);
+  });
+  it("with a location only the students who study there are taken", () => {
+    const at = (id: string, studyLocation: string) => ({ ...student(id, "e1"), studyLocation });
+    const rows = deriveRows([at("a", "Umeå"), at("b", "Skellefteå"), at("c", "Umeå"), { ...student("d", "e2"), studyLocation: "Umeå" }], {}, placements, new Map());
+    expect(waitingForEmne(rows, "e1").map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(waitingForEmne(rows, "e1", undefined, "Umeå").map((s) => s.id)).toEqual(["a", "c"]);
+    expect(waitingForEmne(rows, "e1", undefined, "").map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(waitingLocations(rows, "e1")).toEqual([{ name: "Skellefteå", count: 1 }, { name: "Umeå", count: 2 }]);
   });
   it("a claimed student is in the placement, not available for another", () => {
     const rows = deriveRows(students, { a: "p1", b: "p1" }, placements, new Map([["p1", [{ id: "a" }, { id: "b" }]]]));
@@ -303,5 +314,95 @@ describe("priority", () => {
     const ids = (l: typeof rows) => l.map((r) => r.student.id);
     expect(ids(sortRows(rows, "priority", "asc", names))).toEqual(["a", "c", "b"]);
     expect(ids(sortRows(rows, "priority", "desc", names))).toEqual(["c", "a", "b"]);
+  });
+});
+
+import { emneLocations, enrolledFromPraksis, periodStudents, periodTerm } from "./enrolledFromPraksis";
+
+describe("students of an application period come from Praksis-students", () => {
+  const studies = [{ id: "st", name: "Health", programs: [{ id: "pr", name: "Nursing" }] }];
+  const mk = (id: string, emneId: string, studyLocation: string, startDate = "2026-09-01"): PraksisStudent => ({ ...student(id, emneId, startDate), studyLocation });
+  const list = [mk("a", "e1", "Umeå"), mk("b", "e1", "Skellefteå"), mk("c", "e1", "Umeå"), mk("d", "e2", "Umeå", "2027-01-11")];
+
+  it("turns them into enrolled students with study, program, term and emne", () => {
+    const [a] = enrolledFromPraksis(list, studies);
+    expect(a).toMatchObject({ id: "a", studyName: "Health", programName: "Nursing", studyLocation: "Umeå", emneId: "e1", startDate: "2026-09-01", admissionTerm: "HT 2026" });
+    expect(enrolledFromPraksis([{ ...list[0], programId: "gone" }], studies)[0].programName).toBe("gone");
+  });
+  it("takes everyone of the emne, or only those at the chosen location", () => {
+    const e = enrolledFromPraksis(list, studies);
+    expect(periodStudents(e, "e1").map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(periodStudents(e, "e1", "Umeå").map((s) => s.id)).toEqual(["a", "c"]);
+    expect(periodStudents(e, "e1", "").map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(periodStudents(e, "nothing")).toEqual([]);
+  });
+  it("lists the locations of the emne with counts", () => {
+    expect(emneLocations(enrolledFromPraksis(list, studies), "e1")).toEqual([{ name: "Skellefteå", count: 1 }, { name: "Umeå", count: 2 }]);
+  });
+  it("gives the period the year and semester of the students' praksis start", () => {
+    const e = enrolledFromPraksis(list, studies);
+    expect(periodTerm(periodStudents(e, "e1"))).toEqual({ year: "2026", semester: "HT" });
+    expect(periodTerm(periodStudents(e, "e2"))).toEqual({ year: "2027", semester: "VT" });
+    expect(periodTerm([])).toBeUndefined();
+  });
+});
+
+describe("the dashboard's student numbers", () => {
+  const row = (id: string, status: "waiting" | "inPlacement" | "planned" | "placed" | "completed", over: Partial<PraksisStudent> = {}, mentor?: string) => {
+    const s = { ...student(id, "e1"), ...over };
+    const assignment = status === "planned" || status === "placed" || status === "completed" ? { status: status === "planned" ? "planned" : "booked", placeId: "x", mentor: mentor ? { name: mentor } : undefined } : undefined;
+    return { student: s, status, inPlacement: status !== "waiting", assignment } as unknown as Parameters<typeof countAssigned>[0][number];
+  };
+
+  it("is all zeros with no students", () => {
+    expect(studentMetrics([])).toEqual({ total: 0, open: 0, waiting: 0, inPlacement: 0, planned: 0, hasPlace: 0, hasPlacePct: 0, noMentor: 0, emneCount: 0 });
+  });
+  it("counts waiting, in placement without an entity, planned and those with a place, leaving completed students out of the open ones", () => {
+    const rows = [row("a", "waiting"), row("b", "waiting"), row("c", "inPlacement"), row("d", "planned"), row("e", "placed"), row("f", "completed")];
+    expect(studentMetrics(rows)).toMatchObject({ total: 6, open: 5, waiting: 2, inPlacement: 1, planned: 1, hasPlace: 2, hasPlacePct: 40 });
+  });
+  it("counts the students with an entity and no mentor yet, not those without an entity or with a mentor", () => {
+    const rows = [row("a", "waiting"), row("b", "planned"), row("c", "placed", {}, "Kari"), row("d", "placed"), row("e", "completed")];
+    expect(studentMetrics(rows).noMentor).toBe(2); // b and d
+  });
+  it("counts the different emner of the open students", () => {
+    const rows = [row("a", "waiting", { emneId: "e1" }), row("b", "waiting", { emneId: "e2" }), row("c", "placed", { emneId: "e2" }), row("d", "completed", { emneId: "e3" })];
+    expect(studentMetrics(rows).emneCount).toBe(2);
+  });
+  it("agrees with the rows the Praksis-students page derives", () => {
+    const rows = deriveRows([student("a", "e1"), student("b", "e1"), student("c", "e1")], { a: "p1" }, [{ id: "p1", title: "P1", status: "select" }], new Map([["p1", [{ id: "a" }]]]));
+    expect(studentMetrics(rows)).toMatchObject({ waiting: 2, inPlacement: 1, hasPlace: 0, noMentor: 0, emneCount: 1 });
+  });
+});
+
+describe("a student's placement history", () => {
+  const placements = [
+    { id: "p1", title: "Autumn", status: "completed", subject: "VFU HT", year: "2025", semester: "Autumn", startDate: "2025-09-01", endDate: "2025-11-09" },
+    { id: "p2", title: "Spring", status: "select", subject: "VFU VT", year: "2026", semester: "Spring", startDate: "2026-01-12", endDate: "2026-03-20" },
+    { id: "p3", title: "Other", status: "select", startDate: "2026-02-01", endDate: "2026-04-01" },
+  ];
+  const at = (status: string, extra: Record<string, unknown> = {}) => ({ id: "s1", assignedPraksisPlace: { placeId: "x", placeName: "Hospital", departmentName: "Unit", status, ...extra } });
+  const tasks = new Map<string, { id: string; assignedPraksisPlace?: Record<string, unknown> }[]>([
+    ["p1", [at("booked", { mentor: { name: "Kari" } })]],
+    ["p2", [at("planned")]],
+    ["p3", [{ id: "someone-else" }]],
+  ]);
+
+  it("lists the placements the student was in, newest first, with where and how it went", () => {
+    const h = placementHistoryOf("s1", placements, tasks as never);
+    expect(h.map((e) => [e.placementId, e.state])).toEqual([["p2", "planned"], ["p1", "completed"]]);
+    expect(h[1]).toMatchObject({ emne: "VFU HT", year: "2025", assignment: { placeName: "Hospital", mentor: { name: "Kari" } } });
+  });
+  it("says placed once published, and not placed for a student who was in the placement without an entity or was cancelled", () => {
+    const t2 = new Map(tasks);
+    t2.set("p2", [at("booked")]);
+    expect(placementHistoryOf("s1", placements, t2 as never)[0].state).toBe("placed");
+    t2.set("p2", [{ id: "s1" }]);
+    expect(placementHistoryOf("s1", placements, t2 as never)[0]).toMatchObject({ state: "notPlaced", assignment: undefined });
+    t2.set("p2", [at("cancelled")]);
+    expect(placementHistoryOf("s1", placements, t2 as never)[0].state).toBe("notPlaced");
+  });
+  it("is empty for a student in no placement", () => {
+    expect(placementHistoryOf("nobody", placements, tasks as never)).toEqual([]);
   });
 });

@@ -39,6 +39,8 @@ export interface EnrolledStudent {
   phone?: string;
   temporaryAddress?: string;
   hasDriversLicense: boolean;
+  emneId?: string; // students from Praksis-students carry their emne and the start of their praksis
+  startDate?: string;
 }
 
 export interface PriorityPlacementPeriod {

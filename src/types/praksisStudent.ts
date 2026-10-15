@@ -90,12 +90,68 @@ export const deriveRows = (
   });
 };
 
-// Students a new placement for this emne can take: waiting and not already in another placement
-export const waitingForEmne = (rows: StudentRow[], emneId: string, studentIds?: Set<string>) =>
+// Students a new placement for this emne can take: waiting and not already in another placement.
+// With a location only the students who study there are taken.
+export const waitingForEmne = (rows: StudentRow[], emneId: string, studentIds?: Set<string>, location?: string) =>
   rows
     .filter((r) => r.status === "waiting" && r.student.emneId === emneId)
+    .filter((r) => !location || r.student.studyLocation === location)
     .filter((r) => !studentIds || studentIds.has(r.student.id))
     .map((r) => r.student);
+
+// The study locations of the students waiting for this emne, with how many wait at each
+export const waitingLocations = (rows: StudentRow[], emneId: string) => {
+  const counts = new Map<string, number>();
+  waitingForEmne(rows, emneId).forEach((s) => counts.set(s.studyLocation, (counts.get(s.studyLocation) ?? 0) + 1));
+  return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name));
+};
+
+// ── A student's placement history ───────────────────────────────────────────────
+// Every placement the student was part of, newest first: where they were placed (entity, mentor) and how it went.
+export interface HistoryPlacement extends PlacementLike {
+  year?: string;
+  semester?: string;
+  subject?: string;
+  startDate?: string;
+  endDate?: string;
+}
+export interface HistoryEntry {
+  placementId: string;
+  title: string;
+  placementStatus: string;
+  emne?: string;
+  year?: string;
+  semester?: string;
+  startDate?: string;
+  endDate?: string;
+  assignment?: AssignmentLike; // undefined: in the placement but never placed on an entity
+  state: "completed" | "placed" | "planned" | "notPlaced";
+}
+
+export const placementHistoryOf = (studentId: string, placements: HistoryPlacement[], taskStudents: Map<string, TaskStudentLike[]>): HistoryEntry[] =>
+  placements
+    .flatMap((p) => {
+      const inIt = taskStudents.get(p.id)?.find((s) => s.id === studentId);
+      if (!inIt) return [];
+      const a = inIt.assignedPraksisPlace;
+      const placed = !!a && a.status !== "cancelled";
+      const state: HistoryEntry["state"] = !placed ? "notPlaced" : p.status === "completed" ? "completed" : a?.status === "booked" ? "placed" : "planned";
+      return [
+        {
+          placementId: p.id,
+          title: p.title,
+          placementStatus: p.status,
+          emne: p.subject,
+          year: p.year,
+          semester: p.semester,
+          startDate: p.startDate,
+          endDate: p.endDate,
+          assignment: placed ? a : undefined,
+          state,
+        },
+      ];
+    })
+    .sort((x, y) => (y.startDate ?? "").localeCompare(x.startDate ?? ""));
 
 // ── Filters ───────────────────────────────────────────────────────────────────
 export interface StudentFilters {
@@ -251,6 +307,37 @@ export const countByStatus = (rows: StudentRow[]): Record<StudentStatus, number>
 export const countAssigned = (rows: StudentRow[]) => {
   const assigned = rows.filter((r) => r.assignment && r.assignment.status !== "cancelled").length;
   return { assigned, notAssigned: rows.length - assigned };
+};
+
+// The few numbers the dashboard shows from this page. Completed students need no action, so they are left out of
+// everything but the totals.
+export interface StudentMetrics {
+  total: number;
+  open: number; // not completed
+  waiting: number; // in no placement
+  inPlacement: number; // in a placement, with no entity yet
+  planned: number; // has an entity, not published to the student yet
+  hasPlace: number; // planned or placed (an entity, not cancelled)
+  hasPlacePct: number; // of the open students
+  noMentor: number; // open students with an entity but no mentor (supervisor) attached yet
+  emneCount: number; // the different emner the open students belong to
+}
+
+export const studentMetrics = (rows: StudentRow[]): StudentMetrics => {
+  const c = countByStatus(rows);
+  const openRows = rows.filter((r) => r.status !== "completed");
+  const placedRows = openRows.filter((r) => r.assignment && r.assignment.status !== "cancelled");
+  return {
+    total: rows.length,
+    open: openRows.length,
+    waiting: c.waiting,
+    inPlacement: c.inPlacement,
+    planned: c.planned,
+    hasPlace: placedRows.length,
+    hasPlacePct: openRows.length ? Math.round((placedRows.length / openRows.length) * 100) : 0,
+    noMentor: placedRows.filter((r) => !r.assignment?.mentor?.name).length,
+    emneCount: new Set(openRows.map((r) => r.student.emneId)).size,
+  };
 };
 
 // ── The placement's period, from its students ─────────────────────────────────

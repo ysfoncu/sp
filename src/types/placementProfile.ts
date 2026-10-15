@@ -577,11 +577,11 @@ export const missingInfo = (info: PlacementInfo): string[] => {
   return out;
 };
 
-export type MissingKey = "program" | "emner" | "places" | "contacts" | "info";
+export type MissingKey = "program" | "emner" | "contacts" | "info";
 
 // What is still missing on an entity. The page, the tree, the list and the placement screens all read this, so
-// they can't disagree. Program and emner stop the entity from being used in placements; places, contacts and
-// information are shown as things to complete. With several programs the label says which program lacks what;
+// they can't disagree. Program and emner stop the entity from being used in placements; contacts and information
+// are shown as things to complete. Places are never missing: 0 is a valid number of places for a program. With several programs the label says which program lacks what;
 // `programId` is set then, so the page can open the right card.
 const entryMissing = (e: AcceptedProgram): "program" | "emner" | undefined => {
   if (!e.programId || !findProgram(e.programId)) return "program";
@@ -603,9 +603,6 @@ export const entityMissing = (p: PlacementProfile, people: PlaceContact[]): Miss
   p.programs.forEach((e) => {
     const gap = entryMissing(e);
     if (gap) out.push({ key: gap, label: gap === "program" ? "Program" : many ? `Emner for ${programName(e.programId)}` : "Emner", programId: e.programId });
-  });
-  p.programs.forEach((e) => {
-    if (e.places <= 0) out.push({ key: "places", label: many ? `Places for ${programName(e.programId)}` : "Places per period", programId: e.programId });
   });
   if (resolveContacts(p, people).length === 0) out.push({ key: "contacts", label: "Contacts" });
   const empty = missingInfo(p.info);

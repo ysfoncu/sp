@@ -35,7 +35,10 @@ import {
   validateProfile,
 } from "./placementProfile";
 import { activationErrors, lockedEmneIds, mentorState, peopleToNotify, placedOnProfile, placesError, studentsNeedingMentor } from "./profileRules";
-import { OtherPlacementUsage, UsageStudent, profileTreeForPlacement } from "./profileUsage";
+import { OtherPlacementUsage, UsageStudent, nodeCapacity, profileTreeForPlacement, totalPlacesForPlacement } from "./profileUsage";
+import {
+  addSlot, canRemove, defaultSlots, minSlots, parseSlots, removeSlot, setSlot, slotCandidates, slotsFromTrees, slotsOver, studentsWithoutSlot, totalSlots, validateSlots,
+} from "./placementSlots";
 import { buildStudentView, missingInfo, takeSnapshot, viewChangedSince } from "./studentView";
 import { PlaceContact, addPlaceContact, getPlaceContacts, validateContact } from "./placeContact";
 
@@ -597,8 +600,9 @@ describe("incomplete entities", () => {
   it("lists everything that is missing, and drops items as they are filled in", () => {
     const keys = (e: PlacementProfile, people: PlaceContact[] = []) => entityMissing(e, people).map((m) => m.key);
     expect(keys(blank())).toEqual(["program", "contacts", "info"]); // no program: emner and places can't be judged yet
-    expect(keys(blank({ programId, studyId }))).toEqual(["emner", "places", "contacts", "info"]);
-    expect(keys(blank({ programId, studyId, emneIds: [emne1] }))).toEqual(["places", "contacts", "info"]);
+    expect(keys(blank({ programId, studyId }))).toEqual(["emner", "contacts", "info"]);
+    // 0 places is a valid number: places are never listed as missing
+    expect(keys(blank({ programId, studyId, emneIds: [emne1] }))).toEqual(["contacts", "info"]);
     expect(keys(blank({ programId, studyId, emneIds: [emne1], places: 3 }))).toEqual(["contacts", "info"]);
     const withPerson = blank({ programId, studyId, emneIds: [emne1], places: 3, contacts: [contact("p1")] });
     expect(keys(withPerson, [person("p1")])).toEqual(["info"]);
@@ -718,7 +722,7 @@ describe("entities with several programs", () => {
   });
   it("says which program lacks what, and is placeable only when every program has its emner", () => {
     const e = two({ programs: [{ programId, emneIds: [emne1], places: 3 }, { programId: program2, emneIds: [], places: 0 }], info: emptyPlacementInfo() });
-    expect(entityMissing(e, []).map((m) => [m.key, m.programId ?? ""])).toEqual([["emner", program2], ["places", program2], ["contacts", ""], ["info", ""]]);
+    expect(entityMissing(e, []).map((m) => [m.key, m.programId ?? ""])).toEqual([["emner", program2], ["contacts", ""], ["info", ""]]);
     expect(entityMissing(e, [])[0].label).toMatch(/^Emner for Logopedics/);
     expect(isPlaceable(e)).toBe(false);
     expect(isPlaceable(two())).toBe(true);
@@ -754,5 +758,89 @@ describe("entities with several programs", () => {
     expect(out.version).toBe(old.version);
     expect(migrateProfilesV6([out])[0]).toBe(out); // already in the new shape
     expect(migrateProfilesV6([flat({ id: "none", programId: "", emneIds: [] })])[0].programs).toEqual([]);
+  });
+});
+
+// ── Entities and slots of a placement ─────────────────────────────────────────
+describe("slots of a placement", () => {
+  const a = () => profile({ id: "a", places: 4 });
+  const b = () => profile({ id: "b", places: 2 });
+  const other = (...ids: string[]): OtherPlacementUsage => ({
+    placementId: "o1", programId, emne: "Autumn cohort", emneId: emne1, semester: "Autumn", year: 2026, startDate: "2026-11-02", students: ids.map((i) => onProfile(i)),
+  });
+  const candidates = (students: UsageStudent[] = [], others: OtherPlacementUsage[] = []) =>
+    slotCandidates(profileTreeForPlacement([a(), b()], [place], ctx(), students, others));
+  const cand = (id: string, students: UsageStudent[] = [], others: OtherPlacementUsage[] = []) => candidates(students, others).find((c) => c.node.profile.id === id)!;
+
+  it("lists every fitting entity as a candidate, with the places other placements left free", () => {
+    expect(candidates().map((c) => [c.node.profile.id, c.places, c.free])).toEqual([["a", 4, 4], ["b", 2, 2]]);
+    const c = cand("a", [], [other("a", "a", "a")]);
+    expect([c.places, c.usedElsewhere, c.free]).toEqual([4, 3, 1]);
+    expect(cand("b", [], [other("b", "b", "b")]).free).toBe(0); // never below 0
+  });
+  it("offers only the chosen entities, with the slots as their places", () => {
+    const trees = profileTreeForPlacement([a(), b()], [place], ctx(), [], [], [{ profileId: "b", slots: 5 }]);
+    const nodes = trees.flatMap((t) => t.nodes);
+    expect(nodes.map((n) => n.profile.id)).toEqual(["b"]);
+    expect(nodes[0]).toMatchObject({ places: 5, programPlaces: 2, fromSlots: true, remaining: 5, over: 0 });
+    expect(totalPlacesForPlacement(trees)).toBe(5);
+    expect(nodeCapacity(nodes[0])).toBe(5);
+  });
+  it("measures the places left against the slots, not the entity's places", () => {
+    const slots = [{ profileId: "a", slots: 2 }];
+    const trees = profileTreeForPlacement([a()], [place], ctx(), [onProfile("a")], [other("a", "a", "a")], slots);
+    // other placements' students were counted when the slots were set, so they are not subtracted again
+    expect(trees[0].nodes[0]).toMatchObject({ places: 2, used: 1, usedElsewhere: 3, remaining: 1, over: 0 });
+  });
+  it("shows students beyond the slots as over, and never blocks", () => {
+    const slots = [{ profileId: "a", slots: 1 }];
+    const node = profileTreeForPlacement([a()], [place], ctx(), [onProfile("a"), onProfile("a"), onProfile("a")], [], slots)[0].nodes[0];
+    expect([node.remaining, node.over]).toEqual([0, 2]);
+  });
+  it("keeps an entity that is not chosen visible while students of the placement are on it", () => {
+    const trees = profileTreeForPlacement([a(), b()], [place], ctx(), [onProfile("b")], [], [{ profileId: "a", slots: 3 }]);
+    expect(trees.flatMap((t) => t.nodes).map((n) => [n.profile.id, n.places, n.over])).toEqual([["a", 3, 0], ["b", 0, 1]]);
+  });
+  it("without slots behaves as before: every fitting entity, places minus other placements", () => {
+    const trees = profileTreeForPlacement([a(), b()], [place], ctx(), [onProfile("a")], [other("a")]);
+    const nodes = trees.flatMap((t) => t.nodes);
+    expect(nodes.map((n) => [n.profile.id, n.places, n.fromSlots, n.remaining])).toEqual([["a", 4, false, 2], ["b", 2, false, 2]]);
+    expect(totalPlacesForPlacement(trees)).toBe(3 + 2);
+  });
+  it("adds an entity with its free places (at least 1), once", () => {
+    const c = cand("a", [], [other("a", "a")]);
+    expect(defaultSlots(c)).toBe(2);
+    expect(defaultSlots(cand("b", [], [other("b", "b")]))).toBe(1); // full: still 1
+    const once = addSlot([], c);
+    expect(once).toEqual([{ profileId: "a", slots: 2 }]);
+    expect(addSlot(once, c)).toBe(once);
+  });
+  it("changes slots but not below the students already placed, and removes only an entity with none", () => {
+    const c = cand("a", [onProfile("a"), onProfile("a")]);
+    expect([minSlots(c), canRemove(c)]).toEqual([2, false]);
+    const list = [{ profileId: "a", slots: 3 }];
+    expect(setSlot(list, c, 1)[0].slots).toBe(2);
+    expect(setSlot(list, c, 7.9)[0].slots).toBe(7);
+    expect(canRemove(cand("a"))).toBe(true);
+    expect(removeSlot(list, "a")).toEqual([]);
+  });
+  it("warns when slots exceed the free places, and counts the students no slot covers", () => {
+    const c = cand("a", [], [other("a", "a", "a")]); // 1 free
+    expect([slotsOver(c, 1), slotsOver(c, 4)]).toEqual([0, 3]);
+    expect([totalSlots([{ profileId: "a", slots: 2 }, { profileId: "b", slots: 3 }]), studentsWithoutSlot(10, [{ profileId: "a", slots: 4 }]), studentsWithoutSlot(2, [{ profileId: "a", slots: 4 }])]).toEqual([5, 6, 0]);
+  });
+  it("reads typed slots as a whole number of at least the minimum", () => {
+    expect([parseSlots("5"), parseSlots("0"), parseSlots(""), parseSlots("abc"), parseSlots("2.7"), parseSlots("1", 3)]).toEqual([5, 1, 1, 1, 2, 3]);
+  });
+  it("is complete with each entity once and whole slots of 1 or more (no entity at all is allowed too)", () => {
+    expect(validateSlots([])).toBeNull(); // no entity yet is fine: they can be added after the students are shown
+    expect(validateSlots([{ profileId: "a", slots: 1 }, { profileId: "a", slots: 2 }])).toMatch(/only be chosen once/);
+    expect(validateSlots([{ profileId: "a", slots: 0 }])).toMatch(/whole number/);
+    expect(validateSlots([{ profileId: "a", slots: 1.5 }])).toMatch(/whole number/);
+    expect(validateSlots([{ profileId: "a", slots: 3 }])).toBeNull();
+  });
+  it("turns a placement without slots into slots: every fitting entity with the places it had left", () => {
+    const trees = profileTreeForPlacement([a(), b()], [place], ctx(), [onProfile("a")], [other("a")]);
+    expect(slotsFromTrees(trees)).toEqual([{ profileId: "a", slots: 3 }, { profileId: "b", slots: 2 }]);
   });
 });

@@ -89,10 +89,21 @@ export interface PlacementTask {
 export const placementTasks: PlacementTask[] = [
   {
     id: "1",
-    step: "1/5",
+    step: "1/7",
     title: "Students from Praksis-students",
     description:
-      "The students waiting for this emne come in automatically. The entities for this emne must have places for them",
+      "The students waiting for this emne come in automatically",
+    status: "mandatory",
+    completed: false,
+    actionType: "auto",
+    actionLabel: "Auto-completes",
+  },
+  {
+    id: "2",
+    step: "2/7",
+    title: "Choose entities and slots",
+    description:
+      "Choose the entities this placement uses and how many slots of each",
     status: "mandatory",
     completed: false,
     actionType: "auto",
@@ -100,7 +111,7 @@ export const placementTasks: PlacementTask[] = [
   },
   {
     id: "4",
-    step: "2/5",
+    step: "3/7",
     title: "Attach praksis places to the students",
     description:
       "Place each student on an entity, from the Available entities panel or the Students tab",
@@ -111,7 +122,7 @@ export const placementTasks: PlacementTask[] = [
   },
   {
     id: "5",
-    step: "3/5",
+    step: "4/7",
     title: "Attach required documents",
     description:
       "Send the required documents to the praksis places",
@@ -122,7 +133,7 @@ export const placementTasks: PlacementTask[] = [
   },
   {
     id: "6",
-    step: "4/5",
+    step: "5/7",
     title: "Assign mentors to the students",
     description:
       "Assign a mentor to each student",
@@ -133,9 +144,19 @@ export const placementTasks: PlacementTask[] = [
   },
   {
     id: "7",
-    step: "5/5",
-    title: "Publish",
-    description: "Finalise and publish the placement",
+    step: "6/7",
+    title: "Publish to entities",
+    description: "The placement becomes visible to the entities",
+    status: "mandatory",
+    completed: false,
+    actionType: "auto",
+    actionLabel: "Auto-completes",
+  },
+  {
+    id: "8",
+    step: "7/7",
+    title: "Publish to students",
+    description: "The placement becomes visible to the students",
     status: "mandatory",
     completed: false,
     actionType: "auto",

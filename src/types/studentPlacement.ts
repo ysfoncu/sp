@@ -1,4 +1,6 @@
 // Types for Student Placements
+import type { EntitySlot } from "./placementSlots";
+
 export interface StudentPlacement {
   id: string;
   title: string;
@@ -12,6 +14,7 @@ export interface StudentPlacement {
   status: "draft" | "upload" | "select" | "publish" | "completed";
   studyId: string;
   programId: string;
+  location?: string; // optional: only the students who study at this location were taken
   totalPraksisHours?: number;
 }
 
@@ -24,8 +27,13 @@ export interface PlacementTaskState {
   documentsAttached: boolean;
   finalPublished: boolean;
   completedTasks: string[]; // Task IDs
-  assignmentPublished?: boolean;
+  assignmentPublished?: boolean; // published to students (the second publish step)
   assignmentPublishedDate?: string;
+  entitiesPublished?: boolean; // published to entities (the first publish step); see publishState.ts
+  entitiesPublishedDate?: string;
+  // The entities this placement uses and their slots (see placementSlots.ts); undefined = every fitting entity
+  entitySlots?: EntitySlot[];
+  entitySlotsConfirmed?: boolean; // the entities step was completed
 }
 
 // Mock data for Student Placements

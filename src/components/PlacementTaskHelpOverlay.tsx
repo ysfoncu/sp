@@ -451,10 +451,10 @@ The **Columns** button allows you to customize which columns are visible in the 
 
 The system provides helpful alerts:
 
-**\"Not enough places\" Alert:**
-- Appears when the student count exceeds the places on the matching entities
-- Suggests raising places or adding an entity
-- Prevents publishing until resolved
+**\"No entities chosen\" Alert:**
+- Appears when students are in the placement but no entity is chosen yet
+- Use Change entities to choose entities and slots
+- Slots never block: you can place more students than slots (the entity shows \"over by N\")
 
 **\"All Students Assigned\" Success:**
 - Confirms step 2/5 completion

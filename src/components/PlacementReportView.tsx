@@ -36,6 +36,7 @@ import { PlacementTaskState, StudentPlacement } from "../types/studentPlacement"
 import { PraksisPlace } from "../types/praksisPlace";
 import { PlacementProfile, placementEmneId, placesFor, resolveAssignmentProfile, usePlacementProfiles } from "../types/placementProfile";
 import { OtherPlacementUsage, profileTreeForPlacement } from "../types/profileUsage";
+import type { EntitySlot } from "../types/placementSlots";
 import { useUsagePlacements } from "./ProfileUsageContext";
 import { Study } from "../types/studyCatalog";
 import { PeriodFilterButton } from "./PeriodFilterButton";
@@ -65,17 +66,6 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 
 function termLabel(p: StudentPlacement): string {
   return [p.semester, p.year].filter(Boolean).join(" ");
-}
-
-function placementStatusClass(status?: string): string {
-  switch (status) {
-    case "completed":
-      return "bg-gray-100 text-gray-600 border border-gray-200";
-    case "publish":
-      return "bg-green-100 text-green-700 border border-green-200";
-    default:
-      return "bg-blue-100 text-blue-700 border border-blue-200";
-  }
 }
 
 function profileStatusClass(status?: string): string {
@@ -113,6 +103,13 @@ export function PlacementReportView({
   const [isExpanded, setIsExpanded] = useState(false);
 
   const semesterRanges = useMemo(() => getSemesterRanges(new Date()), []);
+
+  // The entities chosen for each placement (step 2 of the placement); a placement made before that step has none saved
+  const slotsByPlacement = useMemo(() => {
+    const m = new Map<string, EntitySlot[]>();
+    placementTaskStates.forEach((ts) => ts.entitySlots && m.set(ts.placementId, ts.entitySlots));
+    return m;
+  }, [placementTaskStates]);
 
   const studentsByPlacement = useMemo(() => {
     const m = new Map<string, Student[]>();
@@ -474,9 +471,6 @@ export function PlacementReportView({
                         <span className="font-medium text-sm text-gray-800 truncate">
                           {p.title || termLabel(p)}
                         </span>
-                        <Badge className={`${placementStatusClass(p.status)} text-[10px]`}>
-                          {p.status}
-                        </Badge>
                       </div>
                       <div className="text-xs text-gray-500 truncate">
                         {termLabel(p)}
@@ -532,6 +526,7 @@ export function PlacementReportView({
                   students={studentsByPlacement.get(p.id) ?? []}
                   praksisPlaces={praksisPlaces}
                   profiles={allProfiles}
+                  entitySlots={slotsByPlacement.get(p.id)}
                   others={everyPlacement.filter((o) => o.placementId !== p.id)}
                 />
               ))}
@@ -549,26 +544,27 @@ function PlacementSection({
   praksisPlaces,
   profiles,
   others,
+  entitySlots,
 }: {
   placement: StudentPlacement;
   students: Student[];
   praksisPlaces: PraksisPlace[];
   profiles: PlacementProfile[];
   others: OtherPlacementUsage[];
+  entitySlots?: EntitySlot[]; // the entities added to this placement; undefined: every entity that fits (older placements)
 }) {
   const totalImported = students.length;
   const notAttached = students.filter((s) => !s.assignedPraksisPlace).length;
 
-  // One row per entity: the entities that take this placement, plus any entity (archived) that this
-  // placement's students sit on.
+  // One row per entity: the entities added to this placement (all that fit, for a placement made before entities
+  // were chosen), plus any entity (archived) that this placement's students sit on. Other entities are not listed.
   interface ProfileRow {
     key: string;
     organisationName: string;
     profileName: string;
     status: "active" | "archived" | "unlinked";
-    places: number;
+    places: number; // the slots chosen for this placement, or the entity's places for the program
     placed: number; // this placement's students
-    elsewhere: number; // students of other placements in the same period
   }
   const rowMap = new Map<string, ProfileRow>();
   const ctx = {
@@ -579,7 +575,7 @@ function PlacementSection({
     semester: placement.semester,
     startDate: placement.startDate,
   };
-  profileTreeForPlacement(profiles, praksisPlaces, ctx, students, others).forEach((t) =>
+  profileTreeForPlacement(profiles, praksisPlaces, ctx, students, others, entitySlots).forEach((t) =>
     t.nodes.forEach((n) =>
       rowMap.set(n.profile.id, {
         key: n.profile.id,
@@ -588,7 +584,6 @@ function PlacementSection({
         status: "active",
         places: n.places,
         placed: n.used,
-        elsewhere: n.usedElsewhere,
       }),
     ),
   );
@@ -614,7 +609,6 @@ function PlacementSection({
         status: owner ? "archived" : "unlinked",
         places: owner ? placesFor(owner, placement.programId) : 0,
         placed: 0,
-        elsewhere: 0,
       };
       rowMap.set(key, row);
     }
@@ -624,17 +618,16 @@ function PlacementSection({
   const rows = [...rowMap.values()].sort(
     (a, b) => a.organisationName.localeCompare(b.organisationName) || a.profileName.localeCompare(b.profileName),
   );
-  const leftOf = (r: ProfileRow) => r.places - r.placed - r.elsewhere;
+  const usesSlots = entitySlots !== undefined;
 
-  const placementCols = ["Year", "Semester", "Emne", "Start date", "End date", "Imported students", "Not attached"];
-  const profileCols = ["Organisation", "Entity", "Status", "Places", "Placed here", "Used elsewhere", "Left"];
+  const placementCols = ["Year", "Semester", "Emne", "Imported students", "Not attached"];
+  const profileCols = ["Organisation", "Entity", "Status", usesSlots ? "Slots" : "Places", "Placed here"];
 
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
       {/* Placement task header */}
       <div className="px-4 py-3 border-b border-gray-200 bg-gray-50/50 flex items-center gap-2 flex-wrap">
         <h3 className="font-semibold text-gray-800">{placement.title || termLabel(placement)}</h3>
-        <Badge className={`${placementStatusClass(placement.status)} text-xs`}>{placement.status}</Badge>
       </div>
 
       {/* Placement task — one row */}
@@ -654,8 +647,6 @@ function PlacementSection({
               <td className="px-4 py-3 text-gray-700">{placement.year || "—"}</td>
               <td className="px-4 py-3 text-gray-700">{placement.semester || "—"}</td>
               <td className="px-4 py-3 text-gray-700">{placement.subject || "—"}</td>
-              <td className="px-4 py-3 text-gray-700">{placement.startDate || "—"}</td>
-              <td className="px-4 py-3 text-gray-700">{placement.endDate || "—"}</td>
               <td className="px-4 py-3 font-medium text-gray-800">{totalImported}</td>
               <td className="px-4 py-3 text-gray-700">{notAttached}</td>
             </tr>
@@ -663,9 +654,9 @@ function PlacementSection({
         </table>
       </div>
 
-      {/* Profiles — one row per profile the placement uses or could use */}
+      {/* Entities — one row per entity added to the placement */}
       <div className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-        Profiles ({rows.length})
+        Entities ({rows.length})
       </div>
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
@@ -681,7 +672,6 @@ function PlacementSection({
             </thead>
             <tbody className="divide-y">
               {rows.map((row) => {
-                const left = leftOf(row);
                 return (
                   <tr key={row.key} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-gray-700">
@@ -696,10 +686,6 @@ function PlacementSection({
                     </td>
                     <td className="px-4 py-3 text-gray-700">{row.status === "unlinked" ? "—" : row.places}</td>
                     <td className="px-4 py-3 text-gray-700">{row.placed}</td>
-                    <td className="px-4 py-3 text-gray-700">{row.elsewhere}</td>
-                    <td className={`px-4 py-3 font-medium ${left < 0 ? "text-red-600" : "text-gray-700"}`}>
-                      {row.status === "unlinked" ? "—" : left}
-                    </td>
                   </tr>
                 );
               })}
@@ -707,18 +693,13 @@ function PlacementSection({
                 const counted = rows.filter((r) => r.status !== "unlinked");
                 const tPlaces = counted.reduce((s, r) => s + r.places, 0);
                 const tPlaced = rows.reduce((s, r) => s + r.placed, 0);
-                const tElse = counted.reduce((s, r) => s + r.elsewhere, 0);
-                const tLeft = tPlaces - counted.reduce((s, r) => s + r.placed, 0) - tElse;
                 return (
                   <tr className="border-t-2 border-gray-300 bg-gray-50/70 font-semibold text-gray-800">
                     <td className="px-4 py-3">Total</td>
                     <td className="px-4 py-3" />
                     <td className="px-4 py-3" />
-                    <td className="px-4 py-3" />
                     <td className="px-4 py-3">{tPlaces}</td>
                     <td className="px-4 py-3">{tPlaced}</td>
-                    <td className="px-4 py-3">{tElse}</td>
-                    <td className={`px-4 py-3 ${tLeft < 0 ? "text-red-600" : ""}`}>{tLeft}</td>
                   </tr>
                 );
               })()}
@@ -727,7 +708,7 @@ function PlacementSection({
         </div>
       ) : (
         <p className="text-sm text-gray-400 italic px-4 py-6">
-          No profile takes this placement yet. Add one under Praksis places → Profiles.
+          No entities are added to this placement yet. Open the placement and use Change entities to add some.
         </p>
       )}
     </div>

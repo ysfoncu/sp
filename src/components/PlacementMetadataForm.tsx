@@ -9,12 +9,14 @@ import {
 } from "./ui/select";
 import { Study, emneMeta, programLabel } from "../types/studyCatalog";
 
-// The title a placement gets when none is typed: study · program · emne
-export const placementTitleFor = (studies: Study[], f: { studyId: string; programId: string; subject: string }) => {
+// The title a placement gets when none is typed: study · program · emne · location
+export const placementTitleFor = (studies: Study[], f: { studyId: string; programId: string; subject: string; location?: string }) => {
   const study = studies.find((x) => x.id === f.studyId);
   const program = study?.programs.find((p) => p.id === f.programId);
-  return [study?.name, program?.name, f.subject].filter(Boolean).join(" · ");
+  return [study?.name, program?.name, f.subject, f.location].filter(Boolean).join(" · ");
 };
+
+const ALL_LOCATIONS = "all"; // Select items can't have an empty value
 
 export interface MetadataFormData {
   title: string;
@@ -28,13 +30,15 @@ export interface MetadataFormData {
   programId: string;
   emne?: string;
   emneId?: string; // the emne's id in the catalog; `subject` keeps its name as a label
+  location?: string; // optional: only the students who study here are added
   totalPraksisHours?: number;
 }
 
 interface PlacementMetadataFormProps {
   formData: MetadataFormData;
   studies: Study[];
-  waitingCount: number; // students waiting in Praksis-students for the chosen emne
+  waitingCount: number; // students waiting in Praksis-students for the chosen emne (and location)
+  locations: { name: string; count: number }[]; // study locations of the students waiting for the emne
   onChange: (data: MetadataFormData) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
@@ -44,6 +48,7 @@ export function PlacementMetadataForm({
   formData,
   studies,
   waitingCount,
+  locations,
   onChange,
   onSubmit,
   onCancel,
@@ -77,7 +82,7 @@ export function PlacementMetadataForm({
             <Select
               value={formData.studyId}
               onValueChange={(value: string) =>
-                onChange({ ...formData, studyId: value, programId: "", subject: "", emneId: "" })
+                onChange({ ...formData, studyId: value, programId: "", subject: "", emneId: "", location: "" })
               }
             >
               <SelectTrigger className="h-10">
@@ -100,7 +105,7 @@ export function PlacementMetadataForm({
             <Select
               value={formData.programId}
               onValueChange={(value: string) =>
-                onChange({ ...formData, programId: value, subject: "", emneId: "" })
+                onChange({ ...formData, programId: value, subject: "", emneId: "", location: "" })
               }
               disabled={!formData.studyId}
             >
@@ -132,6 +137,7 @@ export function PlacementMetadataForm({
                   ...formData,
                   emneId: id,
                   subject: availableEmner.find((e) => e.id === id)?.name ?? "",
+                  location: "", // the locations on offer depend on the emne
                 })
               }
               disabled={!formData.programId || availableEmner.length === 0}
@@ -161,11 +167,43 @@ export function PlacementMetadataForm({
             )}
           </div>
 
+          {/* Always shown; the locations on offer depend on the emne, so it waits for one */}
+          <div className="space-y-2">
+            <label className="font-medium text-gray-700 text-sm block">
+              Location <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <Select
+              value={formData.emneId ? formData.location || ALL_LOCATIONS : ""}
+              onValueChange={(value: string) =>
+                onChange({ ...formData, location: value === ALL_LOCATIONS ? "" : value })
+              }
+              disabled={!formData.emneId || locations.length === 0}
+            >
+              <SelectTrigger className="h-10" aria-label="Location">
+                <SelectValue placeholder="Select an emne first" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_LOCATIONS}>All locations</SelectItem>
+                {locations.map((l) => (
+                  <SelectItem key={l.name} value={l.name}>
+                    {l.name}
+                    <span className="ml-2 text-xs text-gray-500">{l.count} waiting</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-500">
+              With a location, only the students who study there are added to the placement.
+            </p>
+          </div>
+
           {formData.emneId && (
             <p className={`text-sm ${waitingCount > 0 ? "text-gray-700" : "text-amber-700"}`}>
               {waitingCount > 0
-                ? `${waitingCount} student${waitingCount === 1 ? " is" : "s are"} waiting for this emne in Praksis-students. They are added to the placement automatically.`
-                : "No students are waiting for this emne. Import students in Praksis-students first."}
+                ? `${waitingCount} student${waitingCount === 1 ? " is" : "s are"} waiting for this emne${formData.location ? ` at ${formData.location}` : ""} in Praksis-students. They are added to the placement automatically.`
+                : formData.location
+                  ? `No students are waiting for this emne at ${formData.location}. Choose another location or all locations.`
+                  : "No students are waiting for this emne. Import students in Praksis-students first."}
             </p>
           )}
 

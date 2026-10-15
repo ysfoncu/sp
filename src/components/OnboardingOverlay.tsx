@@ -2,92 +2,92 @@ import { useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Textarea } from './ui/textarea';
-import { 
-  X, 
-  ChevronRight, 
-  ChevronLeft, 
+import {
+  ChevronRight,
+  ChevronLeft,
   Check,
   Wand2,
   LayoutDashboard,
   Building2,
-  Calendar,
-  Users,
-  Navigation,
+  GraduationCap,
+  BookOpen,
+  Star,
+  FileText,
   MinusSquare,
   RotateCcw,
-  Sparkles,
   Settings,
-  Send,
-  MessageCircle
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
-
-type OnboardingView = 'dashboard' | 'praksisPladser' | 'kapacitetsplanlægning' | 'elevPlaceringer' | 'analytics' | 'settings' | null;
 
 interface OnboardingStep {
   id: number;
   title: string;
   description: string;
-  view: OnboardingView;
   icon: React.ReactNode;
 }
 
-const onboardingSteps: OnboardingStep[] = [
+// The tour follows the sidebar. The ids are used by App.tsx to open the tour at the step of the page being viewed.
+export const onboardingSteps: OnboardingStep[] = [
   {
     id: 1,
     title: 'Welcome to the System!',
-    description: 'This guided tour will help you understand the key features of the student placement management system. You can navigate through the application while following along with these instructions.',
-    view: null,
+    description:
+      'This tour walks you through the student placement system, in the order of the sidebar. You can use the application while you follow along. Hide the tour with the button at the top and come back to it later from the wand button.',
     icon: <Wand2 className="h-5 w-5" />,
   },
   {
     id: 2,
-    title: 'Dashboard Overview',
-    description: 'The dashboard provides a comprehensive overview of your placement activities, including statistics on total students, active placements, available quota, and pending approvals. Monitor your key metrics at a glance.',
-    view: 'dashboard',
+    title: 'Dashboard',
+    description:
+      'Your overview: the active placements, the tasks that wait for you, recent activity, the progress of each placement and a yearly overview.\n\nOpen a placement from here to continue where you left off.',
     icon: <LayoutDashboard className="h-5 w-5" />,
   },
   {
     id: 3,
-    title: 'Capacity Planning',
-    description: 'Capacity Planning.\nThis is where you request and manage quota for student placements. One student placement may contain many capacity requests. A capacity request is made to find enough places from one or many institutions for your praksis students. With capacity requests, you collect the places, and in the next step(Student placement), you will connect these places with your praksis students.\n\nREMEMBER:You can create requests directly with in Student placement tasks aswell.\n\n NOTE:Use "Help" page located top right to get detailed information about the page.',
-    view: 'kapacitetsplanlægning',
-    icon: <Calendar className="h-5 w-5" />,
+    title: 'Praksis-students',
+    description:
+      'The students who need a praksis place. Import the students here, then filter them by study, program, emne, location, status and dates.\n\nA student is waiting until a placement takes them. The status then follows the placement: in placement, planned, placed and completed.',
+    icon: <GraduationCap className="h-5 w-5" />,
   },
   {
     id: 4,
-    title: 'Student Placements',
-    description: 'Click Student Placements located at left sidebar.\nView and manage all student placements in one place. Create placement tasks, assign students to approved quota, and track the status of each placement. Use filters to find specific students or placements quickly.\nUsing AI or Network graph you can distribute or see see placement status easilly.\n\nREMEMBER!:You can create placement task directly using approved requests.\n\nNOTE:Use "Help" page located top right to get detailed information about the page.',
-    view: 'elevPlaceringer',
-    icon: <Users className="h-5 w-5" />,
+    title: 'Student placement',
+    description:
+      'A placement has seven steps:\n1. Choose study, program, emne and an optional location. The waiting students come from Praksis-students.\n2. Choose the entities and how many slots of each.\n3. Place the students on the entities.\n4. Attach documents (optional).\n5. Assign mentors (optional).\n6. Publish to entities.\n7. Publish to students.\n\nEach step has an info banner, and the step button at the top right shows where you are.\n\nREMEMBER: slots never block. You can place more students than slots, and the entity then shows "over by N". You can also tag students with chips and filter the list by tag.',
+    icon: <BookOpen className="h-5 w-5" />,
   },
   {
     id: 5,
-    title: 'Praksis Places',
-    description: 'Manage your internship locations here. You can view all registered companies and organizations, their contact information, and available placement opportunities. Add new places or update existing ones.',
-    view: 'praksisPladser',
+    title: 'Praksis places',
+    description:
+      'The places where students do their praksis (hospitals, municipalities, services) and their entities (klinikk, avdeling, seksjon, sengepost, gruppe).\n\nAn entity accepts one or more programs, each with its emner and its own places per period, and has contacts and placement information. Only entities with a program and emner can be chosen in a placement. The people of a place are made under Place contacts and added to the entities.',
     icon: <Building2 className="h-5 w-5" />,
   },
   {
     id: 6,
-    title: 'Analytics-AI Assistant',
-    description: 'Explore the Analytics-AI section to gain insights into your placement data. Use AI-driven tools to predict trends, optimize placements, and make data-driven decisions for better student outcomes.',
-    view: 'analytics',
-    icon: <Sparkles className="h-5 w-5" />,
+    title: 'Priorities',
+    description:
+      'Priority lists for students who apply for priority placement. Creating one has two steps: choose study, program, emne and an optional location (the students come from Praksis-students), then set the first notice date, the deadline and the message to the students.\n\nThe list opens with its students. Send the first notice, review the applications and publish the decisions.',
+    icon: <Star className="h-5 w-5" />,
   },
   {
     id: 7,
-    title: 'Settings',
-    description: 'Customize your system settings and preferences. Manage user profiles, notification settings, system configurations, and access permissions to tailor the system to your organization\'s needs.',
-    view: 'settings',
-    icon: <Settings className="h-5 w-5" />,
+    title: 'Reports',
+    description:
+      'Invoicing, the Student report, the Placement report and the Capacity report.\n\nThe Placement report shows, per placement, its emne and students and only the entities added to it. The Capacity report shows the places per emne and how placements use them.',
+    icon: <FileText className="h-5 w-5" />,
   },
   {
     id: 8,
-    title: 'You\'re All Set!',
-    description: 'You\'ve completed the onboarding tour! You can restart this tour anytime by clicking the wizard hat button in the bottom-right corner. Feel free to explore the system and discover more features as you go.',
-    view: null,
+    title: 'Settings',
+    description:
+      'Studies, programs and emner are kept here and are shared by the whole system. An emne can have an "Emne requirements" text, which is shown on the entities that accept the emne. You can also set up the dashboard.',
+    icon: <Settings className="h-5 w-5" />,
+  },
+  {
+    id: 9,
+    title: "You're All Set!",
+    description:
+      "You've completed the tour! You can restart it anytime with the wand button in the bottom-right corner. Explore the system and discover more as you go.",
     icon: <Check className="h-5 w-5" />,
   },
 ];
@@ -95,11 +95,10 @@ const onboardingSteps: OnboardingStep[] = [
 interface OnboardingOverlayProps {
   isOpen: boolean;
   onClose: () => void;
-  currentView: string;
   initialStep?: number;
 }
 
-export function OnboardingOverlay({ isOpen, onClose, currentView, initialStep = 1 }: OnboardingOverlayProps) {
+export function OnboardingOverlay({ isOpen, onClose, initialStep = 1 }: OnboardingOverlayProps) {
   // Load progress from localStorage or use initialStep
   const [currentStep, setCurrentStep] = useState(() => {
     return initialStep;
@@ -109,11 +108,6 @@ export function OnboardingOverlay({ isOpen, onClose, currentView, initialStep = 
     const saved = localStorage.getItem('onboarding_completed_steps');
     return saved ? JSON.parse(saved) : [];
   });
-
-  // Comment functionality
-  const [comment, setComment] = useState('');
-  const [isSendingComment, setIsSendingComment] = useState(false);
-  const [commentStatus, setCommentStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const currentStepData = onboardingSteps.find((step) => step.id === currentStep);
   const isFirstStep = currentStep === 1;
@@ -175,62 +169,6 @@ export function OnboardingOverlay({ isOpen, onClose, currentView, initialStep = 
     localStorage.removeItem('onboarding_completed_steps');
   };
 
-  const handleSendComment = async () => {
-    if (!comment.trim()) {
-      return;
-    }
-
-    setIsSendingComment(true);
-    setCommentStatus('idle');
-
-    try {
-      // Get the user's access code from localStorage
-      const accessCode = localStorage.getItem('spm_access_code') || 'UNKNOWN';
-      
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-7771b72b/comments`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-          body: JSON.stringify({
-            page: currentView,
-            comment: comment.trim(),
-            timestamp: new Date().toISOString(),
-            stepId: currentStep,
-            userAccessCode: accessCode,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to send comment');
-      }
-
-      setCommentStatus('success');
-      setComment('');
-      
-      // Reset success status after 3 seconds
-      setTimeout(() => {
-        setCommentStatus('idle');
-      }, 3000);
-    } catch (error) {
-      console.error('Error sending comment:', error);
-      setCommentStatus('error');
-      
-      // Reset error status after 5 seconds
-      setTimeout(() => {
-        setCommentStatus('idle');
-      }, 5000);
-    } finally {
-      setIsSendingComment(false);
-    }
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -275,65 +213,6 @@ export function OnboardingOverlay({ isOpen, onClose, currentView, initialStep = 
             <div className="mb-6">
               <div className="text-gray-700 leading-relaxed whitespace-pre-line">
                 {currentStepData?.description}
-              </div>
-            </div>
-
-            {/* View indicator if specific to a view */}
-            {currentStepData?.view && (
-              null
-            )}
-
-            {/* Comment Section */}
-            <div className="border-t border-gray-200 pt-6 mb-6">
-              <div className="flex items-center gap-2 mb-3">
-                <MessageCircle className="h-5 w-5 text-pink-500" />
-                <h3 className="text-sm font-semibold text-gray-700">
-                  Have feedback or questions?
-                </h3>
-              </div>
-              <p className="text-xs text-gray-600 mb-3">
-                Share your thoughts about this step or ask for help. Your feedback helps us improve!
-              </p>
-              <div className="space-y-3">
-                <Textarea
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="Type your comment or question here..."
-                  className="min-h-[100px] resize-none"
-                  disabled={isSendingComment}
-                />
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-gray-500">
-                    {commentStatus === 'success' && (
-                      <span className="text-green-600 flex items-center gap-1">
-                        <Check className="h-3 w-3" />
-                        Comment sent successfully!
-                      </span>
-                    )}
-                    {commentStatus === 'error' && (
-                      <span className="text-red-600">
-                        Failed to send comment. Please try again.
-                      </span>
-                    )}
-                  </div>
-                  <Button
-                    onClick={handleSendComment}
-                    disabled={!comment.trim() || isSendingComment}
-                    size="sm"
-                    className="bg-pink-500 hover:bg-pink-600 gap-2"
-                  >
-                    {isSendingComment ? (
-                      <>
-                        Sending...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-4 w-4" />
-                        Send
-                      </>
-                    )}
-                  </Button>
-                </div>
               </div>
             </div>
 

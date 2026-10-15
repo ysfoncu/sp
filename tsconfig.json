@@ -13,6 +13,11 @@
   "include": [
     "src/types/placementProfile.ts",
     "src/types/profileUsage.ts",
+    "src/types/placementSlots.ts",
+    "src/types/publishState.ts",
+    "src/types/stepInfo.ts",
+    "src/types/studentTags.ts",
+    "src/types/enrolledFromPraksis.ts",
     "src/types/profileRules.ts",
     "src/types/studentView.ts",
     "src/types/praksisStudent.ts",

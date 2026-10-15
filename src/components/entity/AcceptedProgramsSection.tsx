@@ -62,7 +62,7 @@ export function AcceptedProgramsSection({ entity, placeName, missing }: { entity
           key={e.programId}
           entity={entity}
           entry={e}
-          missing={missing.filter((m) => m.programId === e.programId).map((m) => (m.key === "emner" ? "Emner missing" : "Places not set")).join(", ") || undefined}
+          missing={missing.filter((m) => m.programId === e.programId).map((m) => (m.key === "emner" ? "Emner missing" : "Program missing")).join(", ") || undefined}
         />
       ))}
 
@@ -137,14 +137,10 @@ function ProgramCard({ entity, entry, missing, onClose }: { entity: PlacementPro
         <>
           <AcceptedProgramTree programId={entry.programId} emneIds={entry.emneIds} showRequirements />
           {entry.emneIds.length === 0 && missing?.includes("Emner") && <EmptyHint>No emne is picked. Press Edit and tick the emner students of this program are placed in.</EmptyHint>}
-          {entry.places > 0 ? (
-            <p className="text-sm text-gray-900">
-              <span className="text-lg font-semibold text-purple-600">{entry.places}</span> {entry.places === 1 ? "place" : "places"} per period
-              {placed.peak > 0 && <span className={cn("ml-2 text-xs", placed.peak > entry.places ? "text-red-600" : "text-gray-500")}>{placed.peak} placed in the busiest period{placed.peak > entry.places ? ` (over by ${placed.peak - entry.places})` : ""}</span>}
-            </p>
-          ) : (
-            <EmptyHint>No places set for this program. Press Edit to say how many of its students can be placed here in one period. It never blocks a placement.</EmptyHint>
-          )}
+          <p className="text-sm text-gray-900">
+            <span className={cn("text-lg font-semibold", entry.places > 0 ? "text-purple-600" : "text-gray-500")}>{entry.places}</span> {entry.places === 1 ? "place" : "places"} per period
+            {placed.peak > 0 && <span className={cn("ml-2 text-xs", placed.peak > entry.places ? "text-red-600" : "text-gray-500")}>{placed.peak} placed in the busiest period{placed.peak > entry.places ? ` (over by ${placed.peak - entry.places})` : ""}</span>}
+          </p>
           <div className="flex flex-wrap items-center justify-between gap-2">
             {placed.total > 0 ? (
               <p className="text-xs text-gray-500">{plural(placed.total, "student is", "students are")} placed here from this program, so it can't be removed and the emner they use stay.</p>

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { ChevronDown, ChevronRight, Clock, Gauge, Info, Pencil, UserPlus, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock, Gauge, Search, UserPlus, X } from 'lucide-react';
+import { Input } from './ui/input';
 import { Student } from '../types/placementTask';
 import { PlaceProfileTree } from '../types/profileUsage';
 import { programAudienceLabel } from '../types/placementProfile';
@@ -24,6 +25,12 @@ interface AvailableProfilesPanelProps {
   pickedEntityId?: string | null;
   // Opens Praksis places, where profiles are made
   onOpenProfiles?: () => void;
+  // Back to the step where the placement's entities and slots are chosen
+  onChangeEntities?: () => void;
+  // Students in the placement, shown in the header
+  totalStudents?: number;
+  // The step was completed without choosing any entity: say so instead of "no entity fits"
+  noneChosen?: boolean;
 }
 
 // Left panel of a placement task: the profiles that fit the placement's program and emne, with the
@@ -40,8 +47,12 @@ export default function AvailableProfilesPanel({
   selectedCount = 0,
   pickedEntityId = null,
   onOpenProfiles,
+  onChangeEntities,
+  totalStudents,
+  noneChosen = false,
 }: AvailableProfilesPanelProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('');
 
   // The students placed on each entity, grouped once instead of by a filter for every entity
   const assignedByEntity = useMemo(() => {
@@ -61,6 +72,25 @@ export default function AvailableProfilesPanel({
         <Clock className="h-10 w-10 text-gray-300 mx-auto mb-3" />
         <h3 className="text-sm font-medium text-gray-900 mb-1">Complete Placement Details</h3>
         <p className="text-xs text-gray-500">Fill out the placement details above to see the available entities</p>
+      </div>
+    );
+  }
+
+  if (trees.length === 0 && noneChosen) {
+    return (
+      <div className="bg-white rounded-lg p-8 text-center">
+        <div className="inline-flex items-center justify-center w-12 h-12 bg-gray-100 rounded-full mb-3">
+          <Gauge className="h-6 w-6 text-gray-400" />
+        </div>
+        <h3 className="text-sm font-medium text-gray-900 mb-1">No entities chosen yet</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          Choose the entities this placement uses and how many slots of each. Students can be placed once there is an entity.
+        </p>
+        {onChangeEntities && !readOnly && (
+          <Button onClick={onChangeEntities} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+            Choose entities
+          </Button>
+        )}
       </div>
     );
   }
@@ -86,6 +116,13 @@ export default function AvailableProfilesPanel({
   }
 
   const nodes = trees.flatMap((t) => t.nodes);
+  // The search narrows the list by entity or praksis place name; the totals above still cover every entity
+  const q = query.trim().toLowerCase();
+  const visibleTrees = q
+    ? trees
+        .map((t) => ({ ...t, nodes: t.nodes.filter((n) => n.profile.name.toLowerCase().includes(q) || t.praksisPlaceName.toLowerCase().includes(q)) }))
+        .filter((t) => t.nodes.length > 0)
+    : trees;
   const totalRemaining = nodes.reduce((sum, n) => sum + n.remaining, 0);
   const totalPlaces = nodes.reduce((sum, n) => sum + n.places, 0);
   // Students ticked and no + pressed first: the + of a card chooses the entity for the ticked students
@@ -103,18 +140,39 @@ export default function AvailableProfilesPanel({
     <div className="bg-white rounded-lg">
       {/* Header */}
       <div className="border-b border-gray-200 px-4 py-3">
-        <h3 className="text-sm font-semibold text-gray-900">Available entities</h3>
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="text-sm font-semibold text-gray-900">Available entities</h3>
+          {onChangeEntities && !readOnly && (
+            <button type="button" onClick={onChangeEntities} className="text-xs text-blue-600 hover:underline">
+              Change entities
+            </button>
+          )}
+        </div>
         <p className="text-xs text-gray-500 mt-0.5">
-          {emne} · {totalRemaining} of {totalPlaces} places left
+          {emne} · {totalRemaining} of {totalPlaces} {nodes.every((n) => n.fromSlots) ? 'slots' : 'places'} left
+          {totalStudents !== undefined && ` · ${totalStudents} student${totalStudents === 1 ? '' : 's'}`}
         </p>
+        <div className="relative mt-3">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" aria-hidden="true" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search entity or praksis place" className="h-9 pl-8" aria-label="Search available entities" />
+        </div>
         {choosing && (
           <p className="mt-2 rounded bg-indigo-50 px-2 py-1.5 text-xs text-indigo-900" role="status">
-            <span className="font-semibold">{selectedCount} student{selectedCount !== 1 ? 's' : ''} selected.</span> Press + on an entity to choose it for them, or use "Choose praksis place" in the bar below.
+            <span className="font-semibold">{selectedCount} student{selectedCount !== 1 ? 's' : ''} selected.</span> Press + on an entity to choose it for them.
           </p>
         )}
       </div>
 
-      {trees.map((tree, placeIdx) => (
+      {visibleTrees.length === 0 && (
+        <p className="px-4 py-6 text-center text-sm text-gray-500">
+          No entities match "{query}".{' '}
+          <button type="button" onClick={() => setQuery('')} className="text-blue-600 hover:underline">
+            Clear search
+          </button>
+        </p>
+      )}
+
+      {visibleTrees.map((tree, placeIdx) => (
         <div key={tree.praksisPlaceId} className={placeIdx > 0 ? 'border-t-2 border-gray-100' : ''}>
           <div className="bg-gray-50 px-4 py-2.5">
             <p className="text-sm font-bold text-gray-900 truncate">{tree.praksisPlaceName}</p>
@@ -178,16 +236,6 @@ export default function AvailableProfilesPanel({
                       <p className="text-[10px] text-gray-400">left</p>
                     )}
                   </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setSettingPlaces(profile.id)}
-                    className="h-7 w-7 p-0 flex-shrink-0 text-gray-500 hover:text-gray-900"
-                    title="Set places"
-                    aria-label={`Set places for ${profile.name}`}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
                   {!readOnly && (
                     <Button
                       size="sm"
@@ -270,22 +318,6 @@ export default function AvailableProfilesPanel({
           })}
         </div>
       ))}
-
-      {/* Entities are made on the Praksis places page, not here */}
-      <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 rounded-b-lg flex items-start gap-2 text-xs text-gray-500">
-        <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-gray-400" />
-        <p>
-          Can't see an entity you expected for {emne ?? 'this emne'}? An entity needs a program and emner before it is offered here. Add or complete it under{' '}
-          {onOpenProfiles ? (
-            <button type="button" onClick={onOpenProfiles} className="text-blue-600 hover:underline">
-              Praksis places → Entities
-            </button>
-          ) : (
-            'Praksis places → Entities'
-          )}
-          .
-        </p>
-      </div>
     </div>
   );
 }

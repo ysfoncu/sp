@@ -70,7 +70,7 @@ export function EntityPage({ place, entity, onCopied }: EntityPageProps) {
 
   // A gap on one program opens at that program's card; the others at their block
   const jump = (m: { key: string; programId?: string }) => {
-    const id = m.programId ? `program-${m.programId}` : m.key === "program" || m.key === "emner" || m.key === "places" ? "programs" : m.key;
+    const id = m.programId ? `program-${m.programId}` : m.key === "program" || m.key === "emner" ? "programs" : m.key;
     document.getElementById(`entity-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 

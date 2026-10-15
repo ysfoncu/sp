@@ -53,13 +53,16 @@ import { AnalyticsAI } from "./components/AnalyticsAI";
 import { PlacementTaskView } from "./components/PlacementTaskView";
 import { LoginScreen } from "./components/LoginScreen";
 import { Study, StudyProgram, useStudyCatalog } from "./types/studyCatalog";
+import { enrolledFromPraksis } from "./types/enrolledFromPraksis";
 import { PraksisStudentsView } from "./components/PraksisStudentsView";
 import { LeaveDialog } from "./components/LeaveDialog";
 import { goView, installHistory } from "./navigation";
 import { parsePlacesHash } from "./types/placesRoute";
 import {
+  StudentFilters,
   clearPraksisStudents,
   deriveRows,
+  placementHistoryOf,
   pruneClaims,
   releasePlacement,
   usePraksisStudents,
@@ -201,7 +204,9 @@ export default function App() {
   // Priority placement state
   const [priorityPeriods, setPriorityPeriods] = useState<PriorityPlacementPeriod[]>(mockPriorityPeriods);
   const [priorityApplications, setPriorityApplications] = useState<PriorityPlacementApplication[]>(mockPriorityApplications);
-  const [enrolledStudents] = useState<EnrolledStudent[]>(mockEnrolledStudents);
+  // The students of the priority part are the ones in Praksis-students
+  const { students: praksisStudentList } = usePraksisStudents();
+  const enrolledStudents = useMemo<EnrolledStudent[]>(() => enrolledFromPraksis(praksisStudentList, studies), [praksisStudentList, studies]);
   const [selectedPriorityPeriod, setSelectedPriorityPeriod] = useState<PriorityPlacementPeriod | null>(null);
 
   const [currentView, setCurrentView] = useState<
@@ -225,6 +230,8 @@ export default function App() {
   useEffect(() => installHistory(currentView, setCurrentView), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Praksis Places Sub-view State
+  // The status chip the Praksis-students page opens with when a dashboard tile led there
+  const [studentsInitialStatus, setStudentsInitialStatus] = useState<StudentFilters["status"]>();
   const [praksisPlacesSubView, setPraksisPlacesSubView] =
     useState<"list" | "create">("list");
 
@@ -281,16 +288,29 @@ export default function App() {
     useState(false);
 
   // Helper function to map currentView to onboarding step
+  // The tour opens at the step of the page being viewed (the ids are those of onboardingSteps)
   const getOnboardingStepForView = (view: string): number => {
     switch (view) {
       case "dashboard":
-        return 2; // Dashboard Overview
+        return 2;
+      case "praksisstudents":
+        return 3;
       case "placements":
-        return 4; // Student Placements
+      case "placementtask":
+        return 4;
       case "praksisplaces":
-        return 5; // Praksis Places
+        return 5;
+      case "priorities":
+      case "priorityitem":
+        return 6;
+      case "placementreport":
+      case "capacityreport":
+      case "invoicereport":
+        return 7;
+      case "settings":
+        return 8;
       default:
-        return 1; // Welcome screen for unknown pages
+        return 1; // Welcome screen for other pages
     }
   };
 
@@ -344,6 +364,7 @@ export default function App() {
       studyId: string;
       programId: string;
       emneId?: string;
+      location?: string;
       totalPraksisHours?: number;
     },
   ) => {
@@ -469,29 +490,31 @@ export default function App() {
   const handlePriorityPeriodCreate = (
     period: Omit<PriorityPlacementPeriod, "id" | "createdDate" | "createdBy" | "eligibleStudentIds">
   ) => {
+    // A period made for an emne takes the Praksis-students of that emne (at its locations); an older period by term
     const eligibleStudentIds = enrolledStudents
       .filter(
         (s) =>
-          period.admissionTerms.includes(s.admissionTerm) &&
           (period.studyLocations.length === 0 || period.studyLocations.includes(s.studyLocation)) &&
-          period.programIds.includes(s.programId)
+          period.programIds.includes(s.programId) &&
+          (period.emneIds && period.emneIds.length > 0 ? !!s.emneId && period.emneIds.includes(s.emneId) : period.admissionTerms.includes(s.admissionTerm))
       )
       .map((s) => s.id);
 
-    setPriorityPeriods((prev) => [
-      ...prev,
-      {
-        ...period,
-        id: `pp-${Date.now()}`,
-        createdDate: new Date().toISOString().split("T")[0],
-        createdBy: "John Coordinator",
-        eligibleStudentIds,
-        importedStudentIds: period.importedStudentIds ?? [],
-        // First notice is now configured at creation; treat the noticing date as when it is sent.
-        firstNoticeSentAt: period.firstNoticeDate,
-      },
-    ]);
-    toast.success("Ansökningsperiod skapad");
+    const created: PriorityPlacementPeriod = {
+      ...period,
+      id: `pp-${Date.now()}`,
+      createdDate: new Date().toISOString().split("T")[0],
+      createdBy: "John Coordinator",
+      eligibleStudentIds,
+      importedStudentIds: period.importedStudentIds ?? [],
+      // First notice is now configured at creation; treat the noticing date as when it is sent.
+      firstNoticeSentAt: period.firstNoticeDate,
+    };
+    setPriorityPeriods((prev) => [...prev, created]);
+    // Right after creating, show the details of the new priority list (not the list of lists)
+    setSelectedPriorityPeriod(created);
+    setCurrentView("priorityitem");
+    toast.success("Application period created");
   };
 
   const handlePriorityPeriodToggleStatus = (id: string) => {
@@ -846,7 +869,9 @@ export default function App() {
       studentsAssigned: true,
       documentsAttached: true,
       finalPublished: true,
-      completedTasks: ["1", "2", "3", "4", "5", "6", "7"],
+      entitiesPublished: true,
+      assignmentPublished: true,
+      completedTasks: ["1", "2", "3", "4", "5", "6", "7", "8"],
     };
 
     setStudentPlacements([...studentPlacements, newPlacement]);
@@ -922,6 +947,8 @@ export default function App() {
               onViewChange={(view) =>
                 goView(view, currentView, (v) => {
                   setCurrentView(v);
+                  // The sidebar opens Praksis-students with its default chip, not one left from the dashboard
+                  if (view === "praksisstudents") setStudentsInitialStatus(undefined);
                   // Progress onboarding if step 1 and clicking on placements
                   if (onboardingStep === 1 && view === "placements") {
                     setOnboardingStep(2);
@@ -1054,6 +1081,10 @@ export default function App() {
                     {currentView === "praksisstudents" ? (
                       <PraksisStudentsView
                         rows={registryRows}
+                        initialStatus={studentsInitialStatus}
+                        historyOf={(studentId) =>
+                          placementHistoryOf(studentId, studentPlacements, new Map(placementTaskStates.map((ts) => [ts.placementId, ts.students])))
+                        }
                         priorityApplications={priorityApplications}
                         onOpenPlacement={(placementId) => {
                           const target = studentPlacements.find((p) => p.id === placementId);
@@ -1085,6 +1116,11 @@ export default function App() {
                         onStartOnboarding={() =>
                           setOnboardingStep(1)
                         }
+                        studentRows={registryRows}
+                        onOpenPraksisStudents={(status) => {
+                          setStudentsInitialStatus(status);
+                          goView("praksisstudents", currentView, setCurrentView);
+                        }}
                         dashboardSettings={dashboardSettings}
                       />
                     ) : currentView === "settings" ? (
@@ -1666,7 +1702,6 @@ export default function App() {
       <OnboardingOverlay
         isOpen={isOnboardingOpen}
         onClose={() => setIsOnboardingOpen(false)}
-        currentView={currentView}
         initialStep={initialOnboardingStep}
       />
 

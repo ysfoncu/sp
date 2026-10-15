@@ -27,7 +27,7 @@ import {
   PriorityPlacementApplication,
   PriorityPlacementPeriod,
 } from "../types/priorityPlacement";
-import { CreatePriorityPeriodModal } from "./CreatePriorityPeriodModal";
+import { CreatePriorityPeriodView } from "./CreatePriorityPeriodView";
 import { SelectDatePopover } from "./SelectDatePopover";
 import { PeriodFilterButton } from "./PeriodFilterButton";
 import {
@@ -283,6 +283,22 @@ export function PrioritiesView({
     setFilterProgram("all");
     setFilterEmne("all");
     setFilterLocation("all");
+  }
+
+  // Creating a priority list is a page of its own (not a dialog), as creating a placement is; going back shows the list
+  if (isCreatePeriodOpen) {
+    return (
+      <CreatePriorityPeriodView
+        studies={studies}
+        enrolledStudents={enrolledStudents}
+        existingPeriods={periods}
+        onBack={() => setIsCreatePeriodOpen(false)}
+        onCreate={(period) => {
+          onPeriodCreate(period);
+          setIsCreatePeriodOpen(false);
+        }}
+      />
+    );
   }
 
   return (
@@ -806,17 +822,6 @@ export function PrioritiesView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Create period modal */}
-      <CreatePriorityPeriodModal
-        isOpen={isCreatePeriodOpen}
-        onClose={() => setIsCreatePeriodOpen(false)}
-        onCreate={onPeriodCreate}
-        enrolledStudents={enrolledStudents}
-        studies={studies}
-        currentUserName={currentUserName}
-        existingPeriods={periods}
-      />
     </div>
   );
 }

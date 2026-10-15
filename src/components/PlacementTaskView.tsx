@@ -9,7 +9,7 @@ import {
   PlacementTask,
   placementTasks,
 } from "../types/placementTask";
-import { StudentRow, claimStudents, derivePlacementWindow, toPlacementStudent, waitingForEmne } from "../types/praksisStudent";
+import { StudentRow, claimStudents, derivePlacementWindow, toPlacementStudent, waitingForEmne, waitingLocations } from "../types/praksisStudent";
 import { OtherPlacementUsage } from "../types/profileUsage";
 import { PlacementProfile, ResolvedContact, linkContact, placementEmneId, resolveAssignmentProfile, resolveContacts, usePlacementProfiles } from "../types/placementProfile";
 import { MentorPicker } from "./MentorPicker";
@@ -17,11 +17,15 @@ import { PreviewEntry, StudentPreviewDialog } from "./StudentPreviewDialog";
 import { StudentView, buildStudentView, missingInfo, takeSnapshot, viewChangedSince } from "../types/studentView";
 import { mentorState, peopleToNotify, studentsNeedingMentor } from "../types/profileRules";
 import { addPlaceContact, usePlaceContacts } from "../types/placeContact";
-import { profileTreeForPlacement, totalPlacesForPlacement } from "../types/profileUsage";
+import { nodeCapacity, profileTreeForPlacement, totalPlacesForPlacement } from "../types/profileUsage";
 import { PriorityPlacementPeriod, PriorityPlacementApplication } from "../types/priorityPlacement";
 import { toast } from "sonner@2.0.3";
 import AvailableProfilesPanel from "./AvailableProfilesPanel";
 import { PlacementTaskHeader } from "./PlacementTaskHeader";
+import PlacementEntitySlotsStep from "./PlacementEntitySlotsStep";
+import { StepInfoBanner } from "./StepInfoBanner";
+import { PublishState, canPublishToStudents, isLocked, normalizePublish, publishState } from "../types/publishState";
+import { EntitySlot, slotCandidates, slotsFromTrees } from "../types/placementSlots";
 import { PlacementMetadataForm, MetadataFormData, placementTitleFor } from "./PlacementMetadataForm";
 import { AssignmentPublishBanner } from "./AssignmentPublishBanner";
 import { StudentsPanel } from "./StudentsPanel";
@@ -56,6 +60,7 @@ interface PlacementTaskViewProps {
       studyId: string;
       programId: string;
       emneId?: string;
+      location?: string;
       totalPraksisHours?: number;
     },
   ) => void;
@@ -73,6 +78,8 @@ interface PlacementTaskViewProps {
     completedTasks: string[];
     assignmentPublished?: boolean;
     assignmentPublishedDate?: string;
+    entitiesPublished?: boolean;
+    entitiesPublishedDate?: string;
   };
   onTaskStateUpdate?: (state: any) => void;
   allPlacementsData?: OtherPlacementUsage[];
@@ -148,6 +155,14 @@ export function PlacementTaskView({
     },
   );
 
+  // ── Entities and slots (step 2) ──────────────────────────────────────────
+  // The entities this placement uses and their slots; undefined = every fitting entity (placements made
+  // before the step existed). The students are shown once the step is confirmed.
+  const [entitySlots, setEntitySlots] = useState<EntitySlot[] | undefined>(initialTaskState?.entitySlots);
+  const [slotsConfirmed, setSlotsConfirmed] = useState<boolean>(
+    initialTaskState?.entitySlotsConfirmed ?? (initialTaskState?.entitySlots === undefined && placement.status !== "draft"),
+  );
+
   // ── Core data state ──────────────────────────────────────────────────────
   const [students, setStudents] = useState<Student[]>(
     initialTaskState?.students || [],
@@ -161,22 +176,25 @@ export function PlacementTaskView({
   const [isStudentsExpanded, setIsStudentsExpanded] = useState(false);
 
   // ── Assignment publish state ─────────────────────────────────────────────
-  const [isAssignmentPublished, setIsAssignmentPublished] = useState(
-    initialTaskState?.assignmentPublished ?? false,
-  );
-  const [assignmentPublishedDate, setAssignmentPublishedDate] = useState<
-    string | null
-  >(initialTaskState?.assignmentPublishedDate ?? null);
-  const [wasEverPublished, setWasEverPublished] = useState(
-    initialTaskState?.assignmentPublished ?? false,
-  );
+  // Two publish steps: to entities (task 7), then to students (task 8). A state saved with the single publish
+  // step counts as published to both.
+  const initialPublish = initialTaskState ? normalizePublish(initialTaskState) : undefined;
+  const [isEntitiesPublished, setIsEntitiesPublished] = useState(initialPublish?.entitiesPublished ?? false);
+  const [entitiesPublishedDate, setEntitiesPublishedDate] = useState<string | null>(initialPublish?.entitiesPublishedDate ?? null);
+  const [isAssignmentPublished, setIsAssignmentPublished] = useState(initialPublish?.assignmentPublished ?? false); // to students
+  const [assignmentPublishedDate, setAssignmentPublishedDate] = useState<string | null>(initialPublish?.assignmentPublishedDate ?? null);
+  // What was published when Edit was pressed, so "Cancel edit" can give it back
+  const [publishedBeforeEdit, setPublishedBeforeEdit] = useState<PublishState | null>(null);
+  const publishStatus = publishState({ entitiesPublished: isEntitiesPublished, assignmentPublished: isAssignmentPublished });
+  // Anything published locks the assignments (Edit unlocks them)
+  const locked = isLocked(publishStatus);
   const [showCongratulations, setShowCongratulations] = useState(false);
 
   // ── Modal / dialog open state ────────────────────────────────────────────
   const [isTasksModalOpen, setIsTasksModalOpen] = useState(false);
   const [isQuotaSelectionDialogOpen, setIsQuotaSelectionDialogOpen] =
     useState(false);
-  const [isPublishConfirmOpen, setIsPublishConfirmOpen] = useState(false);
+  const [publishMode, setPublishMode] = useState<"entities" | "students" | null>(null); // the publish step being confirmed
   const [isNetworkDiagramOpen, setIsNetworkDiagramOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isHelpOverlayOpen, setIsHelpOverlayOpen] = useState(false);
@@ -200,9 +218,11 @@ export function PlacementTaskView({
   }, [onTaskStateUpdate]);
 
   // Students waiting in Praksis-students for the emne chosen in the form
+  // (only those at the chosen location, when one is chosen)
   const waitingForChosenEmne = metadataFormData.emneId
-    ? waitingForEmne(registryRows, metadataFormData.emneId)
+    ? waitingForEmne(registryRows, metadataFormData.emneId, undefined, metadataFormData.location)
     : [];
+  const locationOptions = metadataFormData.emneId ? waitingLocations(registryRows, metadataFormData.emneId) : [];
 
   // ── Computed stats ───────────────────────────────────────────────────────
   const placementsMadeCount = students.filter(
@@ -225,7 +245,9 @@ export function PlacementTaskView({
   const placeContacts = usePlaceContacts();
   // Profiles that fit this placement's program and emne, per praksis place, with usage worked out from
   // where students are placed — here and in other placements the profile also covers in the same period
-  const profileTrees = profileTreeForPlacement(allProfiles, praksisPlaces, quotaContext, students, allPlacementsData);
+  const profileTrees = profileTreeForPlacement(allProfiles, praksisPlaces, quotaContext, students, allPlacementsData, entitySlots);
+  // Every entity that fits, for the step where the entities are chosen
+  const slotChoices = slotsConfirmed ? [] : slotCandidates(profileTreeForPlacement(allProfiles, praksisPlaces, quotaContext, students, allPlacementsData));
 
   // Places this placement can use: every fitting profile's places minus what other placements used
   const totalLimitPlaces = totalPlacesForPlacement(profileTrees);
@@ -268,6 +290,9 @@ export function PlacementTaskView({
 
   const totalQuotas = totalLimitPlaces;
   const currentTask = tasks.find((t) => !t.completed);
+  // The step the info banner explains: the first mandatory task not done (the optional steps have no banner, and
+  // once everything is published there is none)
+  const bannerTask = tasks.find((t) => !t.completed && t.status === "mandatory");
   const allStudentsAssigned =
     students.length > 0 && students.every((s) => s.assignedPraksisPlace);
 
@@ -328,7 +353,7 @@ export function PlacementTaskView({
         prev.map((t) => (t.id === taskId ? { ...t, completed: true } : t)),
       );
     } else if (task.actionType === "publish") {
-      if (task.id === "7") {
+      if (task.id === "7" || task.id === "8") {
         const allMandatoryCompleted = tasks
           .filter((t) => t.status === "mandatory" && t.id !== taskId)
           .every((t) => t.completed);
@@ -372,6 +397,9 @@ export function PlacementTaskView({
     const incoming = taken.filter((s) => claimed.has(s.id)).map(toPlacementStudent);
     setStudents(incoming);
     setStudentsImported(true);
+    // Next the entities and their slots are chosen; the students are shown after that
+    setEntitySlots([]);
+    setSlotsConfirmed(false);
     const title = metadataFormData.title.trim() || placementTitleFor(studies, metadataFormData);
     const filled = { ...metadataFormData, title, ...period, students: incoming.length };
     setMetadataFormData(filled);
@@ -388,6 +416,7 @@ export function PlacementTaskView({
         studyId: filled.studyId,
         programId: filled.programId,
         emneId: filled.emneId,
+        location: filled.location || undefined,
       });
     }
 
@@ -408,6 +437,12 @@ export function PlacementTaskView({
     if (onboardingStep === 3 && setOnboardingStep) {
       setOnboardingStep(0);
     }
+  };
+
+  // Back to the entities step; a placement made without slots starts from every fitting entity
+  const handleChangeEntities = () => {
+    if (!entitySlots) setEntitySlots(slotsFromTrees(profileTrees));
+    setSlotsConfirmed(false);
   };
 
   const handleCancelDraft = () => {
@@ -680,15 +715,23 @@ export function PlacementTaskView({
     );
   };
 
-  const handlePublishConfirm = () => {
-    const now = new Date().toLocaleString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    // Publishing books every assignment and freezes what each student is told
+  const stamp = () =>
+    new Date().toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  // Step 1: the entities. It records that they can see the placement (nothing is built on their side) and locks
+  // the assignments; the students are not told yet, so the assignments stay planned
+  const handlePublishToEntities = () => {
+    setIsEntitiesPublished(true);
+    setEntitiesPublishedDate(stamp());
+    setPublishedBeforeEdit(null);
+    setPublishMode(null);
+    toast.success("Published to entities");
+  };
+
+  // Step 2: the students, only after the entities. It books every assignment and freezes what each student is told
+  const handlePublishToStudents = () => {
+    if (!canPublishToStudents(publishStatus)) return;
+    const now = stamp();
     setStudents((prev) =>
       prev.map((s) => {
         const a = s.assignedPraksisPlace;
@@ -706,10 +749,25 @@ export function PlacementTaskView({
       }),
     );
     setIsAssignmentPublished(true);
-    setWasEverPublished(true);
     setAssignmentPublishedDate(now);
-    setIsPublishConfirmOpen(false);
-    toast.success("Assignments published successfully");
+    setPublishedBeforeEdit(null);
+    setPublishMode(null);
+    toast.success("Published to students");
+  };
+
+  const handlePublishConfirm = () => (publishMode === "entities" ? handlePublishToEntities() : handlePublishToStudents());
+
+  // Edit unlocks the assignments (both publish steps are open again); Cancel edit gives back what was published
+  const handleEditPublished = () => {
+    setPublishedBeforeEdit(publishStatus);
+    setIsAssignmentPublished(false);
+    setIsEntitiesPublished(false);
+  };
+  const handleCancelEdit = () => {
+    if (!publishedBeforeEdit) return;
+    setIsEntitiesPublished(publishedBeforeEdit !== "none");
+    setIsAssignmentPublished(publishedBeforeEdit === "students");
+    setPublishedBeforeEdit(null);
   };
 
   // Gives the assignments of the students back as they were, for the ones that still hold what a batch gave them
@@ -875,18 +933,16 @@ export function PlacementTaskView({
 
   // ── Effects ───────────────────────────────────────────────────────────────
 
-  // Auto-complete Step 1/5 when students are imported and the profiles have places for them
+  // Auto-complete Step 1/6 when the students have come in (places never block, so they are not checked here)
   useEffect(() => {
-    const studentsReady = studentsImported && students.length > 0;
-    const quotasReady = students.length > 0 && totalQuotas >= students.length;
-    if (studentsReady && quotasReady) {
+    if (studentsImported && students.length > 0) {
       setTasks((prev) =>
         prev.map((t) => (t.id === "1" ? { ...t, completed: true } : t)),
       );
     }
-  }, [studentsImported, students.length, totalQuotas]);
+  }, [studentsImported, students.length]);
 
-  // Auto-complete or auto-uncomplete Step 2/5 based on assignment status
+  // Auto-complete or auto-uncomplete Step 3/6 based on assignment status
   useEffect(() => {
     if (!studentsImported || students.length === 0) return;
     const allAssigned = students.every((s) => s.assignedPraksisPlace);
@@ -908,6 +964,20 @@ export function PlacementTaskView({
     }
   }, [initialTaskState]);
 
+  // Tasks 6/7 (entities) and 7/7 (students) follow what is published
+  useEffect(() => {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === "7" ? { ...t, completed: publishStatus !== "none" } : t.id === "8" ? { ...t, completed: publishStatus === "students" } : t,
+      ),
+    );
+  }, [publishStatus]);
+
+  // Step 2/7 is complete while the entities and slots are confirmed; "Change entities" opens it again
+  useEffect(() => {
+    setTasks((prev) => prev.map((t) => (t.id === "2" ? { ...t, completed: slotsConfirmed } : t)));
+  }, [slotsConfirmed]);
+
   // Sync state back to parent
   useEffect(() => {
     if (onTaskStateUpdateRef.current) {
@@ -921,13 +991,19 @@ export function PlacementTaskView({
         students,
         studentsAssigned: allAssigned,
         documentsAttached: tasks.find((t) => t.id === "5")?.completed || false,
-        finalPublished: tasks.find((t) => t.id === "7")?.completed || false,
+        finalPublished: tasks.find((t) => t.id === "8")?.completed || false,
         completedTasks: completedTaskIds,
         assignmentPublished: isAssignmentPublished,
         assignmentPublishedDate: assignmentPublishedDate ?? undefined,
+        entitiesPublished: isEntitiesPublished,
+        entitiesPublishedDate: entitiesPublishedDate ?? undefined,
+        entitySlots,
+        entitySlotsConfirmed: slotsConfirmed,
       });
     }
   }, [
+    entitySlots,
+    slotsConfirmed,
     students,
     profileTrees.length,
     studentsImported,
@@ -935,6 +1011,8 @@ export function PlacementTaskView({
     placement.id,
     isAssignmentPublished,
     assignmentPublishedDate,
+    isEntitiesPublished,
+    entitiesPublishedDate,
   ]);
 
   // ── Pre-computed modal data ───────────────────────────────────────────────
@@ -974,7 +1052,7 @@ export function PlacementTaskView({
       departmentId: n.profile.id,
       departmentName: n.profile.name,
       currentAssigned: n.used,
-      quota: n.places - n.usedElsewhere,
+      quota: nodeCapacity(n),
       status: "approved",
     })),
   );
@@ -992,26 +1070,18 @@ export function PlacementTaskView({
         <PlacementTaskHeader
           placement={placement}
           currentTask={currentTask}
-          isAssignmentPublished={isAssignmentPublished}
+          isAssignmentPublished={locked}
+          studentCount={students.length}
           onBack={onBack}
           onOpenTasks={() => setIsTasksModalOpen(true)}
-          onEdit={() => setIsAssignmentPublished(false)}
+          onEdit={handleEditPublished}
           onHelp={() => setIsHelpOverlayOpen(true)}
         />
 
-        {/* Draft placement info banner */}
+        {/* Draft placement info banner: step 1, the placement details */}
         {placement.status === "draft" && (
           <div className="px-8 py-4 max-w-3xl">
-            <Alert className="bg-blue-50 border-blue-200">
-              <Info className="h-4 w-4 text-blue-600" />
-              <AlertTitle className="text-blue-900">
-                Welcome! Let's Get Started
-              </AlertTitle>
-              <AlertDescription className="text-blue-800">
-                Fill in the placement details below. Students can only be placed on Praksis place
-                units that have a profile for the selected program and emne.
-              </AlertDescription>
-            </Alert>
+            <StepInfoBanner taskId="1" />
           </div>
         )}
 
@@ -1043,30 +1113,39 @@ export function PlacementTaskView({
               formData={metadataFormData}
               studies={studies}
               waitingCount={waitingForChosenEmne.length}
+              locations={locationOptions}
               onChange={setMetadataFormData}
               onSubmit={handleMetadataFormSubmit}
               onCancel={handleCancelDraft}
             />
+          ) : !slotsConfirmed ? (
+            // Step 2: the entities this placement uses and their slots, before the students are shown
+            <div className="space-y-4 pt-6">
+              <PlacementEntitySlotsStep
+                candidates={slotChoices}
+                slots={entitySlots ?? []}
+                onChange={setEntitySlots}
+                studentCount={students.length}
+                emne={placementEmne}
+                onContinue={() => setSlotsConfirmed(true)}
+                onOpenProfiles={onOpenPraksisPlaces}
+              />
+            </div>
           ) : (
             <div className="space-y-4 pt-6">
-              {/* Validation alerts */}
-              {!isStudentsExpanded &&
-                students.length > 0 &&
-                totalQuotas < students.length &&
-                !allStudentsAssigned && (
-                  <Alert className="bg-amber-50 border-amber-200">
-                    <Info className="h-4 w-4 text-amber-600" />
-                    <AlertTitle className="text-amber-900">
-                      Not enough places
-                    </AlertTitle>
-                    <AlertDescription className="text-amber-800">
-                      You have {students.length} students but the entities for this emne
-                      only have {totalQuotas} place{totalQuotas !== 1 ? "s" : ""} for this
-                      placement. Raise places or add an entity under Praksis places for{" "}
-                      {students.length - totalQuotas} more.
-                    </AlertDescription>
-                  </Alert>
-                )}
+              {/* Info banner of the step being worked on (once published to students there is none) */}
+              {bannerTask && <StepInfoBanner key={bannerTask.id} taskId={bannerTask.id} />}
+
+              {/* Validation alerts. Too few slots is not one: slots never block. Only having no entity at all is said. */}
+              {!isStudentsExpanded && students.length > 0 && totalQuotas === 0 && !allStudentsAssigned && (
+                <Alert className="bg-amber-50 border-amber-200">
+                  <Info className="h-4 w-4 text-amber-600" />
+                  <AlertTitle className="text-amber-900">No entities chosen</AlertTitle>
+                  <AlertDescription className="text-amber-800">
+                    No entities are chosen yet, so the {students.length} students cannot be placed. Use Change entities to choose entities and slots.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {totalQuotas > 0 && students.length === 0 && (
                 <Alert className="bg-blue-50 border-blue-200">
@@ -1085,11 +1164,13 @@ export function PlacementTaskView({
               {/* Assignment publish banner */}
               {studentsImported && allStudentsAssigned && students.length > 0 && (
                 <AssignmentPublishBanner
-                  isPublished={isAssignmentPublished}
-                  publishedDate={assignmentPublishedDate}
-                  wasEverPublished={wasEverPublished}
-                  onPublish={() => setIsPublishConfirmOpen(true)}
-                  onCancelEdit={() => setIsAssignmentPublished(true)}
+                  publishState={publishStatus}
+                  entitiesDate={entitiesPublishedDate}
+                  studentsDate={assignmentPublishedDate}
+                  canCancelEdit={publishedBeforeEdit !== null}
+                  onPublishEntities={() => setPublishMode("entities")}
+                  onPublishStudents={() => setPublishMode("students")}
+                  onCancelEdit={handleCancelEdit}
                   needsMentor={needsMentorCount}
                   onPreview={() => setIsPreviewOpen(true)}
                   changedCount={changedCount}
@@ -1107,13 +1188,16 @@ export function PlacementTaskView({
                       students={students}
                       emne={placementEmne}
                       hasPlacementDetails={!!(placementProgramId && placementEmne)}
-                      readOnly={isAssignmentPublished}
+                      readOnly={locked}
                       onStartAssign={pressPlus}
                       onRemoveStudent={removeFromEntity}
                       assignTargetId={assignTargetId}
                       selectedCount={selectedFreeCount}
                       pickedEntityId={pickedEntityId}
                       onOpenProfiles={onOpenPraksisPlaces}
+                      onChangeEntities={handleChangeEntities}
+                      totalStudents={students.length}
+                      noneChosen={entitySlots !== undefined && entitySlots.length === 0}
                     />
                   </div>
                 )}
@@ -1122,7 +1206,7 @@ export function PlacementTaskView({
                 <div className="flex-1 min-w-0">
                   <StudentsPanel
                     students={students}
-                    isAssignmentPublished={isAssignmentPublished}
+                    isAssignmentPublished={locked}
                     isStudentsExpanded={isStudentsExpanded}
                     quotaEntityKeys={quotaEntityKeys}
                     connectedPraksisPlaces={connectedPraksisPlaces}
@@ -1184,8 +1268,8 @@ export function PlacementTaskView({
           onCloseTasksModal={() => setIsTasksModalOpen(false)}
           tasks={tasks}
           onTaskAction={handleTaskAction}
-          isPublishConfirmOpen={isPublishConfirmOpen}
-          onClosePublishConfirm={() => setIsPublishConfirmOpen(false)}
+          publishMode={publishMode}
+          onClosePublishConfirm={() => setPublishMode(null)}
           onPublishConfirm={handlePublishConfirm}
           needsMentorCount={needsMentorCount}
           notifyList={notifyList}

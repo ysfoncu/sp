@@ -140,3 +140,16 @@ When + icon in an entity card is pressed make the selected entity highlighted an
 Display an info dialog saying select students from students list and click add to entity button. There should be a button saying dont show this info again
 After this user should be able to select students from current students list. Selected students will be displayed under page with a floating action as ... students selected add to ... entity. when completed user will press add
 Will this implementation solve the problem you mentioned 
+
+
+Now we will create a jira task for the developer. 
+use this task
+https://mosoas.atlassian.net/browse/SP-55?atlOrigin=eyJpIjoiZTI2NGM4YmFmY2IyNDQxYzgzZmZlZWQxNDQyZDNkZDgiLCJwIjoiaiJ9
+
+compare last commit with commit 2092e98.
+
+create brief explanation to developer about removed pages
+
+updated functionalities.
+
+Developer should have an overal understanding of changes after reading the task and he will use this prototype to make changes in real app

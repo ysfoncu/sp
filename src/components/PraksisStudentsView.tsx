@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Download, Search, Star, Users, X } fro
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { cn } from "./ui/utils";
 import { PriorityPlacementApplication } from "../types/priorityPlacement";
@@ -25,12 +26,16 @@ import {
   priorityOf,
   priorityPointsOf,
   sortRows,
+  HistoryEntry,
 } from "../types/praksisStudent";
 
 interface PraksisStudentsViewProps {
   rows: StudentRow[];
   priorityApplications?: PriorityPlacementApplication[];
   onOpenPlacement: (placementId: string) => void;
+  initialStatus?: StudentFilters["status"];
+  // A student's placements, newest first, for the side bar that opens when a row is pressed
+  historyOf?: (studentId: string) => HistoryEntry[];
 }
 
 const PAGE_SIZE = 25;
@@ -52,16 +57,18 @@ const STATUS_STYLE: Record<StudentStatus, string> = {
 
 const fmt = (d: string) => (d ? d.split("-").reverse().join(".") : "");
 
-export function PraksisStudentsView({ rows, priorityApplications = [], onOpenPlacement }: PraksisStudentsViewProps) {
+export function PraksisStudentsView({ rows, priorityApplications = [], onOpenPlacement, initialStatus, historyOf }: PraksisStudentsViewProps) {
   const { all: studies } = useStudyCatalog();
   const profiles = usePlacementProfiles();
   const summary = importSummary();
   const profileName = (id?: string) => profiles.find((p) => p.id === id)?.name;
-  const [filters, setFilters] = useState<StudentFilters>(EMPTY_FILTERS);
+  // The dashboard can open the page with a status chip already on
+  const [filters, setFilters] = useState<StudentFilters>(initialStatus ? { ...EMPTY_FILTERS, status: initialStatus } : EMPTY_FILTERS);
   const [page, setPage] = useState(1);
   // Click a column to sort ascending, again for descending, a third time to go back to the default order
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null);
   const [viewingPriority, setViewingPriority] = useState<PriorityPlacementApplication | null>(null);
+  const [openStudentId, setOpenStudentId] = useState<string | null>(null); // the student whose history is shown on the right
 
   const set = (patch: Partial<StudentFilters>) => {
     setFilters((f) => ({ ...f, ...patch }));
@@ -304,7 +311,16 @@ export function PraksisStudentsView({ rows, priorityApplications = [], onOpenPla
                   const s = r.student;
                   const a = r.assignment;
                   return (
-                    <tr key={s.id} className="border-b border-gray-100 align-top">
+                    <tr
+                      key={s.id}
+                      className={cn("cursor-pointer border-b border-gray-100 align-top hover:bg-blue-50/40", openStudentId === s.id && "bg-blue-50")}
+                      onClick={(e) => {
+                        // A button or link inside the row keeps its own action
+                        if (!(e.target as HTMLElement).closest("button, a")) setOpenStudentId(s.id);
+                      }}
+                      aria-selected={openStudentId === s.id}
+                      title="Show this student's placement history"
+                    >
                       <td className="px-4 py-2">
                         <div className="font-medium text-gray-900">{s.name}</div>
                         <div className="text-xs text-gray-500">{s.personnummer}</div>
@@ -396,6 +412,98 @@ export function PraksisStudentsView({ rows, priorityApplications = [], onOpenPla
           </div>
         </div>
       )}
+      {/* The pressed student's placement history, on the right */}
+      <Sheet open={openStudentId !== null} onOpenChange={(open) => !open && setOpenStudentId(null)}>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
+          {(() => {
+            const row = rows.find((x) => x.student.id === openStudentId);
+            if (!row) return null;
+            const st = row.student;
+            const history = historyOf ? historyOf(st.id) : [];
+            const STATE_LABEL = { completed: "Completed", placed: "Placed", planned: "Planned", notPlaced: "No entity" } as const;
+            const STATE_STYLE = {
+              completed: "bg-gray-100 text-gray-700 border-gray-200",
+              placed: "bg-green-50 text-green-700 border-green-200",
+              planned: "bg-blue-50 text-blue-700 border-blue-200",
+              notPlaced: "bg-amber-50 text-amber-800 border-amber-200",
+            } as const;
+            return (
+              <>
+                <SheetHeader>
+                  <SheetTitle>{st.name}</SheetTitle>
+                  <SheetDescription>
+                    {st.personnummer}
+                    {st.registered === false && <span className="ml-2 text-amber-700">Not registered</span>}
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="space-y-5 px-4 pb-6">
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                    <dt className="text-gray-500">Program</dt>
+                    <dd className="text-gray-900">{nameOf(names.program, st.programId)}</dd>
+                    <dt className="text-gray-500">Emne</dt>
+                    <dd className="text-gray-900">{nameOf(names.emne, st.emneId)}</dd>
+                    <dt className="text-gray-500">Praksis period</dt>
+                    <dd className="text-gray-900">
+                      {fmt(st.startDate)} – {fmt(st.endDate)}
+                    </dd>
+                    <dt className="text-gray-500">Location</dt>
+                    <dd className="text-gray-900">{st.studyLocation}</dd>
+                    <dt className="text-gray-500">Status</dt>
+                    <dd>
+                      <Badge variant="outline" className={STATUS_STYLE[row.status]}>
+                        {STATUS_LABEL[row.status]}
+                      </Badge>
+                    </dd>
+                  </dl>
+
+                  <div>
+                    <h3 className="mb-2 text-sm font-semibold text-gray-800">Placement history ({history.length})</h3>
+                    {history.length === 0 ? (
+                      <p className="rounded-md border border-dashed border-gray-300 px-3 py-4 text-sm text-gray-500">
+                        No placement history yet. {row.status === "waiting" ? "The student is waiting for a placement." : ""}
+                      </p>
+                    ) : (
+                      <ol className="space-y-3 border-l border-gray-200 pl-4">
+                        {history.map((h) => {
+                          const a = h.assignment;
+                          return (
+                            <li key={h.placementId} className="relative">
+                              <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-blue-500" aria-hidden="true" />
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline" className={cn("text-[11px]", STATE_STYLE[h.state])}>
+                                  {STATE_LABEL[h.state]}
+                                </Badge>
+                                <span className="text-xs text-gray-500">
+                                  {[h.semester, h.year].filter(Boolean).join(" ")}
+                                  {h.startDate && h.endDate ? ` · ${fmt(h.startDate)} – ${fmt(h.endDate)}` : ""}
+                                </span>
+                              </div>
+                              <button type="button" onClick={() => onOpenPlacement(h.placementId)} className="mt-1 block text-left text-sm font-medium text-blue-600 hover:underline">
+                                {h.title || "Placement"}
+                              </button>
+                              {h.emne && <div className="text-xs text-gray-500">{h.emne}</div>}
+                              {a ? (
+                                <div className="mt-1 text-sm text-gray-800">
+                                  {a.placeName}
+                                  <span className="text-gray-500"> · {profileName(a.profileId) ?? a.departmentName ?? "—"}</span>
+                                  <div className="text-xs text-gray-500">{a.mentor ? `Mentor: ${a.mentor.name}` : "No mentor attached"}</div>
+                                </div>
+                              ) : (
+                                <div className="mt-1 text-xs text-gray-500">Not placed on an entity</div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    )}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
+
       {viewingPriority && <PriorityApplicationDetailsModal application={viewingPriority} onClose={() => setViewingPriority(null)} />}
     </div>
   );
