@@ -17,7 +17,6 @@ An entity can accept several programs, and the emne definition got a requirement
 - **Removed:** the "Set places" dialog.
 - **Under the hood:** entities are saved in a new shape (storage version 6; older data is migrated). 129 tests passed.
 
-## Since commit 32 (not committed)
 
 ### Student placement (a new placement now has 7 steps)
 - **Step 1, Placement Details:** an optional Location (the study locations of the waiting students, with counts). It is shown from the start and is disabled until an emne is chosen. With a location only the students who study there are taken, and the title gets the location.
@@ -51,7 +50,4 @@ An entity can accept several programs, and the emne definition got a requirement
 ### Onboarding tour
 - The comment field is removed, and the nine steps are rewritten to follow the current app.
 
-### Code notes
-- New files: `CreatePriorityPeriodView`, `PlacementEntitySlotsStep`, `StepInfoBanner`, `StudentMetrics`, `StudentTags`, and the logic in `placementSlots`, `publishState`, `stepInfo`, `studentTags`, `enrolledFromPraksis`.
-- Removed: `CreatePriorityPeriodModal` and `EntityPickerPopover`.
-- 170 tests pass, and `CLAUDE.md` describes all of the above.
+

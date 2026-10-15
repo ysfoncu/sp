@@ -432,9 +432,23 @@ interface State {
 
 const STORAGE_KEY = "praksisStudents";
 
+// A browser with nothing saved (or an untouched one that saved an empty list) starts with the Umeå students already
+// imported, as it starts with the entities of seedEntities.ts. They are saved at once, so anything done after is kept.
+const startingState = (): State => {
+  const next: State = { students: importedStudents(), claims: {} };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, ...next }));
+  } catch {
+    // Storage unavailable: keep the in-memory copy
+  }
+  return next;
+};
+
 const load = (): State => {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
+    if (parsed === null) return startingState(); // nothing saved yet (only reached when the storage could be read)
+    if (parsed && Array.isArray(parsed.students) && parsed.students.length === 0 && Object.keys(parsed.claims ?? {}).length === 0) return startingState();
     if (parsed && Array.isArray(parsed.students)) {
       // The earlier generated demo students ("imp-…") gave way to the Umeå students
       // The imported students' praksis periods were dated 2022 and 2023; they are now in 2026, and their emne
@@ -483,15 +497,17 @@ export const addPraksisStudents = (list: PraksisStudent[]): number => {
 
 // Brings the Umeå students in, adding any study, program and VFU course they need to the catalog first (one study
 // with a program per program of the sheets)
-export const importStudents = (now = new Date()): number =>
-  addPraksisStudents(
-    generateImportStudents((row) => {
-      const studyId = ensureStudy(IMPORT_STUDY);
-      const programId = ensureProgram(studyId, row.program, row.programCode);
-      const term = intakeTerm(row.startDate);
-      return { studyId, programId, emneId: ensureEmne(studyId, programId, `VFU ${term}`, { startTerm: term }) };
-    }, now.toISOString()),
-  );
+// (a function declaration: the store below reads it while the module loads)
+function importedStudents(now = new Date()): PraksisStudent[] {
+  return generateImportStudents((row) => {
+    const studyId = ensureStudy(IMPORT_STUDY);
+    const programId = ensureProgram(studyId, row.program, row.programCode);
+    const term = intakeTerm(row.startDate);
+    return { studyId, programId, emneId: ensureEmne(studyId, programId, `VFU ${term}`, { startTerm: term }) };
+  }, now.toISOString());
+}
+
+export const importStudents = (now = new Date()): number => addPraksisStudents(importedStudents(now));
 
 // A placement pulls these students in. Returns the ids that were claimed.
 export const claimStudents = (ids: string[], placementId: string): string[] => {
@@ -516,4 +532,5 @@ export const pruneClaims = (validPlacementIds: Set<string>) => {
   if (kept.length !== entries.length) setState({ ...state, claims: Object.fromEntries(kept) });
 };
 
-export const clearPraksisStudents = () => setState({ students: [], claims: {} });
+// Reset Data: back to the starting students, none of them in a placement
+export const resetPraksisStudents = () => setState({ students: importedStudents(), claims: {} });

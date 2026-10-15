@@ -60,7 +60,7 @@ import { goView, installHistory } from "./navigation";
 import { parsePlacesHash } from "./types/placesRoute";
 import {
   StudentFilters,
-  clearPraksisStudents,
+  resetPraksisStudents,
   deriveRows,
   placementHistoryOf,
   pruneClaims,
@@ -771,7 +771,7 @@ export default function App() {
     // Reset all state to initial mock data except praksis places
     setStudentPlacements(mockStudentPlacements);
     setPlacementTaskStates(mockPlacementTaskStates);
-    clearPraksisStudents();
+    resetPraksisStudents();
     setPriorityPeriods(mockPriorityPeriods);
     setPriorityApplications(mockPriorityApplications);
     setSelectedPriorityPeriod(null);
