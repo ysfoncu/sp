@@ -43,6 +43,7 @@ interface EnhancedSidebarProps {
   onSettingsClick?: () => void;
   onAnalyticsClick?: () => void;
   onCommentsClick?: () => void;
+  onGuideClick?: () => void;
   onClearData?: () => void;
 }
 
@@ -66,6 +67,7 @@ export function EnhancedSidebar({
   onSettingsClick,
   onAnalyticsClick,
   onCommentsClick,
+  onGuideClick,
   onClearData,
 }: EnhancedSidebarProps) {
   const [reportsExpanded, setReportsExpanded] = useState(true);
@@ -342,6 +344,18 @@ export function EnhancedSidebar({
                   Settings
                 </span>
               </div>
+
+              {onGuideClick && (
+                <div
+                  className={`flex gap-2 h-8 items-center justify-start p-2 relative rounded shrink-0 w-52 cursor-pointer hover:bg-gray-300 transition-colors ${currentView === "guide" ? "bg-blue-50" : ""}`}
+                  onClick={onGuideClick}
+                >
+                  <BookOpen size={16} className={currentView === "guide" ? "text-blue-600" : "text-gray-500"} />
+                  <span className={`font-semibold text-sm ${currentView === "guide" ? "text-blue-600" : "text-gray-500"}`}>
+                    Test guide
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>

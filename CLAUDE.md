@@ -13,6 +13,7 @@ npm run build     # Build to ./dist/
 ```bash
 npm test          # vitest: unit tests of the pure logic in src/types/*.test.ts
 npm run typecheck # tsc over the logic files listed in tsconfig.json (the components are not type-checked)
+npm run guide:check # test guide: every image and #/guide/<id> link exists, every tour guideId is a page
 ```
 
 There is no linter. The components are not type-checked, so after renaming a field or removing a type, grep for it.
@@ -45,6 +46,7 @@ Unsaved edits: each block of the entity page reports whether it holds changes (`
 | `"settings"` | `<SettingsView>` |
 | `"analytics"` | `<AnalyticsAI>` |
 | `"onboarding-comments"` | `<OnboardingCommentsView>` (restricted to access code `E8W6B4C3`) |
+| `"guide"` | `<GuideView>` — the test guide for the research (sidebar item "Test guide" under Settings, hash `#/guide/<id>`), see "Test guide" below |
 
 ### Domain model
 
@@ -63,6 +65,14 @@ The core types in `src/types/` are:
 ### Application periods (Priorities)
 
 Creating a priority list ("Create new priority list") is a page of its own, not a dialog, and goes the way creating a placement does (`CreatePriorityPeriodView.tsx`, shown by `PrioritiesView` in place of the list): header with back arrow and breadcrumb, a step info banner (`p1`, `p2` in `types/stepInfo.ts`), step 1 "Priority List Details" with study, program, emne and an optional location, step 2 "Priority Details" with the first notice date, the deadline and the message to the students. Back on step 2 returns to the choices; the arrow, the breadcrumb and Cancel on step 1 return to the Priorities list, and creating the list opens the details of the new priority list (its students, dates and notices), whose back button returns to the list. The students are the ones in Praksis-students: `App.tsx` turns them into the `EnrolledStudent` shape the priority part works with (`enrolledFromPraksis` in `types/enrolledFromPraksis.ts`, with `emneId` and `startDate`), `periodStudents` picks those of the emne (and location), the period takes them at once (`importedStudentIds` and `eligibleStudentIds`), and its year and semester follow their praksis start dates (`periodTerm`). With no students waiting for the emne, Next stays blocked.
+
+### Test guide
+
+`docs/test-guide/*.md` are the pages the test users read: `00-start-here.md` and `ts-01` … `ts-05` (Settings, Praksis places, Priorities, Student placement, Invoicing), in the order of the research plan (`PLAN_TEST_GUIDE.md`). `GuideView.tsx` reads them at build time (`import.meta.glob`, `?raw`) and shows them with react-markdown: a list of pages, the overview box from the front matter, "On this page", previous/next, and a folded "## For the researcher" part. `types/guideDocs.ts` holds the pure parts (front matter `id/title/short/order/page/role/goal/minutes/needs/persists`, the researcher split, headings, `parseGuideHash`/`formatGuideHash`, `guideImages`). `[text](#/guide/ts-02)` links stay in the app. App.tsx opens it through `openGuide(id)` (view `"guide"`, `guideDocId`; the tour and the sidebar use it). Images are `public/guide/<id>/NN-name.png`; `docs/test-guide/README.md` has the page template and `screenshots.md` the state each image was taken in. The numbers in the text (50 students, 814,050, "over by 31") come from running the scenarios on the starting data in order without a reload, so run them again after changing the data or the UI of a scenario. The guide has no access codes; the tour (`OnboardingOverlay.tsx`, 10 steps, Invoicing is step 8 and Settings 9) has an optional `scenario` badge and `guideId` per step with an "Open the guide for this page" button.
+
+What the guide says about the prototype (keep it true): placements, priority lists, applications and Study Admins are not saved across a reload; there is no student side (applications are made with "Submit on behalf of student"); there is no "send first notice" button (setting the noticing date counts as sent); the Invoicing statuses for cancelled places cannot be produced.
+
+Dates picked in a calendar are saved with `localIsoDate` (`types/localDate.ts`), not `toISOString()`, which moved the day back one in time zones east of Greenwich.
 
 ### The two user roles (prototype)
 
@@ -88,7 +98,7 @@ State for each step is stored in `PlacementTaskState` and lifted to `App.tsx`.
 
 ### Supabase backend (comments only)
 
-`src/supabase/functions/server/` contains a Deno + Hono edge function for persisting onboarding comments to a KV store. The onboarding tour (`OnboardingOverlay.tsx`, nine steps that follow the sidebar and open at the step of the page being viewed) no longer collects comments, so only `OnboardingCommentsView.tsx` still reads them. It is **not** used for any core placement data — everything else is in-memory mock data.
+`src/supabase/functions/server/` contains a Deno + Hono edge function for persisting onboarding comments to a KV store. The onboarding tour (`OnboardingOverlay.tsx`, ten steps that follow the sidebar and open at the step of the page being viewed) no longer collects comments, so only `OnboardingCommentsView.tsx` still reads them. It is **not** used for any core placement data — everything else is in-memory mock data.
 
 ### Figma assets
 

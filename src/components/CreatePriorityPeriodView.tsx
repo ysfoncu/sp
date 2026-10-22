@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "./ui/breadcrumb";
 import { cn } from "./ui/utils";
 import { StepInfoBanner } from "./StepInfoBanner";
+import { localIsoDate } from "../types/localDate";
 import { EnrolledStudent, PriorityPlacementPeriod } from "../types/priorityPlacement";
 import { emneLocations, periodStudents, periodTerm } from "../types/enrolledFromPraksis";
 
@@ -109,8 +110,8 @@ export function CreatePriorityPeriodView({ studies, enrolledStudents, existingPe
       studyLocations: location ? [location] : [...new Set(students.map((x) => x.studyLocation))].sort(),
       status: "open",
       importedStudentIds: students.map((x) => x.id), // the list takes the students from Praksis-students
-      firstNoticeDate: noticeDate ? noticeDate.toISOString().split("T")[0] : undefined,
-      firstNoticeDeadline: deadline ? deadline.toISOString().split("T")[0] : undefined,
+      firstNoticeDate: noticeDate ? localIsoDate(noticeDate) : undefined,
+      firstNoticeDeadline: deadline ? localIsoDate(deadline) : undefined,
       firstNoticeMessage: message.trim(),
     });
   }

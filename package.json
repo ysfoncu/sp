@@ -69,6 +69,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "guide:check": "node scripts/guide-check.mjs",
     "test": "vitest run"
   }
 }

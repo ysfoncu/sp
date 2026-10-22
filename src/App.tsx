@@ -58,6 +58,8 @@ import { PraksisStudentsView } from "./components/PraksisStudentsView";
 import { LeaveDialog } from "./components/LeaveDialog";
 import { goView, installHistory } from "./navigation";
 import { parsePlacesHash } from "./types/placesRoute";
+import { formatGuideHash, parseGuideHash } from "./types/guideDocs";
+import { GuideView } from "./components/GuideView";
 import {
   StudentFilters,
   resetPraksisStudents,
@@ -81,7 +83,6 @@ import {
 import { PrioritiesView } from "./components/PrioritiesView";
 import { PriorityItemDetailView } from "./components/PriorityItemDetailView";
 import {
-  mockEnrolledStudents,
   mockPriorityPeriods,
   mockPriorityApplications,
   EnrolledStudent,
@@ -224,7 +225,8 @@ export default function App() {
     | "analytics"
     | "placementtask"
     | "onboarding-comments"
-  >(() => (parsePlacesHash(window.location.hash) ? "praksisplaces" : "dashboard")); // a places link opens the places page
+    | "guide"
+  >(() => (parsePlacesHash(window.location.hash) ? "praksisplaces" : parseGuideHash(window.location.hash) !== null ? "guide" : "dashboard")); // a places or guide link opens that page
 
   // Back, Forward and the unsaved-edit guard for the places page (see navigation.ts)
   useEffect(() => installHistory(currentView, setCurrentView), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -277,6 +279,15 @@ export default function App() {
     endDate: "2025-12-15",
   });
 
+  // The test guide: which page of it is open (also kept in the URL hash, #/guide/ts-03)
+  const [guideDocId, setGuideDocId] = useState<string>(() => parseGuideHash(window.location.hash) ?? "");
+  const openGuide = (id: string) => {
+    setGuideDocId(id);
+    window.history.replaceState(window.history.state, "", formatGuideHash(id));
+    if (currentView !== "guide") goView("guide", currentView, setCurrentView);
+    window.history.replaceState(window.history.state, "", formatGuideHash(id));
+  };
+
   // Onboarding overlay state
   const [isOnboardingOpen, setIsOnboardingOpen] =
     useState(false);
@@ -305,10 +316,12 @@ export default function App() {
         return 6;
       case "placementreport":
       case "capacityreport":
-      case "invoicereport":
+      case "students":
         return 7;
-      case "settings":
+      case "invoicereport":
         return 8;
+      case "settings":
+        return 9;
       default:
         return 1; // Welcome screen for other pages
     }
@@ -555,7 +568,7 @@ export default function App() {
           : a
       )
     );
-    toast.success("Ansökan godkänd");
+    toast.success("Application approved");
   };
 
   const handlePriorityApplicationReject = (id: string, notes: string) => {
@@ -572,7 +585,7 @@ export default function App() {
           : a
       )
     );
-    toast.info("Ansökan avslagen");
+    toast.info("Application rejected");
   };
 
   const handleManualGrantPriority = (
@@ -591,9 +604,12 @@ export default function App() {
   };
 
   const handlePriorityItemImportStudents = (periodId: string) => {
-    const first5 = mockEnrolledStudents.slice(0, 5);
     const period = priorityPeriods.find((p) => p.id === periodId);
     if (!period) return;
+    // The students of the list's emne (and locations) in Praksis-students
+    const first5 = enrolledStudents
+      .filter((s) => (period.emneIds?.length ? !!s.emneId && period.emneIds.includes(s.emneId) : true) && (period.studyLocations.length === 0 || period.studyLocations.includes(s.studyLocation)))
+      .slice(0, 5);
     setPriorityPeriods((prev) =>
       prev.map((p) =>
         p.id === periodId ? { ...p, importedStudentIds: first5.map((s) => s.id) } : p
@@ -648,7 +664,7 @@ export default function App() {
   const handleAddStudentsToPeriod = (periodId: string, studentIds: string[]) => {
     const period = priorityPeriods.find((p) => p.id === periodId);
     if (!period) return;
-    const students = mockEnrolledStudents.filter((s) => studentIds.includes(s.id));
+    const students = enrolledStudents.filter((s) => studentIds.includes(s.id));
     setPriorityPeriods((prev) =>
       prev.map((p) =>
         p.id === periodId
@@ -962,6 +978,7 @@ export default function App() {
               }
               onSettingsClick={() => goView("settings", currentView, setCurrentView)}
               onAnalyticsClick={() => goView("analytics", currentView, setCurrentView)}
+              onGuideClick={() => openGuide(guideDocId)}
               onCommentsClick={() => goView("onboarding-comments", currentView, setCurrentView)}
               onClearData={handleClearData}
             />
@@ -1162,6 +1179,15 @@ export default function App() {
                         enrolledStudents={enrolledStudents}
                         praksisPlaces={praksisPlaces}
                         studies={studies}
+                      />
+                    ) : currentView === "guide" ? (
+                      <GuideView
+                        docId={guideDocId}
+                        onOpen={(id) => {
+                          setGuideDocId(id);
+                          window.history.replaceState(window.history.state, "", formatGuideHash(id));
+                        }}
+                        onBackToApp={() => goView("dashboard", currentView, setCurrentView)}
                       />
                     ) : currentView ===
                       "onboarding-comments" ? (
@@ -1703,6 +1729,10 @@ export default function App() {
         isOpen={isOnboardingOpen}
         onClose={() => setIsOnboardingOpen(false)}
         initialStep={initialOnboardingStep}
+        onOpenGuide={(id) => {
+          setIsOnboardingOpen(false);
+          openGuide(id);
+        }}
       />
 
       {/* Placement Task Help Overlay */}

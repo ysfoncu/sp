@@ -17,6 +17,8 @@
     "src/types/publishState.ts",
     "src/types/stepInfo.ts",
     "src/types/studentTags.ts",
+    "src/types/guideDocs.ts",
+    "src/types/localDate.ts",
     "src/types/enrolledFromPraksis.ts",
     "src/types/profileRules.ts",
     "src/types/studentView.ts",

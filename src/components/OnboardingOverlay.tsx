@@ -16,6 +16,7 @@ import {
   MinusSquare,
   RotateCcw,
   Settings,
+  Receipt,
 } from 'lucide-react';
 
 interface OnboardingStep {
@@ -23,6 +24,8 @@ interface OnboardingStep {
   title: string;
   description: string;
   icon: React.ReactNode;
+  scenario?: number; // the test scenario of the guide that uses this page
+  guideId?: string; // the page of the guide (docs/test-guide, id in the front matter)
 }
 
 // The tour follows the sidebar. The ids are used by App.tsx to open the tour at the step of the page being viewed.
@@ -31,8 +34,9 @@ export const onboardingSteps: OnboardingStep[] = [
     id: 1,
     title: 'Welcome to the System!',
     description:
-      'This tour walks you through the student placement system, in the order of the sidebar. You can use the application while you follow along. Hide the tour with the button at the top and come back to it later from the wand button.',
+      'This tour walks you through the student placement system, in the order of the sidebar. You can use the application while you follow along. Hide the tour with the button at the top and come back to it later from the wand button.\n\nTaking part in the research? The Test guide in the sidebar has five short scenarios with real examples. Start with "Start here".',
     icon: <Wand2 className="h-5 w-5" />,
+    guideId: 'start',
   },
   {
     id: 2,
@@ -54,6 +58,8 @@ export const onboardingSteps: OnboardingStep[] = [
     description:
       'A placement has seven steps:\n1. Choose study, program, emne and an optional location. The waiting students come from Praksis-students.\n2. Choose the entities and how many slots of each.\n3. Place the students on the entities.\n4. Attach documents (optional).\n5. Assign mentors (optional).\n6. Publish to entities.\n7. Publish to students.\n\nEach step has an info banner, and the step button at the top right shows where you are.\n\nREMEMBER: slots never block. You can place more students than slots, and the entity then shows "over by N". You can also tag students with chips and filter the list by tag.',
     icon: <BookOpen className="h-5 w-5" />,
+    scenario: 4,
+    guideId: 'ts-04',
   },
   {
     id: 5,
@@ -61,34 +67,50 @@ export const onboardingSteps: OnboardingStep[] = [
     description:
       'The places where students do their praksis (hospitals, municipalities, services) and their entities (klinikk, avdeling, seksjon, sengepost, gruppe).\n\nAn entity accepts one or more programs, each with its emner and its own places per period, and has contacts and placement information. Only entities with a program and emner can be chosen in a placement. The people of a place are made under Place contacts and added to the entities.',
     icon: <Building2 className="h-5 w-5" />,
+    scenario: 2,
+    guideId: 'ts-02',
   },
   {
     id: 6,
     title: 'Priorities',
     description:
-      'Priority lists for students who apply for priority placement. Creating one has two steps: choose study, program, emne and an optional location (the students come from Praksis-students), then set the first notice date, the deadline and the message to the students.\n\nThe list opens with its students. Send the first notice, review the applications and publish the decisions.',
+      'Priority lists for students who apply for priority placement. Creating one has two steps: choose study, program, emne and an optional location (the students come from Praksis-students), then set the first notice date, the deadline and the message to the students.\n\nThe list opens with its students. Setting the noticing date counts as the first notice. There is no student side in this prototype, so you register a student\'s application with "Submit on behalf of student", review it and publish the decisions.',
     icon: <Star className="h-5 w-5" />,
+    scenario: 3,
+    guideId: 'ts-03',
   },
   {
     id: 7,
     title: 'Reports',
     description:
-      'Invoicing, the Student report, the Placement report and the Capacity report.\n\nThe Placement report shows, per placement, its emne and students and only the entities added to it. The Capacity report shows the places per emne and how placements use them.',
+      'The Student report, the Placement report and the Capacity report (Invoicing has its own step).\n\nThe Placement report shows, per placement, its emne and students and only the entities added to it. The Capacity report shows the places per emne and how placements use them.',
     icon: <FileText className="h-5 w-5" />,
   },
   {
     id: 8,
-    title: 'Settings',
+    title: 'Invoicing',
     description:
-      'Studies, programs and emner are kept here and are shared by the whole system. An emne can have an "Emne requirements" text, which is shown on the entities that accept the emne. You can also set up the dashboard.',
-    icon: <Settings className="h-5 w-5" />,
+      'One line for each student who has a praksis place, with the weeks of the placement and the cost (weeks times the weekly cost, which you can change). Filter by study, emne, location, status, praksis place and entity.\n\nThe report is empty until students are placed on entities. It reads the placements of this session, so a reload empties it.',
+    icon: <Receipt className="h-5 w-5" />,
+    scenario: 5,
+    guideId: 'ts-05',
   },
   {
     id: 9,
+    title: 'Settings',
+    description:
+      'Studies, programs and emner are kept here and are shared by the whole system. An emne can have an "Emne requirements" text, which is shown on the entities that accept the emne.\n\nStudy Admins are the people who look after a study and its programs. The list is kept only until you reload the page. You can also set up the dashboard.',
+    icon: <Settings className="h-5 w-5" />,
+    scenario: 1,
+    guideId: 'ts-01',
+  },
+  {
+    id: 10,
     title: "You're All Set!",
     description:
-      "You've completed the tour! You can restart it anytime with the wand button in the bottom-right corner. Explore the system and discover more as you go.",
+      "You've completed the tour! You can restart it anytime with the wand button in the bottom-right corner. Explore the system and discover more as you go.\n\nThe Test guide in the sidebar has the scenarios for the research.",
     icon: <Check className="h-5 w-5" />,
+    guideId: 'start',
   },
 ];
 
@@ -96,9 +118,10 @@ interface OnboardingOverlayProps {
   isOpen: boolean;
   onClose: () => void;
   initialStep?: number;
+  onOpenGuide?: (id: string) => void; // opens a page of the Test guide
 }
 
-export function OnboardingOverlay({ isOpen, onClose, initialStep = 1 }: OnboardingOverlayProps) {
+export function OnboardingOverlay({ isOpen, onClose, initialStep = 1, onOpenGuide }: OnboardingOverlayProps) {
   // Load progress from localStorage or use initialStep
   const [currentStep, setCurrentStep] = useState(() => {
     return initialStep;
@@ -187,12 +210,19 @@ export function OnboardingOverlay({ isOpen, onClose, initialStep = 1 }: Onboardi
                   <h2 className="text-xl font-bold text-white mb-2">
                     {currentStepData?.title}
                   </h2>
-                  <Badge 
-                    variant="outline" 
-                    className="bg-white/20 text-white border-white/30"
-                  >
-                    Step {currentStep} of {onboardingSteps.length}
-                  </Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge 
+                      variant="outline" 
+                      className="bg-white/20 text-white border-white/30"
+                    >
+                      Step {currentStep} of {onboardingSteps.length}
+                    </Badge>
+                    {currentStepData?.scenario && (
+                      <Badge variant="outline" className="bg-white text-pink-600 border-white">
+                        Scenario {currentStepData.scenario}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </div>
               <Button
@@ -215,6 +245,19 @@ export function OnboardingOverlay({ isOpen, onClose, initialStep = 1 }: Onboardi
                 {currentStepData?.description}
               </div>
             </div>
+
+            {currentStepData?.guideId && onOpenGuide && (
+              <div className="mb-6">
+                <Button
+                  variant="outline"
+                  onClick={() => onOpenGuide(currentStepData.guideId!)}
+                  className="gap-2 border-pink-300 text-pink-700 hover:bg-pink-50"
+                >
+                  <BookOpen className="h-4 w-4" />
+                  {currentStepData.scenario ? 'Open the guide for this page' : 'Open the Test guide'}
+                </Button>
+              </div>
+            )}
 
             {/* Progress bar */}
             <div className="mb-6">

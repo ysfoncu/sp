@@ -10,6 +10,7 @@ import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Calendar } from "./ui/calendar";
+import { localIsoDate } from "../types/localDate";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { cn } from "./ui/utils";
 import { Calendar as CalendarIcon, Send, Users } from "lucide-react";
@@ -55,7 +56,7 @@ export function SendFirstNoticeModal({
 
   function handleSend() {
     if (!validate()) return;
-    onSend(deadline!.toISOString().split("T")[0], message.trim());
+    onSend(localIsoDate(deadline!), message.trim());
     onClose();
   }
 

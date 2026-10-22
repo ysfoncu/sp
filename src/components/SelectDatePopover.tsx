@@ -3,6 +3,7 @@ import { Button } from "./ui/button";
 import { Calendar } from "./ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Calendar as CalendarIcon } from "lucide-react";
+import { localIsoDate } from "../types/localDate";
 
 /**
  * Opens a calendar popover to pick a single date. Calls onPick with an ISO
@@ -54,7 +55,7 @@ export function SelectDatePopover({
           disabled={(d: Date) => d < today}
           onSelect={(d: Date | undefined) => {
             if (d) {
-              onPick(d.toISOString().split("T")[0]);
+              onPick(localIsoDate(d));
               setOpen(false);
             }
           }}
